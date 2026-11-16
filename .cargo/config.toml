@@ -1,0 +1,2 @@
+[env]
+SHERPA_LIB_PATH = { value = "apps/desktop/src-tauri/vendor/sherpa-onnx/current", relative = true }

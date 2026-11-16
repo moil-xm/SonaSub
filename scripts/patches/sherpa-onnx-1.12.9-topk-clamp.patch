@@ -1,0 +1,35 @@
+diff --git a/sherpa-onnx/csrc/math.h b/sherpa-onnx/csrc/math.h
+--- a/sherpa-onnx/csrc/math.h
++++ b/sherpa-onnx/csrc/math.h
+@@ -107,15 +107,15 @@
+ 
+ template <class T>
+ std::vector<int32_t> TopkIndex(const T *vec, int32_t size, int32_t topk) {
++  int32_t k_num = std::max<int32_t>(0, std::min<int32_t>(size, topk));
+   std::vector<int32_t> vec_index(size);
+   std::iota(vec_index.begin(), vec_index.end(), 0);
+ 
+-  std::partial_sort(vec_index.begin(), vec_index.begin() + topk,
++  std::partial_sort(vec_index.begin(), vec_index.begin() + k_num,
+                     vec_index.end(), [vec](int32_t index_1, int32_t index_2) {
+                       return vec[index_1] > vec[index_2];
+                     });
+ 
+-  int32_t k_num = std::min<int32_t>(size, topk);
+   return {vec_index.begin(), vec_index.begin() + k_num};
+ }
+ 
+diff --git a/sherpa-onnx/csrc/offline-speaker-diarization-pyannote-impl.h b/sherpa-onnx/csrc/offline-speaker-diarization-pyannote-impl.h
+--- a/sherpa-onnx/csrc/offline-speaker-diarization-pyannote-impl.h
++++ b/sherpa-onnx/csrc/offline-speaker-diarization-pyannote-impl.h
+@@ -624,7 +624,9 @@
+       auto top_k = TopkIndex(&count(i, 0), num_cols, k);
+ 
+       for (int32_t m : top_k) {
+-        ans(i, m) = 1;
++        if (m >= 0 && m < num_cols) {
++          ans(i, m) = 1;
++        }
+       }
+     }
+ 
