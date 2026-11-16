@@ -9,6 +9,7 @@
 - 工程管理：pnpm workspace + Vite+（`vp` 统一管理格式、检查、类型检查与构建）
 - 桌面：Tauri 2 + Rust，前端 React + TypeScript
 - 样式与组件：Tailwind CSS 4 + CSS Variables、shadcn/ui、Iconify 静态图标
+- 界面语言：i18next + react-i18next，共享 `en-US` / `zh-CN` 资源与类型安全 Selector
 - 路由与状态：TanStack Router / Query / Form、Zustand、Day.js
 - 本地引擎：Node.js 24 LTS；开发直接运行 TypeScript，安装包使用随应用分发的 Node.js 与自包含构建产物
 - 扩展：WXT + React + TypeScript（Manifest V3）
@@ -49,6 +50,8 @@ pnpm build:extension:zip # 打包扩展 zip
 
 桌面概览页提供引擎状态、启动/停止/重启、真实版本与启动时间。开发模式的诊断区域显示 PID 与本机端口；认证信息不会传给前端。
 
+桌面顶栏与扩展 popup 均提供界面语言设置。语言偏好会跨重启保留，默认跟随系统语言。
+
 macOS 本地验证包位于 `apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app`。构建会下载并校验 Node.js 24.22.1；运行时和引擎资源位于应用包的 `Contents/Resources/`。未签名包仅用于本机验证，不等同于已签名/公证的发布包。
 
 扩展开发产物在 `apps/extension/.output/chrome-mv3-dev`，生产产物在 `apps/extension/.output/chrome-mv3`，可在 Chrome 扩展页以「加载已解压的扩展程序」载入。
@@ -60,6 +63,7 @@ apps/desktop      桌面前端与 src-tauri 原生后端
 apps/engine       本机 WebSocket 引擎与真实运行信息
 apps/extension    Chrome 扩展 popup
 packages/ui       共享组件、主题、图标与样式
+packages/i18n     共享界面翻译与类型安全的 i18next 配置
 packages/protocol 桌面后端与引擎的通信契约
 .agents/skills    项目专属 Skills
 docs/architecture.md  模块职责与依赖边界

@@ -6,7 +6,7 @@ export default defineConfig({
   manifest: {
     name: 'SonaSub',
     description: 'Browser extension entry point of the open-source real-time subtitling project.',
-    permissions: [],
+    permissions: ['storage'],
   },
   vite: () => ({
     plugins: [tailwindcss()],

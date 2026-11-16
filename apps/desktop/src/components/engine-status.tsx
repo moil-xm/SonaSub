@@ -4,6 +4,7 @@ import refreshIcon from '@iconify-icons/lucide/refresh-cw';
 import squareIcon from '@iconify-icons/lucide/square';
 import alertIcon from '@iconify-icons/lucide/circle-alert';
 import dayjs from 'dayjs';
+import { useTranslation } from '@sonasub/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@sonasub/ui/components/button';
 import {
@@ -16,17 +17,9 @@ import {
 import type { EngineInfo } from '@sonasub/protocol/engine';
 
 import { engineStatusOptions, useEngineAction, useEngineEvents } from '@/lib/engine';
-import type { EngineState } from '@/lib/engine';
-
-const STATE_LABELS: Record<EngineState['state'], string> = {
-  stopped: 'Stopped',
-  starting: 'Starting',
-  running: 'Running',
-  stopping: 'Stopping',
-  failed: 'Failed to start or run',
-};
 
 export function EngineStatus() {
+  const { t } = useTranslation();
   useEngineEvents();
   const {
     data: state,
@@ -43,23 +36,49 @@ export function EngineStatus() {
     restart.isPending ||
     state?.state === 'starting' ||
     state?.state === 'stopping';
+  const isEngineFailed = state?.state === 'failed';
   let actionError: Error | null = start.error ?? restart.error ?? stop.error;
   let stateError: string | undefined;
-  if (state?.state === 'failed') stateError = state.error;
+  if (isEngineFailed) stateError = state.error;
   let info: EngineInfo | undefined;
   if (state?.state === 'running' || state?.state === 'stopping') info = state.info;
 
-  let statusLabel = 'Checking';
-  if (state) statusLabel = STATE_LABELS[state.state];
-  else if (isStatusError) statusLabel = 'Status query failed';
+  let statusLabel: string = t(($) => $.engine.status.checking);
+  if (state) {
+    switch (state.state) {
+      case 'stopped':
+        statusLabel = t(($) => $.engine.states.stopped);
+        break;
+      case 'starting':
+        statusLabel = t(($) => $.engine.states.starting);
+        break;
+      case 'running':
+        statusLabel = t(($) => $.engine.states.running);
+        break;
+      case 'stopping':
+        statusLabel = t(($) => $.engine.states.stopping);
+        break;
+      case 'failed':
+        statusLabel = t(($) => $.engine.states.failed);
+        break;
+    }
+  } else if (isStatusError) statusLabel = t(($) => $.engine.status.queryFailed);
 
-  const errorMessage = stateError ?? actionError?.message ?? statusError?.message;
+  let errorTitle: string = t(($) => $.engine.errors.unknown);
+  if (isEngineFailed) errorTitle = t(($) => $.engine.errors.failed);
+  else if (actionError) errorTitle = t(($) => $.engine.errors.operationFailed);
+  else if (isStatusError) errorTitle = t(($) => $.engine.errors.statusQueryFailed);
+
+  let errorMessage: string = t(($) => $.engine.errors.unknown);
+  if (stateError) errorMessage = stateError;
+  else if (actionError?.message) errorMessage = actionError.message;
+  else if (statusError?.message) errorMessage = statusError.message;
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-4">
-          <CardTitle>Local engine</CardTitle>
+          <CardTitle>{t(($) => $.engine.title)}</CardTitle>
           <span
             role="status"
             className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground"
@@ -67,10 +86,7 @@ export function EngineStatus() {
             {statusLabel}
           </span>
         </div>
-        <CardDescription>
-          The desktop app manages the engine and exposes real runtime information over a loopback
-          connection. Audio, recognition and translation are not connected yet.
-        </CardDescription>
+        <CardDescription>{t(($) => $.engine.description)}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex flex-wrap gap-3">
@@ -79,7 +95,7 @@ export function EngineStatus() {
             disabled={isBusy || isStatusPending || state?.state === 'running'}
           >
             <Icon icon={playIcon} className="size-4" />
-            Start
+            {t(($) => $.engine.actions.start)}
           </Button>
           <Button
             variant="outline"
@@ -87,7 +103,7 @@ export function EngineStatus() {
             disabled={isBusy || state?.state !== 'running'}
           >
             <Icon icon={squareIcon} className="size-4" />
-            Stop
+            {t(($) => $.engine.actions.stop)}
           </Button>
           <Button
             variant="secondary"
@@ -95,22 +111,25 @@ export function EngineStatus() {
             disabled={isBusy || isStatusPending || state?.state === 'stopped'}
           >
             <Icon icon={refreshIcon} className="size-4" />
-            Restart
+            {t(($) => $.engine.actions.restart)}
           </Button>
         </div>
-        {(stateError || actionError || isStatusError) && (
+        {(isEngineFailed || actionError || isStatusError) && (
           <div
             role="alert"
             className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
           >
             <Icon icon={alertIcon} className="mt-0.5 size-4 shrink-0" />
-            <span>{errorMessage}</span>
+            <div className="min-w-0 space-y-1">
+              <p className="font-medium">{errorTitle}</p>
+              <p className="break-words font-mono text-xs whitespace-pre-wrap">{errorMessage}</p>
+            </div>
           </div>
         )}
         {info && (
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
             <div>
-              <dt className="text-muted-foreground">Engine version</dt>
+              <dt className="text-muted-foreground">{t(($) => $.engine.details.version)}</dt>
               <dd className="font-mono">{info.engineVersion}</dd>
             </div>
             <div>
@@ -118,14 +137,14 @@ export function EngineStatus() {
               <dd className="font-mono">{info.nodeVersion}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Started at</dt>
+              <dt className="text-muted-foreground">{t(($) => $.engine.details.startedAt)}</dt>
               <dd>{dayjs(info.startedAt).format('HH:mm:ss')}</dd>
             </div>
           </dl>
         )}
         {import.meta.env.DEV && state?.state === 'running' && (
           <details className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-            <summary className="cursor-pointer">Development diagnostics</summary>
+            <summary className="cursor-pointer">{t(($) => $.engine.diagnostics.title)}</summary>
             <p className="mt-2 font-mono">
               PID {state.info.pid} · 127.0.0.1:{state.port}
             </p>

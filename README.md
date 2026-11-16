@@ -9,6 +9,7 @@ Open-source real-time subtitling project. The desktop frontend now communicates 
 - Tooling: pnpm workspace + Vite+ (`vp` drives formatting, linting, type checking and builds)
 - Desktop: Tauri 2 + Rust, frontend in React + TypeScript
 - Styling and components: Tailwind CSS 4 + CSS Variables, shadcn/ui, static Iconify icons
+- Interface languages: i18next + react-i18next, shared `en-US` / `zh-CN` resources and typed selectors
 - Routing and state: TanStack Router / Query / Form, Zustand, Day.js
 - Local engine: Node.js 24 LTS; TypeScript in development, a bundled runtime and self-contained build in installers
 - Extension: WXT + React + TypeScript (Manifest V3)
@@ -49,6 +50,8 @@ pnpm build:extension:zip # Package the extension zip
 
 The overview page exposes engine state, start/stop/restart actions, real versions and startup time. Development diagnostics show the PID and loopback port; authentication credentials never reach the frontend.
 
+The desktop header and extension popup expose the UI language setting. Preferences persist across restarts and follow the system language by default.
+
 The local macOS verification bundle is `apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app`. Building downloads and checksum-verifies Node.js 24.22.1; the runtime and engine live under `Contents/Resources/`. An unsigned local build is not a signed/notarized release.
 
 Extension development output lives in `apps/extension/.output/chrome-mv3-dev` and production output in `apps/extension/.output/chrome-mv3`; load either from the Chrome extensions page via "Load unpacked".
@@ -60,6 +63,7 @@ apps/desktop      Desktop frontend and the src-tauri native backend
 apps/engine       Loopback WebSocket engine and real process information
 apps/extension    Chrome extension popup
 packages/ui       Shared components, theme, icons and styles
+packages/i18n     Shared interface translations and typed i18next setup
 packages/protocol Desktop-backend/engine communication contract
 .agents/skills    Project-specific Skills
 docs/architecture.md  Module responsibilities and dependency boundaries

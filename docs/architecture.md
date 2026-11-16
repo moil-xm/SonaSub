@@ -10,6 +10,7 @@ This document describes the modules that exist today, the dependencies they may 
 | `apps/engine`       | Node.js 24 loopback WebSocket service with real runtime information and authenticated lifecycle control | `node src/main.ts`, Vite+ (`vp pack`)                                  |
 | `apps/extension`    | Chrome extension (Manifest V3), popup only for now                                                      | WXT (`wxt` / `wxt build`)                                              |
 | `packages/ui`       | Shared shadcn/ui components, theme variables, icons and styles                                          | No standalone build; consumers bundle the source                       |
+| `packages/i18n`     | Shared English and Simplified Chinese UI resources, i18next setup and typed translation API             | No standalone build; consumers bundle the source                       |
 | `packages/protocol` | Current desktop-backend/engine communication contract                                                   | TypeScript source parsed and bundled by consumers                      |
 
 Native capabilities (windows, system interaction and similar) belong to `apps/desktop/src-tauri`; local processing belongs to `apps/engine`; browser pages and extension capabilities belong to their own apps.
@@ -19,7 +20,9 @@ Native capabilities (windows, system interaction and similar) belong to `apps/de
 ```mermaid
 graph TD
   desktop[apps/desktop] --> ui[packages/ui]
+  desktop --> i18n[packages/i18n]
   extension[apps/extension] --> ui
+  extension --> i18n
   desktop --> protocol[packages/protocol]
   engine[apps/engine] --> protocol
   desktop -.Tauri IPC.-> rust[src-tauri]
@@ -58,9 +61,17 @@ running → failed (process exited unexpectedly)
 ## Imports
 
 - Shared UI: `@sonasub/ui/components/*`, `@sonasub/ui/lib/*`, `@sonasub/ui/theme`, `@sonasub/ui/globals.css`.
+- Interface language: `@sonasub/i18n` for locale types, shared resources, the configured i18next instance, `I18nextProvider` and `useTranslation`.
 - `packages/ui` uses the `#lib/*` package-internal alias; the desktop uses `@/*` pointing at `apps/desktop/src`.
 - New exports must be added to the package's `package.json` `exports`, otherwise consumers cannot resolve them.
 - Workspaces that declare `vite` use the `npm:@voidzero-dev/vite-plus-core@<vite-plus version>` alias to match the Vite+ core; WXT and Tauri keep their own CLIs.
+
+## Interface Languages
+
+- `packages/i18n` owns the bundled `en-US` and `zh-CN` interface resources, locale resolution, i18next configuration and TypeScript Selector API types. Both apps use the same resources; `packages/ui` receives translated strings through props and stays translation-agnostic.
+- Each app creates one i18next instance before React renders and exposes it through `I18nextProvider`. The desktop persists its preference in `localStorage`; the extension persists through `browser.storage.local`.
+- “Follow system” resolves Chinese system languages to `zh-CN`, English system languages to `en-US`, and everything else to `en-US`. An explicit locale stored by the user takes priority, and switching the preference clears the stored override.
+- The active language is reflected in `<html lang>`. Raw engine errors, logs and technical diagnostics remain untranslated.
 
 ## Styles and Theme
 

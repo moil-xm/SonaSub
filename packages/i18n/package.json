@@ -1,0 +1,20 @@
+{
+  "name": "@sonasub/i18n",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "i18next": "27.1.3",
+    "react-i18next": "18.0.2"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "react": "19.3.1"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  }
+}
