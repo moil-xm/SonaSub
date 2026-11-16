@@ -2,10 +2,10 @@ import dayjs from 'dayjs';
 
 const modules = [
   ['apps/desktop', '桌面前端与 src-tauri 原生后端'],
-  ['apps/engine', '本地处理引擎'],
+  ['apps/engine', '本机 WebSocket 引擎与真实运行信息'],
   ['apps/extension', 'Chrome 扩展'],
   ['packages/ui', '共享组件、主题、图标与样式'],
-  ['packages/protocol', '跨模块通信契约的归属位置'],
+  ['packages/protocol', '桌面后端与引擎的通信契约'],
 ];
 
 export function AboutPage() {

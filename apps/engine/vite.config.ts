@@ -8,5 +8,8 @@ export default defineConfig({
     target: 'node24',
     dts: false,
     clean: true,
+    deps: {
+      alwaysBundle: ['ws', '@sonasub/protocol'],
+    },
   },
 });

@@ -1,26 +1,13 @@
-import { Button } from '@sonasub/ui/components/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@sonasub/ui/components/card';
+import { EngineStatus } from '@/components/engine-status';
 
 export function OverviewPage() {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>工程骨架已就绪</CardTitle>
-        <CardDescription>
-          当前阶段只包含应用壳：路由、主题与共享组件。音频采集、识别与翻译尚未实现。
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-wrap gap-3">
-        <Button>主按钮</Button>
-        <Button variant="secondary">次按钮</Button>
-        <Button variant="outline">描边按钮</Button>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold">运行概览</h1>
+        <p className="mt-1 text-sm text-muted-foreground">管理本地引擎的启动、连接与退出。</p>
+      </div>
+      <EngineStatus />
+    </div>
   );
 }

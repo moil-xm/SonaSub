@@ -10,6 +10,7 @@
     "start:engine": "pnpm --filter @sonasub/engine start",
     "build": "vp run -r build",
     "build:extension:zip": "pnpm --filter @sonasub/extension zip",
+    "test": "vp test run",
     "check": "vp check",
     "check:fix": "vp check --fix",
     "typecheck": "vp check --no-fmt --no-lint",
