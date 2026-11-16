@@ -1,61 +1,63 @@
 # SonaSub
 
-开源实时字幕项目。当前仓库处于工程骨架阶段：提供桌面应用壳、Chrome 扩展 popup 与本地引擎入口，以及统一的工程配置与协作规范。音频采集、语音识别、翻译等业务能力尚未实现。
+**English** | [简体中文](README.zh-CN.md)
 
-## 技术栈
+Open-source real-time subtitling project. The repository is currently at the engineering-skeleton stage: a desktop app shell, a Chrome extension popup and a local engine entry point, together with shared tooling configuration and collaboration conventions. Audio capture, speech recognition and translation are not implemented yet.
 
-- 工程管理：pnpm workspace + Vite+（`vp` 统一管理格式、检查、类型检查与构建）
-- 桌面：Tauri 2 + Rust，前端 React + TypeScript
-- 样式与组件：Tailwind CSS 4 + CSS Variables、shadcn/ui、Iconify 静态图标
-- 路由与状态：TanStack Router / Query / Form、Zustand、Day.js
-- 本地引擎：Node.js 24 LTS 直接运行 TypeScript
-- 扩展：WXT + React + TypeScript（Manifest V3）
+## Tech Stack
 
-## 环境要求
+- Tooling: pnpm workspace + Vite+ (`vp` drives formatting, linting, type checking and builds)
+- Desktop: Tauri 2 + Rust, frontend in React + TypeScript
+- Styling and components: Tailwind CSS 4 + CSS Variables, shadcn/ui, static Iconify icons
+- Routing and state: TanStack Router / Query / Form, Zustand, Day.js
+- Local engine: Node.js 24 LTS running TypeScript directly
+- Extension: WXT + React + TypeScript (Manifest V3)
 
-- Node.js 24 LTS（`^24.11.0`）
-- pnpm 12（`packageManager` 已固定为 `pnpm@12.15.0`）
-- Rust 稳定版 ≥ 1.90（含 `rustfmt`、`clippy`），仅桌面原生后端需要
-- macOS 需 Xcode Command Line Tools；Linux 需 Tauri 2 的 WebKitGTK 等系统依赖
+## Requirements
 
-## 初始化
+- Node.js 24 LTS (`^24.11.0`)
+- pnpm 12 (`packageManager` is pinned to `pnpm@12.15.0`)
+- Rust stable ≥ 1.90 (with `rustfmt` and `clippy`), required only for the desktop native backend
+- macOS needs Xcode Command Line Tools; Linux needs the Tauri 2 system dependencies such as WebKitGTK
+
+## Setup
 
 ```bash
 pnpm install
 ```
 
-## 常用命令
+## Commands
 
 ```bash
-pnpm dev:desktop        # 桌面前端开发服务器 http://localhost:5173
-pnpm dev:desktop:app    # Tauri 桌面应用（编译 Rust 并打开窗口）
-pnpm dev:extension      # WXT 扩展开发
-pnpm start:engine       # 运行引擎入口并正常退出
+pnpm dev:desktop        # Desktop frontend dev server at http://localhost:5173
+pnpm dev:desktop:app    # Tauri desktop app (compiles Rust and opens a window)
+pnpm dev:extension      # WXT extension development
+pnpm start:engine       # Run the engine entry point and exit cleanly
 
-pnpm check              # 格式 + 代码检查 + 类型检查
-pnpm typecheck          # 仅类型检查
-pnpm lint               # 仅代码检查
-pnpm fmt                # 仅格式化
+pnpm check              # Formatting + linting + type checking
+pnpm typecheck          # Type checking only
+pnpm lint               # Linting only
+pnpm fmt                # Formatting only
 pnpm check:rust         # cargo fmt --check + clippy
-pnpm build              # 构建 desktop / engine / extension
-pnpm build:extension:zip # 打包扩展 zip
+pnpm build              # Build desktop / engine / extension
+pnpm build:extension:zip # Package the extension zip
 ```
 
-桌面原生后端也可单独构建：`pnpm --filter @sonasub/desktop exec tauri build --debug --no-bundle`。当前 `bundle.active` 为 `false`，不产出安装包。
+The desktop native backend can also be built on its own: `pnpm --filter @sonasub/desktop exec tauri build --debug --no-bundle`. `bundle.active` is currently `false`, so no installer is produced.
 
-扩展开发产物在 `apps/extension/.output/chrome-mv3-dev`，生产产物在 `apps/extension/.output/chrome-mv3`，可在 Chrome 扩展页以「加载已解压的扩展程序」载入。
+Extension development output lives in `apps/extension/.output/chrome-mv3-dev` and production output in `apps/extension/.output/chrome-mv3`; load either from the Chrome extensions page via "Load unpacked".
 
-## 结构
+## Structure
 
 ```
-apps/desktop      桌面前端与 src-tauri 原生后端
-apps/engine       本地处理引擎入口
-apps/extension    Chrome 扩展 popup
-packages/ui       共享组件、主题、图标与样式
-packages/protocol 跨模块通信契约的归属位置（当前为空）
-.agents/skills    项目专属 Skills
-docs/architecture.md  模块职责与依赖边界
-AGENTS.md         全仓库开发约定
+apps/desktop      Desktop frontend and the src-tauri native backend
+apps/engine       Local processing engine entry point
+apps/extension    Chrome extension popup
+packages/ui       Shared components, theme, icons and styles
+packages/protocol Home of cross-module communication contracts (currently empty)
+.agents/skills    Project-specific Skills
+docs/architecture.md  Module responsibilities and dependency boundaries
+AGENTS.md         Repository-wide development conventions
 ```
 
-开发约定见 [AGENTS.md](AGENTS.md)，模块边界见 [docs/architecture.md](docs/architecture.md)。
+Development conventions are in [AGENTS.md](AGENTS.md) and module boundaries in [docs/architecture.md](docs/architecture.md); both are written in Chinese.
