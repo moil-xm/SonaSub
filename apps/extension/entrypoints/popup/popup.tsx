@@ -12,10 +12,12 @@ export function Popup() {
       <Card>
         <CardHeader>
           <CardTitle>SonaSub</CardTitle>
-          <CardDescription>扩展入口已就绪，字幕能力尚未接入。</CardDescription>
+          <CardDescription>
+            The extension entry point is ready; subtitling is not connected yet.
+          </CardDescription>
         </CardHeader>
         <CardContent className="text-xs text-muted-foreground">
-          多标签页处理、采集与识别流程留待后续任务确定。
+          Multi-tab handling, capture and recognition flows are left to later tasks.
         </CardContent>
       </Card>
     </div>

@@ -1,47 +1,47 @@
 ---
-description: 写代码前审视必要性，禁止多余封装与重复定义
+description: Weigh necessity before writing code; no needless wrappers or duplicated definitions
 alwaysApply: true
 ---
 
-# 最小 API 与必要性优先
+# Minimal API and Necessity First
 
-每次新增或重构代码前，先问 call site **真正需要什么数据/行为**，再写实现；不要用「替换旧方法签名」驱动设计。
+Before adding or refactoring code, ask what the call site actually needs (data or behavior), then write the implementation. Do not let "replace the old method signature" drive the design.
 
-## 禁止
+## Avoid
 
-- 仅为单个 call site 包一层 bool/helper（例如 `matchesX()` 只是 `resolveX() != null`）
-- **单处引用的简单工具类**：只有 1～2 个静态方法、逻辑就是拼字符串/简单映射、且全仓仅一个 listener/service 调用——不要单独建 `*Renderer` / `*Helper` 类，直接写在 call site 或已有 owner 类里
-- 同一规则在两处重复定义（正则、映射、解析逻辑）
-- 重构时机械保留旧 API 形状（旧方法返回 bool 就新建 bool 包装），而不看数据流是否已变化
-- 为「读起来像原来」而增加 indirection
+- Wrapping a single call site in a bool/helper layer (for example `matchesX()` that is only `resolveX() != null`)
+- **Simple utility classes with one reference**: one or two static methods whose logic is string assembly or a trivial mapping, called from a single listener/service in the whole repository — do not create a separate `*Renderer` / `*Helper` class; write it at the call site or in the existing owner class
+- Defining the same rule in two places (regex, mapping, parsing logic)
+- Mechanically preserving the old API shape during a refactor (the old method returned a bool, so a new bool wrapper appears) instead of checking whether the data flow changed
+- Adding indirection just so the code "reads like before"
 
-## 优先
+## Prefer
 
-- **一个解析入口**：需要 enum/对象时提供 `resolveX()`；仅需判断时 inline `resolveX() != null` 或 `Optional`
-- **先画数据流再写 API**：同一套规则只维护一处
-- **最小 public 面**：不 export 只服务一处的 wrapper
+- **One resolution entry**: expose `resolveX()` when an enum/object is needed; when only a check is needed, inline `resolveX() != null` or use `Optional`
+- **Draw the data flow before writing the API**: maintain each rule in exactly one place
+- **Smallest public surface**: do not export a wrapper that serves one caller
 
-## 示例
+## Examples
 
 ```java
-// ❌ 多余封装
+// ❌ needless wrapper
 public static boolean matchesVerbalSubmit(String input) {
     return resolveVerbalSubmitNode(input) != null;
 }
 
-// ✅ call site 直接表达意图
+// ✅ the call site states the intent directly
 TradeRecordIntentNode verbal = TradeRecordIntentPatterns.resolveVerbalSubmitNode(input);
 if (verbal != null) { ... }
 ```
 
 ```java
-// ❌ 仅 listener 一处引用，逻辑只是换行拼 text
+// ❌ referenced by one listener, and the logic only joins text with newlines
 public final class SysMessageWorkWxTextRenderer {
-    public static String render(...) { /* 拼 StringBuilder */ }
+    public static String render(...) { /* append into a StringBuilder */ }
 }
 
-// ✅ 放在 listener 私有方法，或消息 owner 类里
+// ✅ a private method on the listener, or on the message owner class
 private String buildWorkWxText(...) { ... }
 ```
 
-提交前自检：若删掉新方法/类，call site 是否只是多写几行且更清晰？若是，则不要新类。
+Self-check before committing: if you delete the new method/class and the call site only grows by a few clearer lines, do not add the new class.

@@ -33,7 +33,7 @@ describe('engine protocol', () => {
     expect(() => parseEngineRequest('not json')).toThrow(ProtocolError);
     expect(() =>
       parseEngineRequest('{"protocolVersion":2,"type":"request","id":"a","method":"engine.info"}'),
-    ).toThrow(/协议版本/);
+    ).toThrow(/protocol version/);
     expect(() =>
       parseEngineRequest('{"protocolVersion":1,"type":"request","id":"","method":"engine.info"}'),
     ).toThrow(ProtocolError);
@@ -57,7 +57,7 @@ describe('engine protocol', () => {
     const raw =
       '{"protocolVersion":1,"type":"response","id":"req-1","ok":true,"result":{"engineVersion":"0.0.0","nodeVersion":"v24.22.1","pid":123,"startedAt":"2026-11-16T00:00:00.000Z"}}';
     expect(parseEngineResponse(raw, 'req-1', 'engine.info').ok).toBe(true);
-    expect(() => parseEngineResponse(raw, 'other-id', 'engine.info')).toThrow(/请求关联/);
+    expect(() => parseEngineResponse(raw, 'other-id', 'engine.info')).toThrow(/request id/);
   });
 
   it('validates response payloads against the requested method', () => {
@@ -87,7 +87,7 @@ describe('engine protocol', () => {
   it('parses error responses and the dedicated startup handshake', () => {
     expect(
       parseEngineResponse(
-        '{"protocolVersion":1,"type":"response","id":"req-1","ok":false,"error":{"code":"unauthorized","message":"认证失败"}}',
+        '{"protocolVersion":1,"type":"response","id":"req-1","ok":false,"error":{"code":"unauthorized","message":"authentication failed"}}',
         'req-1',
         'engine.info',
       ),

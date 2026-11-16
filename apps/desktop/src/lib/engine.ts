@@ -1,16 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { listen } from '@tauri-apps/api/event';
+import type { UnlistenFn } from '@tauri-apps/api/event';
+import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
-import type { EngineInfo } from '@sonasub/protocol/engine';
+import type { EngineAction, EngineState } from './engine.type';
 
-export type EngineState =
-  | { state: 'stopped' }
-  | { state: 'starting'; pid: number | null }
-  | { state: 'running'; info: EngineInfo; port: number }
-  | { state: 'stopping'; info: EngineInfo; port: number }
-  | { state: 'failed'; error: string };
+export type { EngineAction, EngineState } from './engine.type';
 
 export const engineStatusOptions = queryOptions({
   queryKey: ['engine', 'status'],
@@ -19,10 +15,6 @@ export const engineStatusOptions = queryOptions({
   retry: false,
   refetchOnWindowFocus: true,
 });
-
-export function useEngineStatus() {
-  return useQuery(engineStatusOptions);
-}
 
 export function useEngineEvents() {
   const queryClient = useQueryClient();
@@ -44,7 +36,7 @@ export function useEngineEvents() {
   }, [queryClient]);
 }
 
-export function useEngineAction(action: 'start' | 'stop' | 'restart') {
+export function useEngineAction(action: EngineAction) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ['engine', action],

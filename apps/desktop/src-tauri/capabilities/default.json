@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "应用壳默认能力与引擎生命周期命令。",
+  "description": "Default app-shell permissions plus engine lifecycle commands.",
   "windows": ["main"],
   "permissions": [
     "core:default",

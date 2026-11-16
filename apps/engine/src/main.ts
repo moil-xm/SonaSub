@@ -15,15 +15,22 @@ import enginePackage from '../package.json' with { type: 'json' };
 
 const startedAt = new Date().toISOString();
 
+export function messageText(data: WebSocket.RawData): string {
+  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
+  return data.toString('utf8');
+}
+
 function response(id: string, result: EngineInfo | null): EngineResponse {
   return { protocolVersion: ENGINE_PROTOCOL_VERSION, type: 'response', id, ok: true, result };
 }
 
 function errorResponse(id: string, error: unknown): EngineResponse {
-  const protocolError =
-    error instanceof ProtocolError
-      ? error
-      : new ProtocolError('internal_error', '引擎处理请求失败。');
+  let protocolError = new ProtocolError(
+    'internal_error',
+    'The engine failed to handle the request.',
+  );
+  if (error instanceof ProtocolError) protocolError = error;
   return {
     protocolVersion: ENGINE_PROTOCOL_VERSION,
     type: 'response',
@@ -36,7 +43,9 @@ function errorResponse(id: string, error: unknown): EngineResponse {
 async function main(): Promise<void> {
   const token = process.env.SONASUB_ENGINE_TOKEN;
   if (!token) {
-    console.error('引擎缺少由桌面 Rust 后端提供的连接认证信息，拒绝启动。');
+    console.error(
+      'The engine is missing the credential from the desktop Rust backend and refuses to start.',
+    );
     process.exitCode = 1;
     return;
   }
@@ -62,19 +71,15 @@ async function main(): Promise<void> {
 
   sockets.on('connection', (socket, request) => {
     if (shuttingDown || request.socket.remoteAddress !== '127.0.0.1') {
-      socket.close(1008, '仅接受本机桌面后端连接。');
+      socket.close(1008, 'Only the loopback desktop backend may connect.');
       return;
     }
     socket.on('message', (data, isBinary) => {
       if (isBinary) {
-        socket.close(1008, '引擎协议只接受文本消息。');
+        socket.close(1008, 'The engine protocol accepts text messages only.');
         return;
       }
-      const raw = Array.isArray(data)
-        ? Buffer.concat(data).toString('utf8')
-        : data instanceof ArrayBuffer
-          ? Buffer.from(data).toString('utf8')
-          : data.toString('utf8');
+      const raw = messageText(data);
       if (!authenticated.has(socket)) {
         try {
           const auth = parseEngineAuth(raw);
@@ -83,12 +88,12 @@ async function main(): Promise<void> {
             candidate.length !== expectedToken.length ||
             !timingSafeEqual(candidate, expectedToken)
           ) {
-            socket.close(1008, '引擎连接认证失败。');
+            socket.close(1008, 'Engine connection authentication failed.');
             return;
           }
           authenticated.add(socket);
         } catch {
-          socket.close(1008, '引擎连接认证失败。');
+          socket.close(1008, 'Engine connection authentication failed.');
         }
         return;
       }
@@ -121,12 +126,12 @@ async function main(): Promise<void> {
     server.listen(0, '127.0.0.1', resolve);
   });
   server.on('error', (error) => {
-    console.error(`引擎本机服务失败：${error.message}`);
+    console.error(`The engine loopback service failed: ${error.message}`);
     process.exit(1);
   });
   const address = server.address();
   if (address === null || typeof address === 'string') {
-    throw new Error('引擎未能绑定本机 TCP 端口。');
+    throw new Error('The engine could not bind a loopback TCP port.');
   }
   process.stdout.write(
     `${ENGINE_HANDSHAKE_PREFIX}${JSON.stringify({
@@ -140,6 +145,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : '引擎启动失败。');
+  let message = 'The engine failed to start.';
+  if (error instanceof Error) message = error.message;
+  console.error(message);
   process.exit(1);
 });

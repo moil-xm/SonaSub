@@ -1,22 +1,21 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type Theme = 'light' | 'dark';
-
-interface ThemeState {
-  theme: Theme;
-  toggleTheme: () => void;
-}
+import type { Theme, ThemeStore } from './index.type';
 
 function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle('dark', theme === 'dark');
 }
 
-export const useThemeStore = create<ThemeState>()(
+const themeStore = create<ThemeStore>()(
   persist(
     (set) => ({
       theme: 'light',
-      toggleTheme: () => set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
+      toggleTheme: () =>
+        set((state) => {
+          if (state.theme === 'dark') return { theme: 'light' };
+          return { theme: 'dark' };
+        }),
     }),
     {
       name: 'sonasub-theme',
@@ -27,5 +26,13 @@ export const useThemeStore = create<ThemeState>()(
   ),
 );
 
-useThemeStore.subscribe((state) => applyTheme(state.theme));
-applyTheme(useThemeStore.getState().theme);
+export function useTheme() {
+  return themeStore((state) => state.theme);
+}
+
+export function useToggleTheme() {
+  return themeStore((state) => state.toggleTheme);
+}
+
+themeStore.subscribe((state) => applyTheme(state.theme));
+applyTheme(themeStore.getState().theme);

@@ -66,7 +66,7 @@ docs/architecture.md  Module responsibilities and dependency boundaries
 AGENTS.md         Repository-wide development conventions
 ```
 
-Development conventions are in [AGENTS.md](AGENTS.md) and module boundaries in [docs/architecture.md](docs/architecture.md); both are written in Chinese.
+Development conventions are in [AGENTS.md](AGENTS.md) and module boundaries in [docs/architecture.md](docs/architecture.md); both are written in English.
 
 ## Current Verification
 

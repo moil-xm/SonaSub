@@ -31,11 +31,11 @@ impl EngineResources {
     ) -> Result<Self, String> {
         let directory = executable
             .parent()
-            .ok_or_else(|| "无法确定应用可执行文件目录。".to_owned())?;
+            .ok_or_else(|| "Cannot determine the application executable directory.".to_owned())?;
         let bundled_resources = directory.join("../Resources");
         if bundled_resources.join("engine/main.mjs").is_file() {
-            let directory =
-                resource_directory.ok_or_else(|| "无法确定应用资源目录。".to_owned())?;
+            let directory = resource_directory
+                .ok_or_else(|| "Cannot determine the application resource directory.".to_owned())?;
             return Ok(Self::bundled(directory));
         }
         if cfg!(debug_assertions) && directory.join(".cargo-lock").is_file() {

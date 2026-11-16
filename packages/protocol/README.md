@@ -14,4 +14,4 @@ Home of the cross-module communication contracts. It currently defines only the 
 
 Rust-side serialization and validation live in `apps/desktop/src-tauri/src/protocol.rs` and stay aligned with these fields and versions. When changing the protocol, update both sides and their tests together, and never import another app's internal source.
 
-Module boundaries are in [docs/architecture.md](../../docs/architecture.md), written in Chinese.
+Module boundaries are in [docs/architecture.md](../../docs/architecture.md).

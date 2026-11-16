@@ -164,7 +164,7 @@ impl EngineManager {
             return Ok(state);
         }
         if matches!(state, EngineState::Stopping { .. }) {
-            return Err("引擎正在停止，请稍后再启动。".to_owned());
+            return Err("The engine is stopping; start it again once it has stopped.".to_owned());
         }
         self.set_state(EngineState::Starting { pid: None });
         let result = self.inner.runtime.block_on(self.start_process());
@@ -199,7 +199,7 @@ impl EngineManager {
             }
             EngineState::Stopped | EngineState::Failed { .. } => Ok(state),
             EngineState::Starting { .. } => {
-                Err("引擎正在启动，请等待启动完成后再停止。".to_owned())
+                Err("The engine is starting; wait for startup before stopping it.".to_owned())
             }
             EngineState::Stopping { .. } => Ok(state),
         }
@@ -247,14 +247,14 @@ impl EngineManager {
             .kill_on_drop(true);
         let mut child = command
             .spawn()
-            .map_err(|error| format!("无法启动 Node 运行时：{error}"))?;
+            .map_err(|error| format!("Failed to start the Node runtime: {error}"))?;
         let pid = child
             .id()
-            .ok_or_else(|| "引擎进程已提前退出。".to_owned())?;
+            .ok_or_else(|| "The engine process exited early.".to_owned())?;
         let stderr = child
             .stderr
             .take()
-            .ok_or_else(|| "无法读取引擎错误输出。".to_owned())?;
+            .ok_or_else(|| "Failed to read the engine error output.".to_owned())?;
         self.set_state(EngineState::Starting { pid: Some(pid) });
         *self.inner.child.lock().expect("child lock") = Some(child);
         self.inner.stderr.lock().expect("stderr lock").clear();
@@ -277,17 +277,19 @@ impl EngineManager {
         socket
             .send(Message::text(protocol::auth_message(&token)))
             .await
-            .map_err(|error| format!("发送引擎认证失败：{error}"))?;
+            .map_err(|error| format!("Failed to send engine authentication: {error}"))?;
         let info = self
             .request(&mut socket, "engine.info")
             .await?
-            .ok_or_else(|| "引擎未返回运行信息。".to_owned())?;
+            .ok_or_else(|| "The engine returned no runtime information.".to_owned())?;
         if info.pid != handshake.pid {
-            return Err("引擎握手与运行信息的进程 ID 不一致。".to_owned());
+            return Err(
+                "The handshake and runtime information report different process IDs.".to_owned(),
+            );
         }
         if !info.node_version.starts_with("v24.") {
             return Err(format!(
-                "引擎需要 Node.js 24，实际为 {}。",
+                "The engine requires Node.js 24, but is running {}.",
                 info.node_version
             ));
         }
@@ -310,24 +312,26 @@ impl EngineManager {
             .expect("child lock")
             .as_mut()
             .and_then(|child| child.stdout.take())
-            .ok_or_else(|| "无法读取引擎启动输出。".to_owned())?;
+            .ok_or_else(|| "Failed to read the engine startup output.".to_owned())?;
         let mut lines = BufReader::new(stdout).lines();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
-                return Err("引擎启动握手超时。".to_owned());
+                return Err("The engine startup handshake timed out.".to_owned());
             }
             let line = tokio::time::timeout(remaining, lines.next_line())
                 .await
-                .map_err(|_| "引擎启动握手超时。".to_owned())?
-                .map_err(|error| format!("读取引擎启动输出失败：{error}"))?;
+                .map_err(|_| "The engine startup handshake timed out.".to_owned())?
+                .map_err(|error| format!("Failed to read the engine startup output: {error}"))?;
             let Some(line) = line else {
-                return Err("引擎在握手完成前退出。".to_owned());
+                return Err("The engine exited before completing the handshake.".to_owned());
             };
             if let Ok(handshake) = protocol::parse_handshake(&line) {
                 if handshake.pid != pid {
-                    return Err("引擎握手进程 ID 与受管理进程不一致。".to_owned());
+                    return Err(
+                        "The handshake process ID does not match the managed process.".to_owned(),
+                    );
                 }
                 tokio::spawn(async move {
                     while let Ok(Some(line)) = lines.next_line().await {
@@ -346,8 +350,8 @@ impl EngineManager {
             connect_async(format!("ws://127.0.0.1:{port}")),
         )
         .await
-        .map_err(|_| "连接本机引擎超时。".to_owned())?
-        .map_err(|error| format!("连接本机引擎失败：{error}"))?;
+        .map_err(|_| "Connecting to the loopback engine timed out.".to_owned())?
+        .map_err(|error| format!("Failed to connect to the loopback engine: {error}"))?;
         Ok(socket)
     }
 
@@ -363,26 +367,26 @@ impl EngineManager {
         socket
             .send(Message::text(protocol::request_message(&id, method)))
             .await
-            .map_err(|error| format!("发送引擎请求失败：{error}"))?;
+            .map_err(|error| format!("Failed to send the engine request: {error}"))?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
-                return Err("引擎响应超时。".to_owned());
+                return Err("The engine response timed out.".to_owned());
             }
             let message = tokio::time::timeout(remaining, socket.next())
                 .await
-                .map_err(|_| "引擎响应超时。".to_owned())?
-                .ok_or_else(|| "引擎连接已关闭。".to_owned())?
-                .map_err(|error| format!("读取引擎响应失败：{error}"))?;
+                .map_err(|_| "The engine response timed out.".to_owned())?
+                .ok_or_else(|| "The engine connection is closed.".to_owned())?
+                .map_err(|error| format!("Failed to read the engine response: {error}"))?;
             match message {
                 Message::Text(raw) => {
                     return protocol::parse_response(raw.as_str(), &id, method)
                         .map_err(|error| error.to_string());
                 }
-                Message::Close(_) => return Err("引擎连接已关闭。".to_owned()),
+                Message::Close(_) => return Err("The engine connection is closed.".to_owned()),
                 Message::Ping(_) | Message::Pong(_) => continue,
-                _ => return Err("引擎响应不是文本协议消息。".to_owned()),
+                _ => return Err("The engine response is not a text protocol message.".to_owned()),
             }
         }
     }
@@ -479,7 +483,7 @@ impl EngineManager {
                         *manager.inner.socket.lock().expect("socket lock") = None;
                         *manager.inner.token.lock().expect("token lock") = None;
                         manager.set_state(EngineState::Failed {
-                            error: format!("引擎意外退出（{status}）。"),
+                            error: format!("The engine exited unexpectedly ({status})."),
                         });
                     }
                     return;
@@ -491,7 +495,8 @@ impl EngineManager {
 
 fn random_token() -> Result<String, String> {
     let mut bytes = [0_u8; 32];
-    getrandom::fill(&mut bytes).map_err(|error| format!("生成引擎认证信息失败：{error}"))?;
+    getrandom::fill(&mut bytes)
+        .map_err(|error| format!("Failed to generate the engine credential: {error}"))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 

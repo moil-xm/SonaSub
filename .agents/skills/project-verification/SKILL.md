@@ -5,40 +5,40 @@ description: Use when finishing a SonaSub change and deciding which checks to ru
 
 # project-verification
 
-## 先读
+## Read First
 
-- [AGENTS.md](../../../AGENTS.md)：命令与交付要求。
-- [package.json](../../../package.json) 与受影响 workspace 的 `package.json` 脚本。
-- `git status --porcelain=v1` 与 `git diff --stat`，确认改动范围并保留已有 staged/unstaged/untracked 内容。
+- [AGENTS.md](../../../AGENTS.md): commands and delivery requirements.
+- [package.json](../../../package.json) and the `package.json` scripts of the affected workspace.
+- `git status --porcelain=v1` and `git diff --stat` to confirm the change scope and preserve existing staged/unstaged/untracked content.
 
-## 按范围选择
+## Choose by Scope
 
-| 改动范围                  | 命令                                                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 任意 TS/TSX/配置          | `pnpm check`                                                                                                                   |
-| 桌面端前端                | `pnpm --filter @sonasub/desktop build`；界面改动再 `pnpm dev:desktop` 查看                                                     |
-| Tauri / Rust              | `pnpm check:rust` + `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`；界面改动再运行实际应用 |
-| 引擎                      | `pnpm test` + `pnpm --filter @sonasub/engine build`；独立 `pnpm start:engine` 应因缺少认证而拒绝启动                           |
-| 引擎生命周期 / 分发资源   | `pnpm --filter @sonasub/desktop prepare:engine`；macOS 构建并运行 `.app`，检查真实信息、重启、意外退出与应用退出清理           |
-| 扩展                      | `pnpm --filter @sonasub/extension build`（产物 `.output/chrome-mv3`，manifest_version 为 3）；交互改动再 `pnpm dev:extension`  |
-| workspace / 依赖 / 锁文件 | `pnpm install` 后 `pnpm build`                                                                                                 |
-| 全部应用                  | `pnpm build`                                                                                                                   |
-| 仅文档 / Skills           | frontmatter 与引用路径检查、`git diff --check`；不要求编译                                                                     |
+| Change scope                     | Commands                                                                                                                                                  |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Any TS/TSX/config                | `pnpm check`                                                                                                                                              |
+| Desktop frontend                 | `pnpm --filter @sonasub/desktop build`; for UI changes also `pnpm dev:desktop`                                                                            |
+| Tauri / Rust                     | `pnpm check:rust` + `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`; run the real app for UI changes                   |
+| Engine                           | `pnpm test` + `pnpm --filter @sonasub/engine build`; standalone `pnpm start:engine` must refuse to start without credentials                              |
+| Engine lifecycle / distribution  | `pnpm --filter @sonasub/desktop prepare:engine`; build and run the macOS `.app` and check real information, restart, unexpected exit and app-exit cleanup |
+| Extension                        | `pnpm --filter @sonasub/extension build` (output `.output/chrome-mv3`, `manifest_version` 3); for interaction changes also `pnpm dev:extension`           |
+| Workspace / dependencies / locks | `pnpm install` then `pnpm build`                                                                                                                          |
+| All apps                         | `pnpm build`                                                                                                                                              |
+| Docs / Skills only               | frontmatter and reference-path checks, `git diff --check`; no compilation required                                                                        |
 
-## 步骤
+## Steps
 
-1. 列出改动文件并映射到上表；只运行覆盖改动的命令，必要时再扩大到 `pnpm build`。
-2. 逐条执行并读取完整输出与退出码；失败先定位所属 workspace 与根因，修复后重跑同一命令，不吞错。
-3. Skills 改动：核对每个 `SKILL.md` 的 `name` 与目录一致、`description` 非空，引用的相对路径存在，命令在 `package.json` 中真实存在。
-4. 环境无法完成的项（如需 GUI、缺少 Rust 系统依赖）明确记录原因，不用“应该可以”替代。
-5. 生命周期验证使用真实进程：并发启动不重复、认证错误不能控制、启动失败保留引擎诊断、停止/重启后 PID/端口一致更新、意外退出显示失败、应用退出只清理受管理子进程。离线验证只针对已构建产物，不依赖互联网。
-6. 结束前再跑一次覆盖最终改动的检查，确认结果对应当前文件。
+1. List the changed files and map them to the table; run only the commands that cover the change, expanding to `pnpm build` when necessary.
+2. Run each command and read its full output and exit code; on failure locate the owning workspace and root cause, fix it, then re-run the same command. Never swallow errors.
+3. Skill changes: check that each `SKILL.md` `name` matches its directory, that `description` is non-empty, that referenced relative paths exist and that commands exist in `package.json`.
+4. Record items the environment cannot complete (GUI required, missing Rust system dependencies) with the reason, never with "should work".
+5. Verify the lifecycle with real processes: concurrent starts do not duplicate, wrong credentials cannot control the engine, failed starts keep engine diagnostics, stop/restart update PID/port consistently, unexpected exit surfaces as failure, and app exit cleans only the managed child process. Offline verification targets built artifacts only and needs no internet.
+6. Re-run the checks covering the final change before finishing, so results match the current files.
 
-## 约束
+## Constraints
 
-- 不为不存在的逻辑添加凑数测试；不为局部改动修复无关失败，只报告。
-- 不重复运行已通过的检查，除非文件再次改动或出现未解决风险。
+- Never add filler tests for logic that does not exist; never fix unrelated failures for a local change, only report them.
+- Do not re-run checks that already passed unless files changed again or an open risk remains.
 
-## 交付
+## Delivery
 
-改动范围、每条命令及其结果（通过/失败/未运行及原因）、遗留风险。
+Change scope, each command with its result (passed/failed/not run and why), and remaining risks.

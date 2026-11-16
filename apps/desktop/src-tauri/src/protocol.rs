@@ -50,11 +50,15 @@ pub enum ProtocolError {
 impl std::fmt::Display for ProtocolError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidJson => write!(formatter, "引擎消息不是有效 JSON。"),
-            Self::UnsupportedVersion => write!(formatter, "引擎协议版本不受支持。"),
-            Self::RequestMismatch => write!(formatter, "引擎响应与请求关联信息不一致。"),
-            Self::InvalidResponse => write!(formatter, "引擎响应内容无效。"),
-            Self::InvalidHandshake => write!(formatter, "引擎启动握手无效。"),
+            Self::InvalidJson => write!(formatter, "The engine message is not valid JSON."),
+            Self::UnsupportedVersion => {
+                write!(formatter, "The engine protocol version is unsupported.")
+            }
+            Self::RequestMismatch => {
+                write!(formatter, "The engine response does not match the request.")
+            }
+            Self::InvalidResponse => write!(formatter, "The engine response payload is invalid."),
+            Self::InvalidHandshake => write!(formatter, "The engine startup handshake is invalid."),
             Self::Remote(message) => write!(formatter, "{message}"),
         }
     }

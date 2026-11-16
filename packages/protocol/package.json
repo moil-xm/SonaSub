@@ -2,7 +2,7 @@
   "name": "@sonasub/protocol",
   "version": "0.0.0",
   "private": true,
-  "description": "桌面 Rust 后端与本地 Node.js 引擎之间的本机 WebSocket 通信契约。",
+  "description": "Loopback WebSocket contract between the desktop Rust backend and the local Node.js engine.",
   "type": "module",
   "exports": {
     "./engine": "./src/engine.ts"

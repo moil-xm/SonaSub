@@ -11,6 +11,8 @@ import {
   parseEngineResponse,
 } from '@sonasub/protocol/engine';
 
+import { messageText } from './main';
+
 const entry = fileURLToPath(new URL('./main.ts', import.meta.url));
 const children = new Set<ReturnType<typeof spawn>>();
 
@@ -62,11 +64,7 @@ async function response(socket: WebSocket, id: string, method: 'engine.info' | '
   const raw = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('response timed out')), 2000);
     socket.on('message', (data) => {
-      const message = Array.isArray(data)
-        ? Buffer.concat(data).toString('utf8')
-        : data instanceof ArrayBuffer
-          ? Buffer.from(data).toString('utf8')
-          : data.toString('utf8');
+      const message = messageText(data);
       if (JSON.parse(message).id === id) {
         clearTimeout(timeout);
         resolve(message);

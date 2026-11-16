@@ -5,7 +5,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'SonaSub',
-    description: '开源实时字幕项目的浏览器扩展入口。',
+    description: 'Browser extension entry point of the open-source real-time subtitling project.',
     permissions: [],
   },
   vite: () => ({

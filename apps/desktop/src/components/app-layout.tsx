@@ -2,11 +2,13 @@ import { Icon } from '@iconify/react';
 import sunIcon from '@iconify-icons/lucide/sun';
 import { Link, Outlet } from '@tanstack/react-router';
 import { Button } from '@sonasub/ui/components/button';
-import { useThemeStore } from '@sonasub/ui/theme';
+import { useTheme, useToggleTheme } from '@sonasub/ui/theme';
 
 export function AppLayout() {
-  const theme = useThemeStore((state) => state.theme);
-  const toggleTheme = useThemeStore((state) => state.toggleTheme);
+  const theme = useTheme();
+  const toggleTheme = useToggleTheme();
+  let toggleLabel = 'Switch to dark';
+  if (theme === 'dark') toggleLabel = 'Switch to light';
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -15,16 +17,16 @@ export function AppLayout() {
           <span className="text-sm font-semibold tracking-wide">SonaSub</span>
           <nav className="flex items-center gap-4 text-sm">
             <Link to="/" activeProps={{ className: 'text-primary font-medium' }}>
-              概览
+              Overview
             </Link>
             <Link to="/about" activeProps={{ className: 'text-primary font-medium' }}>
-              关于
+              About
             </Link>
           </nav>
         </div>
         <Button variant="outline" size="sm" onClick={toggleTheme}>
           <Icon icon={sunIcon} className="size-4" />
-          {theme === 'dark' ? '切换到浅色' : '切换到深色'}
+          {toggleLabel}
         </Button>
       </header>
       <main className="mx-auto w-full max-w-3xl px-6 py-8">

@@ -173,7 +173,7 @@ fn unexpected_exit_is_failed_and_can_be_retried() {
         .status()
         .expect("kill only the PID from the owned engine handshake");
     let failure = failed(&manager);
-    assert!(failure.error().expect("failure reason").contains("退出"));
+    assert!(failure.error().expect("failure reason").contains("exited"));
     assert!(events
         .lock()
         .expect("event log")

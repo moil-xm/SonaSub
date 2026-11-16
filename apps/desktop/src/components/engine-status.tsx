@@ -4,6 +4,7 @@ import refreshIcon from '@iconify-icons/lucide/refresh-cw';
 import squareIcon from '@iconify-icons/lucide/square';
 import alertIcon from '@iconify-icons/lucide/circle-alert';
 import dayjs from 'dayjs';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@sonasub/ui/components/button';
 import {
   Card,
@@ -12,91 +13,104 @@ import {
   CardHeader,
   CardTitle,
 } from '@sonasub/ui/components/card';
+import type { EngineInfo } from '@sonasub/protocol/engine';
 
-import { useEngineAction, useEngineEvents, useEngineStatus, type EngineState } from '@/lib/engine';
+import { engineStatusOptions, useEngineAction, useEngineEvents } from '@/lib/engine';
+import type { EngineState } from '@/lib/engine';
 
-const labels: Record<EngineState['state'], string> = {
-  stopped: '已停止',
-  starting: '正在启动',
-  running: '运行中',
-  stopping: '正在停止',
-  failed: '启动或运行失败',
+const STATE_LABELS: Record<EngineState['state'], string> = {
+  stopped: 'Stopped',
+  starting: 'Starting',
+  running: 'Running',
+  stopping: 'Stopping',
+  failed: 'Failed to start or run',
 };
 
 export function EngineStatus() {
   useEngineEvents();
-  const status = useEngineStatus();
+  const {
+    data: state,
+    isPending: isStatusPending,
+    isError: isStatusError,
+    error: statusError,
+  } = useQuery(engineStatusOptions);
   const start = useEngineAction('start');
   const stop = useEngineAction('stop');
   const restart = useEngineAction('restart');
-  const state = status.data;
-  const busy =
+  const isBusy =
     start.isPending ||
     stop.isPending ||
     restart.isPending ||
     state?.state === 'starting' ||
     state?.state === 'stopping';
-  const error =
-    state?.state === 'failed' ? state.error : (start.error ?? restart.error ?? stop.error);
-  const info = state?.state === 'running' || state?.state === 'stopping' ? state.info : undefined;
+  let actionError: Error | null = start.error ?? restart.error ?? stop.error;
+  let stateError: string | undefined;
+  if (state?.state === 'failed') stateError = state.error;
+  let info: EngineInfo | undefined;
+  if (state?.state === 'running' || state?.state === 'stopping') info = state.info;
+
+  let statusLabel = 'Checking';
+  if (state) statusLabel = STATE_LABELS[state.state];
+  else if (isStatusError) statusLabel = 'Status query failed';
+
+  const errorMessage = stateError ?? actionError?.message ?? statusError?.message;
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-4">
-          <CardTitle>本地引擎</CardTitle>
+          <CardTitle>Local engine</CardTitle>
           <span
             role="status"
             className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground"
           >
-            {state ? labels[state.state] : status.isError ? '状态查询失败' : '正在查询'}
+            {statusLabel}
           </span>
         </div>
         <CardDescription>
-          引擎由桌面应用管理，通过本机连接提供真实运行信息。音频、识别与翻译尚未接入。
+          The desktop app manages the engine and exposes real runtime information over a loopback
+          connection. Audio, recognition and translation are not connected yet.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex flex-wrap gap-3">
           <Button
             onClick={() => start.mutate()}
-            disabled={busy || status.isPending || state?.state === 'running'}
+            disabled={isBusy || isStatusPending || state?.state === 'running'}
           >
             <Icon icon={playIcon} className="size-4" />
-            启动
+            Start
           </Button>
           <Button
             variant="outline"
             onClick={() => stop.mutate()}
-            disabled={busy || state?.state !== 'running'}
+            disabled={isBusy || state?.state !== 'running'}
           >
             <Icon icon={squareIcon} className="size-4" />
-            停止
+            Stop
           </Button>
           <Button
             variant="secondary"
             onClick={() => restart.mutate()}
-            disabled={busy || status.isPending || state?.state === 'stopped'}
+            disabled={isBusy || isStatusPending || state?.state === 'stopped'}
           >
             <Icon icon={refreshIcon} className="size-4" />
-            重启
+            Restart
           </Button>
         </div>
-        {(error || status.isError) && (
+        {(stateError || actionError || isStatusError) && (
           <div
             role="alert"
             className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
           >
             <Icon icon={alertIcon} className="mt-0.5 size-4 shrink-0" />
-            <span>
-              {error instanceof Error ? error.message : String(error ?? status.error?.message)}
-            </span>
+            <span>{errorMessage}</span>
           </div>
         )}
         {info && (
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
             <div>
-              <dt className="text-muted-foreground">引擎版本</dt>
+              <dt className="text-muted-foreground">Engine version</dt>
               <dd className="font-mono">{info.engineVersion}</dd>
             </div>
             <div>
@@ -104,14 +118,14 @@ export function EngineStatus() {
               <dd className="font-mono">{info.nodeVersion}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">启动时间</dt>
+              <dt className="text-muted-foreground">Started at</dt>
               <dd>{dayjs(info.startedAt).format('HH:mm:ss')}</dd>
             </div>
           </dl>
         )}
         {import.meta.env.DEV && state?.state === 'running' && (
           <details className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-            <summary className="cursor-pointer">开发诊断</summary>
+            <summary className="cursor-pointer">Development diagnostics</summary>
             <p className="mt-2 font-mono">
               PID {state.info.pid} · 127.0.0.1:{state.port}
             </p>
