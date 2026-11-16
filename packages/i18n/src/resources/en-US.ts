@@ -1,6 +1,6 @@
 export const enUs = {
   navigation: {
-    overview: 'Overview',
+    live: 'Live',
     about: 'About',
   },
   theme: {
@@ -8,64 +8,222 @@ export const enUs = {
     switchToLight: 'Switch to light',
   },
   language: {
-    label: 'Language',
+    label: 'Interface language',
     followSystem: 'Follow system',
     english: 'English',
     chinese: '简体中文',
   },
-  overview: {
-    title: 'Runtime overview',
-    description: 'Manage local engine startup, connection and shutdown.',
+  languages: {
+    auto: 'Auto-detect',
+    chinese: 'Simplified Chinese',
+    english: 'English',
+    japanese: 'Japanese',
+    korean: 'Korean',
+    cantonese: 'Cantonese',
   },
-  engine: {
-    title: 'Local engine',
+  workbench: {
+    eyebrow: 'Local system-audio session',
+    title: 'Turn the sound on this Mac into live subtitles',
     description:
-      'The desktop app manages the engine and exposes real runtime information over a loopback connection. Audio, recognition and translation are not connected yet.',
-    states: {
-      stopped: 'Stopped',
-      starting: 'Starting',
-      running: 'Running',
-      stopping: 'Stopping',
-      failed: 'Failed to start or run',
-    },
+      'Capture system output, recognize speech locally with sherpa-onnx, then fill in speakers and Bergamot translations asynchronously. Source text never waits for translation.',
+    dirty: 'Save or discard the settings changes before starting a session.',
     status: {
-      checking: 'Checking',
-      queryFailed: 'Status query failed',
+      loading: 'Loading native session state…',
+      idle: 'Idle',
+      idleDetail:
+        'Start a session to load the selected models and capture the current macOS output.',
+      starting: 'Starting',
+      running: 'Live',
+      runningDetail: 'System audio capture has been active for {{duration}}.',
+      stopping: 'Stopping',
+      failed: 'Failed',
     },
     actions: {
-      start: 'Start',
+      start: 'Start listening',
       stop: 'Stop',
       restart: 'Restart',
     },
+    route: {
+      asr: 'Recognition',
+      asrAuto: 'Auto',
+      asrStreaming: 'Streaming Zipformer',
+      asrSegmented: 'VAD + SenseVoice',
+      translation: 'Translation',
+      translationText: 'Bergamot complete text',
+      speakers: 'Speakers',
+      speakersOff: 'Disabled',
+      speakersOn: 'Enabled',
+      speakersEmbedding: 'Embedding labels',
+      speakersDiarization: 'Windowed diarization',
+      resources: 'Process',
+      resourceValue: '{{cpu}} CPU · {{memory}} MB',
+    },
+    readiness: {
+      title: 'The session cannot start yet',
+      unsupportedPlatform:
+        'System-audio capture is implemented and verified only for macOS 14.4 or later on arm64.',
+      unknownAsrModel: 'The selected speech-recognition model is not registered.',
+      asrModel: 'The selected speech-recognition model is missing one or more required files.',
+      asrMode: 'The selected recognition mode does not match the selected model capability.',
+      vadModel: 'Segmented recognition needs the Silero VAD model, which is missing or incomplete.',
+      translationModel:
+        'No complete Bergamot model is available for the selected translation target.',
+      speakerModel:
+        'Speaker analysis is enabled, but the CAM++ speaker-embedding model is missing.',
+      diarizationModel:
+        'Windowed diarization is enabled, but the Pyannote segmentation model is missing.',
+    },
     errors: {
-      failed: 'Engine failed',
-      operationFailed: 'Engine operation failed',
-      statusQueryFailed: 'Engine status query failed',
-      unknown: 'Unknown engine error',
-    },
-    details: {
-      version: 'Engine version',
-      startedAt: 'Started at',
-    },
-    diagnostics: {
-      title: 'Development diagnostics',
+      capabilities: 'Capability query failed',
+      config: 'Configuration query failed',
+      snapshot: 'Session query failed',
+      action: 'Session action failed',
     },
   },
+  captions: {
+    title: 'Live captions',
+    count_one: '{{count}} caption',
+    count_other: '{{count}} captions',
+    emptyTitle: 'Ready when you are',
+    emptyDescription:
+      'Choose models and a translation direction, then start listening. Captions appear here as soon as speech is recognized.',
+    listeningTitle: 'Listening to system audio',
+    listeningDescription:
+      'Play audio on this Mac. Partial source text appears first; speakers and translations are added when native analysis finishes.',
+    speaker: 'Speaker {{index}}',
+    speakerPending: 'Speaker pending',
+    uncertain: 'Uncertain',
+    overlap: 'Overlap',
+    partial: 'Live',
+    translation: {
+      pending: 'Translating after recognition…',
+      stale: 'Source changed; revising the translation…',
+      notNeeded: 'Source and target languages are the same.',
+      unavailable: 'No local translation direction is available.',
+      error: 'Translation failed.',
+    },
+  },
+  config: {
+    title: 'Session settings',
+    description: 'Saved settings apply to the next start.',
+    loading: 'Loading configuration…',
+    locked: 'Stop the active session before changing settings.',
+    unsaved: 'Unsaved',
+    save: 'Save settings',
+    saving: 'Saving…',
+    saved: 'Configuration saved.',
+    saveError: 'Could not save configuration',
+    loadError: 'Configuration could not be loaded',
+    readiness: 'Selected configuration requirements',
+    audioSection: 'System audio',
+    audioOutput: 'Output endpoint',
+    systemDefault: 'Current macOS default output',
+    audioBackend: 'Capture backend: {{backend}}',
+    audioHint:
+      'SonaSub records output through macOS process taps and never opens the microphone. Supported platform: {{platform}}.',
+    recognitionSection: 'Speech recognition',
+    recognitionHint:
+      'Only the selected ASR model is loaded. Streaming and segmented models keep their real inference behavior.',
+    asrModel: 'Recognition model',
+    modelAvailability: 'Pinned model: {{version}}',
+    missing: 'missing',
+    modelMissing: 'Missing or incomplete files: {{files}}',
+    asrMode: 'Recognition mode',
+    asrModes: {
+      auto: 'Auto (follow model capability)',
+      streaming: 'Streaming recognition',
+      segmented: 'Segmented recognition',
+    },
+    asrModeAutoHint:
+      'Auto resolves to the selected model’s real capability. The effective route is shown after start.',
+    asrModeExplicitHint:
+      'The explicit route must match the selected model. Unsupported choices are disabled.',
+    sourceLanguage: 'Speech language',
+    sourceLanguageHint:
+      'Auto leaves language handling to the selected model. Translation chooses its direction per finalized segment.',
+    translationSection: 'Local translation',
+    translationHint:
+      '{{engine}} runs in this process as complete-text translation. Source text appears first and never waits for it.',
+    targetLanguage: 'Translation target',
+    targetLanguageHint:
+      'The target language is independent of the interface language. Each segment is translated from its detected source language.',
+    translationMode: 'Translation output mode',
+    translationModeHint: 'This adapter returns one complete translated string per request.',
+    translationAutoHint:
+      'Auto resolves to complete-text translation because Bergamot exposes no incremental output.',
+    translationModes: {
+      auto: 'Auto',
+      text: 'Complete text',
+      streaming: 'Streaming translation',
+    },
+    trigger: 'Translation trigger',
+    triggers: {
+      finalOnly: 'Finalized captions only',
+      stableSegment: 'Stable partial captions',
+    },
+    triggerFinalHint:
+      'Translate after recognition finalizes the caption. Earlier partial text is never translated.',
+    triggerStableHint:
+      'Translate a partial caption after it stays unchanged for the stable wait, then retranslate when recognition revises it.',
+    speakerSection: 'Speaker timeline',
+    speakerHint:
+      'Speaker labels are asynchronous. Windowed diarization is quasi-real-time and does not separate overlapping voices into independent transcripts.',
+    speakersEnabled: 'Speaker analysis',
+    speakersEnabledHint:
+      'Use CAM++ embeddings to keep speaker identities stable within the session.',
+    diarization: 'Windowed diarization',
+    diarizationHint:
+      'Analyze bounded audio windows and map local clusters back to global speaker identities.',
+    advancedSection: 'Segmentation, stability and retention',
+    maxSegment: 'Maximum segment (seconds)',
+    maxSegmentHint: 'Bounds one streaming endpoint or one VAD speech segment.',
+    stableWait: 'Stable wait (milliseconds)',
+    stableWaitHint: 'Used only by the stable-partial translation trigger.',
+    vadThreshold: 'VAD threshold',
+    minSilence: 'Minimum silence (seconds)',
+    minSpeech: 'Minimum speech (seconds)',
+    window: 'Diarization window (seconds)',
+    windowHint: 'Each analysis covers only this bounded tail of session audio.',
+    maxSpeakers: 'Maximum speakers',
+    similarity: 'Speaker similarity threshold',
+    similarityHint: 'Higher values create separate identities more readily.',
+    historyLimit: 'Caption history limit',
+    historyLimitHint:
+      'Older finalized and partial captions are removed from memory after this limit.',
+    modelsDirectory: 'Model directory: {{path}}',
+  },
+  stats: {
+    title: 'Session telemetry',
+    elapsed: 'Elapsed',
+    cpu: 'CPU',
+    memory: 'Memory',
+    captions: 'Final captions',
+    asrLatency: 'ASR latency',
+    translationLatency: 'Translation latency',
+    speakerLatency: 'Speaker latency',
+    dropped: 'Dropped frames',
+    audioLevel: 'Captured audio level',
+  },
+  notices: {
+    title: 'Runtime notices',
+    empty: 'No capture, recognition or translation notices in this session.',
+  },
   extension: {
-    description: 'The extension entry point is ready; subtitling is not connected yet.',
-    roadmap: 'Multi-tab handling, capture and recognition flows are left to later tasks.',
+    description: 'The Chrome extension entry point remains available.',
+    roadmap:
+      'Tab capture and communication with the desktop app are not implemented in this version.',
   },
   about: {
     description:
-      'SonaSub is an open-source real-time subtitling project. This page was rendered at {{time}}.',
+      'SonaSub is an open-source, local real-time subtitling project. This page was rendered at {{time}}.',
     moduleCount_one: '{{count}} module',
     moduleCount_other: '{{count}} modules',
     modules: {
-      desktop: 'Desktop frontend and the src-tauri native backend',
-      engine: 'Loopback WebSocket engine with real runtime information',
-      extension: 'Chrome extension',
+      desktop: 'React live-caption interface and Tauri IPC client',
+      native:
+        'Rust system-audio capture, sherpa-onnx inference, subtitle scheduling and Bergamot translation',
+      extension: 'Chrome extension entry point',
       ui: 'Shared components, theme, icons and styles',
-      protocol: 'Desktop-backend and engine communication contract',
       i18n: 'Shared interface translations and type-safe i18next setup',
     },
   },

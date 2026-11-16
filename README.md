@@ -2,91 +2,190 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Open-source real-time subtitling project. The desktop frontend now communicates with a real local Node.js engine through Tauri Rust, with start, status, stop, restart, failure reporting and exit cleanup. The Chrome extension still contains only a popup. Audio capture, speech recognition, translation and extension capture are not implemented yet.
+Open-source real-time subtitling for system audio. SonaSub captures the macOS
+output device, runs streaming or segmented speech recognition with
+sherpa-onnx, associates speakers, translates with Bergamot and renders live
+captions. The complete runtime is native Rust and the packaged desktop app
+contains no Node.js.
 
-## Tech Stack
+Source text appears as soon as recognition produces it; speaker labels and
+translation are independent asynchronous updates on the same subtitle segment.
+There are no mock results, fallback engines, fabricated streaming translations
+or microphone fallbacks.
 
-- Tooling: pnpm workspace + Vite+ (`vp` drives formatting, linting, type checking and builds)
-- Desktop: Tauri 2 + Rust, frontend in React + TypeScript
-- Styling and components: Tailwind CSS 4 + CSS Variables, shadcn/ui, static Iconify icons
-- Interface languages: i18next + react-i18next, shared `en-US` / `zh-CN` resources and typed selectors
-- Routing and state: TanStack Router / Query / Form, Zustand, Day.js
-- Local engine: Node.js 24 LTS; TypeScript in development, a bundled runtime and self-contained build in installers
+## Features
+
+- macOS system-output capture through Core Audio process taps (macOS 14.4+ arm64).
+- Streaming Zipformer zh-en recognition with partial and final text.
+- Segmented Silero VAD + SenseVoice recognition for zh, en, ja, ko and yue.
+- CAM++ speaker embeddings and bounded-window Pyannote diarization.
+- Native Bergamot translation for en -> zh-Hans and zh-Hans -> en.
+- Rust subtitle scheduling with stable IDs, revisions and independent text,
+  speaker and translation patches.
+- React live-caption workbench with model/mode configuration, model readiness,
+  session controls, notices and telemetry.
+- Offline core pipeline once all models are present.
+
+The Chrome extension remains a separate Manifest V3 project with only a popup.
+Tab capture is future work and is not used as a hidden audio fallback.
+
+## Technology
+
+- Tooling: pnpm workspace + Vite+ (`vp` for formatting, linting, type checking,
+  tests and builds)
+- Desktop: Tauri 2 + Rust; React + TypeScript
+- UI: Tailwind CSS 4 + CSS Variables, shadcn/ui, static Iconify icons
+- Routing/state: TanStack Router / Query / Form, Zustand, Day.js
+- Native speech: `sherpa-rs 0.6.8` with sherpa-onnx v1.12.9
+- Native system audio: `flexaudio 0.8.1` / `flexaudio-os-macos 0.8.1`
+- Native translation: `fxtranslate 0.5.0` with pinned Bergamot models
 - Extension: WXT + React + TypeScript (Manifest V3)
 
 ## Requirements
 
-- Node.js 24 LTS (`^24.11.0`)
-- pnpm 12 (`packageManager` is pinned to `pnpm@12.15.0`)
-- Rust stable ≥ 1.90 (with `rustfmt` and `clippy`), required only for the desktop native backend
-- macOS needs Xcode Command Line Tools; Linux needs the Tauri 2 system dependencies such as WebKitGTK
+- Node.js 24 LTS (`^24.11.0`) and pnpm 12 for development and model preparation.
+  Node.js is not used by the packaged desktop app.
+- Rust stable >= 1.90 with `rustfmt` and `clippy`.
+- macOS 14.4 or later on Apple Silicon (arm64); Xcode Command Line Tools.
+- CMake 3.20 or newer for the pinned sherpa-onnx runtime (`brew install cmake`).
+- `curl`, `tar` and `zstd` for model preparation (`brew install zstd` if needed).
+
+System capture is implemented and verified on macOS arm64. Windows, Linux and
+macOS x64 are not verified; starting a session there returns an explicit
+unsupported-platform error.
 
 ## Setup
 
 ```bash
 pnpm install
+pnpm prepare:native
+pnpm prepare:models
+pnpm dev:desktop:app
 ```
+
+The first capture asks for macOS System Audio Recording permission. SonaSub
+does not request microphone input as a substitute.
+
+`prepare:native` builds the pinned sherpa-onnx v1.12.9 static runtime with the
+upstream diarization clamp fix. The runtime is linked into the desktop binary;
+it is not a separate service or bundled Node.js process.
+
+Model files live outside the installer:
+
+```text
+~/Library/Application Support/dev.sonasub.desktop/models/
+```
+
+Sources, versions, checksums and the resume/cache workflow are documented in
+[docs/models.md](docs/models.md).
 
 ## Commands
 
 ```bash
 pnpm dev:desktop        # Desktop frontend dev server at http://localhost:5173
-pnpm dev:desktop:app    # Tauri desktop app (compiles Rust and opens a window)
+pnpm dev:desktop:app    # Tauri desktop app (compiles Rust)
 pnpm dev:extension      # WXT extension development
-pnpm start:engine       # Refuses standalone startup without Rust-owned authentication (expected failure)
 
-pnpm test               # Protocol, real Node.js engine, desktop UI and i18n tests
+pnpm prepare:native     # Build the patched sherpa-onnx static runtime
+pnpm prepare:models     # Download and checksum every pinned model
 pnpm check              # Formatting + linting + type checking
+pnpm check:fix          # Auto-fix formatting and fixable lint issues
 pnpm typecheck          # Type checking only
 pnpm lint               # Linting only
 pnpm fmt                # Formatting only
-pnpm check:rust         # cargo fmt --check + clippy
-pnpm build              # Build desktop / engine / extension
-pnpm --filter @sonasub/desktop prepare:engine # Prepare the distributed Node.js runtime and engine
-pnpm --filter @sonasub/desktop tauri:build    # Build the current platform installer
-pnpm --filter @sonasub/desktop exec tauri build --debug --bundles app --no-sign # Local unsigned macOS verification build
-pnpm build:extension:zip # Package the extension zip
+pnpm check:rust         # cargo fmt --check + clippy -D warnings
+pnpm test               # Desktop UI/state and shared i18n tests
+pnpm build              # Build desktop frontend and extension
+
+pnpm --filter @sonasub/desktop tauri:build
+pnpm --filter @sonasub/desktop exec tauri build --debug --bundles app --no-sign
+pnpm build:extension:zip
 ```
 
-The overview page exposes engine state, start/stop/restart actions, real versions and startup time. Development diagnostics show the PID and loopback port; authentication credentials never reach the frontend.
+Rust tests:
 
-The desktop header and extension popup expose the UI language setting. Preferences persist across restarts and follow the system language by default.
-
-The local macOS verification bundle is `apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app`. Building downloads and checksum-verifies Node.js 24.22.1; the runtime and engine live under `Contents/Resources/`. An unsigned local build is not a signed/notarized release.
-
-Extension development output lives in `apps/extension/.output/chrome-mv3-dev` and production output in `apps/extension/.output/chrome-mv3`; load either from the Chrome extensions page via "Load unpacked".
-
-## Structure
-
-```
-apps/desktop      Desktop frontend and the src-tauri native backend
-apps/engine       Loopback WebSocket engine and real process information
-apps/extension    Chrome extension popup
-packages/ui       Shared components, theme, icons and styles
-packages/i18n     Shared interface translations and typed i18next setup
-packages/protocol Desktop-backend/engine communication contract
-.agents/skills    Project-specific Skills
-docs/architecture.md  Module responsibilities and dependency boundaries
-AGENTS.md         Repository-wide development conventions
+```bash
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1
 ```
 
-Development conventions are in [AGENTS.md](AGENTS.md) and module boundaries in [docs/architecture.md](docs/architecture.md); both are written in English.
+The large-model tests are ignored by default:
 
-## Current Verification
+```bash
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
+  --test native_pipeline -- --ignored --test-threads=1 --nocapture
+```
 
-- `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm check:rust`, `pnpm test` (22 tests), `pnpm build`.
-- `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` (14 tests): real-process concurrency, stop/restart, unexpected exit, control-connection loss, authentication isolation and exit cleanup.
-- The same 11 real-process Rust integration tests pass with external network access denied and loopback allowed.
-- A macOS arm64 `.app` is built and launched with its bundled Node.js and engine artifact; start/stop/restart, failure recovery, unexpected-exit reporting, oversized-peer isolation and managed-child exit cleanup are checked in the real app.
-- The CI workflow defines frozen installs, checks, TypeScript tests, builds, prepared engine resources and serial Rust tests; standalone engine startup is checked as an expected credential failure. These changes have not been pushed, so a new remote CI run is not yet verified.
-- Windows, Linux and macOS x64 installer execution remain unverified.
+## Configuration
+
+The preferences panel controls:
+
+- system output device;
+- ASR mode (`auto` / `streaming` / `segmented`), model and source language;
+- maximum segment length, VAD threshold, silence/speech minimums and the
+  stable-segment wait;
+- translation mode (`auto` / `streaming` / `text`), trigger
+  (`finalOnly` / `stableSegment`) and target language;
+- speaker embedding/diarization, window length, speaker capacity and matching
+  threshold;
+- subtitle history limit.
+
+`auto` resolves from the selected model and compiled adapter. Explicit
+unsupported modes are rejected and disabled in the UI. Bergamot resolves to
+complete-text translation only; `streaming` is not available. Configuration is
+saved atomically, locked while a session is active and applied by the next
+start or restart.
+
+## Architecture
+
+```
+apps/desktop                 React workbench + src-tauri Rust application
+  src/                       Tauri IPC/events, live captions and configuration
+  src-tauri/src/audio/       Core Audio system capture and 48k -> 16k DSP
+  src-tauri/src/asr/         Streaming Zipformer and segmented SenseVoice
+  src-tauri/src/speaker/     CAM++ registry and windowed diarization
+  src-tauri/src/translation/ TranslationEngine boundary and Bergamot worker
+  src-tauri/src/subtitles/   Stable IDs, revisions and patch scheduling
+  src-tauri/src/session/     Lifecycle, bounded queues, events and metrics
+apps/extension               Chrome extension popup (no capture yet)
+packages/ui                  Shared components, theme, icons and styles
+packages/i18n                English and Simplified Chinese UI resources
+docs/architecture.md         Runtime boundaries and pipeline details
+docs/models.md               Model sources, versions and checksums
+```
+
+React controls Rust only through Tauri commands and events. Audio samples,
+model handles and inference workers never cross into JavaScript. See
+[docs/architecture.md](docs/architecture.md) for the full pipeline and
+[AGENTS.md](AGENTS.md) for development conventions.
+
+## Packaging
+
+The macOS bundle is:
+
+```text
+apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app
+```
+
+The bundle contains the executable, icon and plist only. It has no Node.js
+runtime, engine artifact, WebSocket protocol or model weights. A local
+unsigned build is not a signed/notarized release.
+
+## Verification
+
+The final local verification is recorded in the delivery report for this
+change. It covers TypeScript checks and tests, Rust format/clippy/tests, the
+ignored native model tests, a macOS `.app` bundle inspection with real system
+output playback, both ASR paths, both Bergamot directions, speaker/overlap
+behavior, configuration persistence, stop/restart and exit cleanup.
+
+Windows, Linux and macOS x64 installers remain unverified.
 
 ## Star History
 
 <a href="https://www.star-history.com/?repos=moil-xm%2FSonaSub&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
+  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&theme=dark&legend=top-left" />
+  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
+  <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
  </picture>
 </a>

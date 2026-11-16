@@ -8,6 +8,7 @@ on:
 jobs:
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -19,17 +20,10 @@ jobs:
       - run: pnpm check
       - run: pnpm test
       - run: pnpm build
-      - name: Verify standalone engine startup is rejected
-        run: |
-          if output=$(pnpm start:engine 2>&1); then
-            echo "$output"
-            exit 1
-          fi
-          echo "$output"
-          printf '%s\n' "$output" | grep -F 'missing the credential from the desktop Rust backend'
 
   rust:
-    runs-on: ubuntu-latest
+    runs-on: macos-14
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -37,12 +31,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @sonasub/desktop build
-      - run: pnpm --filter @sonasub/desktop prepare:engine
+      - name: Build frontend assets for Tauri
+        run: pnpm --filter @sonasub/desktop build
+      - name: Prepare patched native speech runtime
+        run: pnpm prepare:native
       - run: pnpm check:rust
       - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1

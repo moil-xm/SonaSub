@@ -5,10 +5,9 @@ export function AboutPage() {
   const { t } = useTranslation();
   const modules = [
     { name: 'apps/desktop', role: t(($) => $.about.modules.desktop) },
-    { name: 'apps/engine', role: t(($) => $.about.modules.engine) },
+    { name: 'apps/desktop/src-tauri', role: t(($) => $.about.modules.native) },
     { name: 'apps/extension', role: t(($) => $.about.modules.extension) },
     { name: 'packages/ui', role: t(($) => $.about.modules.ui) },
-    { name: 'packages/protocol', role: t(($) => $.about.modules.protocol) },
     { name: 'packages/i18n', role: t(($) => $.about.modules.i18n) },
   ];
 

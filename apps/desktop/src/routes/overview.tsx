@@ -1,17 +1,21 @@
-import { useTranslation } from '@sonasub/i18n';
+import { useState } from 'react';
 
-import { EngineStatus } from '@/components/engine-status';
+import { LiveSubtitles } from '@/components/live-subtitles';
+import { SessionConfigForm } from '@/components/session-config-form';
+import { SessionDiagnostics } from '@/components/session-diagnostics';
+import { SessionToolbar } from '@/components/session-toolbar';
 
 export function OverviewPage() {
-  const { t } = useTranslation();
+  const [isConfigDirty, setIsConfigDirty] = useState(false);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">{t(($) => $.overview.title)}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t(($) => $.overview.description)}</p>
+    <div className="space-y-5">
+      <SessionToolbar isConfigDirty={isConfigDirty} />
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <LiveSubtitles />
+        <SessionConfigForm onDirtyChange={setIsConfigDirty} />
       </div>
-      <EngineStatus />
+      <SessionDiagnostics />
     </div>
   );
 }

@@ -1,82 +1,269 @@
-# Module Responsibilities and Dependency Boundaries
+# Native Architecture
 
-This document describes the modules that exist today, the dependencies they may take and the desktop/local-engine communication path. Audio, recognition, translation and extension-capture flows are not covered because they are not connected yet.
+SonaSub is a native macOS desktop application. Tauri and Rust own system-audio
+capture, inference workers, subtitle scheduling and process cleanup. React is
+a control and presentation layer that reaches the backend only through Tauri
+IPC and events. There is no Node.js runtime, local WebSocket service,
+authentication handshake or browser-side inference.
 
 ## Module Responsibilities
 
-| Path                | Responsibility                                                                                          | Build entry                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `apps/desktop`      | React state and control UI; Rust manages the engine process, connection, auth and exit cleanup          | Vite+ (`vp dev` / `vp build`), Tauri CLI (`tauri dev` / `tauri build`) |
-| `apps/engine`       | Node.js 24 loopback WebSocket service with real runtime information and authenticated lifecycle control | `node src/main.ts`, Vite+ (`vp pack`)                                  |
-| `apps/extension`    | Chrome extension (Manifest V3), popup only for now                                                      | WXT (`wxt` / `wxt build`)                                              |
-| `packages/ui`       | Shared shadcn/ui components, theme variables, icons and styles                                          | No standalone build; consumers bundle the source                       |
-| `packages/i18n`     | Shared English and Simplified Chinese UI resources, i18next setup and typed translation API             | No standalone build; consumers bundle the source                       |
-| `packages/protocol` | Current desktop-backend/engine communication contract                                                   | TypeScript source parsed and bundled by consumers                      |
+| Path                     | Responsibility                                                                                                                       | Technology                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `apps/desktop`           | React control UI; Tauri commands, events and native desktop shell                                                                    | React + TypeScript, TanStack Router/Query/Form, Zustand, Tauri 2 |
+| `apps/desktop/src-tauri` | Audio capture, DSP, sherpa-onnx workers, speaker analysis, Bergamot worker, subtitle scheduling, configuration and session lifecycle | Rust, flexaudio, sherpa-rs, fxtranslate                          |
+| `apps/extension`         | Chrome extension (Manifest V3), popup only; no capture implementation yet                                                            | WXT + React + TypeScript                                         |
+| `packages/ui`            | Shared shadcn/ui components, theme variables, styles and hooks                                                                       | Tailwind CSS 4, CSS Variables, Radix primitives                  |
+| `packages/i18n`          | Shared `en-US` / `zh-CN` resources, i18next setup and typed selectors                                                                | i18next + react-i18next                                          |
 
-Native capabilities (windows, system interaction and similar) belong to `apps/desktop/src-tauri`; local processing belongs to `apps/engine`; browser pages and extension capabilities belong to their own apps.
+The desktop's Rust modules are deliberately separated:
 
-## Allowed Dependency Direction
+- `audio/`: macOS system-output capture and 48 kHz stereo to 16 kHz mono DSP.
+- `asr/`: a common input/event adapter with streaming Zipformer and segmented
+  Silero VAD + SenseVoice implementations.
+- `speaker/`: CAM++ embedding registry and windowed Pyannote diarization.
+- `translation/`: the `TranslationEngine` boundary, Bergamot adapter and bounded
+  translation queue.
+- `subtitles/`: stable segment IDs, revisions and independent text, speaker and
+  translation patches.
+- `session/`: serialized lifecycle, worker ownership, bounded queues, event
+  emission, metrics and cleanup.
+
+## Native Runtime
+
+`sherpa-rs 0.6.8` binds the sherpa-onnx v1.12.9 C ABI. SonaSub builds that
+runtime from pinned source with
+[`scripts/patches/sherpa-onnx-1.12.9-topk-clamp.patch`](../scripts/patches/sherpa-onnx-1.12.9-topk-clamp.patch),
+which contains the upstream diarization `TopkIndex` clamp first released in
+v1.13.3. The static libraries are installed under the gitignored
+`apps/desktop/src-tauri/vendor/sherpa-onnx/` directory and linked through
+`SHERPA_LIB_PATH` from `.cargo/config.toml`; they run inside the desktop
+binary, not in a separate process.
+
+The patch keeps the v1.12.9 C struct layout that the `sherpa-rs-sys 0.6.8`
+bindings expect. The pinned prebuilt v1.12.9 binary can crash with SIGBUS when
+a diarization frame has more active speakers than clusters; the regression test
+is in `apps/desktop/src-tauri/tests/native_pipeline.rs`.
+
+- `config.rs` / `models.rs`: validated persisted configuration, the pinned model
+  registry and capability resolution.
+
+## Dependency Direction
 
 ```mermaid
 graph TD
-  desktop[apps/desktop] --> ui[packages/ui]
+  desktop[apps/desktop React] --> ui[packages/ui]
   desktop --> i18n[packages/i18n]
   extension[apps/extension] --> ui
   extension --> i18n
-  desktop --> protocol[packages/protocol]
-  engine[apps/engine] --> protocol
-  desktop -.Tauri IPC.-> rust[src-tauri]
-  rust -.127.0.0.1 WebSocket.-> engine
+  desktop -. Tauri IPC + events .-> rust[src-tauri Rust]
+  rust --> audio[Core Audio + DSP]
+  rust --> asr[sherpa-onnx workers]
+  rust --> speaker[speaker + diarization workers]
+  rust --> translation[Bergamot worker]
+  rust --> models[local model directory]
 ```
 
-- Solid arrows are source dependencies; dashed arrows are runtime communication. React never connects to the engine directly: the process handle, port, connection credentials and lifecycle are owned by Rust alone.
-- Apps do not import each other's internal source; cross-app reuse goes through `packages/*` only.
-- Packages do not depend on any app.
-- `packages/ui` uses browser-standard APIs only; it never calls Tauri, Chrome extension or Node-only APIs.
-- Platform-specific code stays inside the owning app.
+- Apps never import each other's internal source; cross-app reuse goes through
+  `packages/*`.
+- Packages never depend on an app, Tauri, Chrome or Node-only APIs.
+- React never loads a native model or receives a continuous audio stream.
+- Native dependencies belong to `apps/desktop/src-tauri`; browser behavior
+  belongs to the extension.
 
-## Engine Lifecycle
+## Capture And Timeline
+
+macOS output is captured through a Core Audio process tap
+(`flexaudio`/`flexaudio-os-macos`) at 48 kHz stereo in 20 ms chunks. The capture
+thread only polls native chunks, copies them into a bounded channel and records
+capture warnings. It performs no inference, disk access or network request.
+
+The session thread performs channel downmix and a windowed-sinc FIR decimation
+to 16 kHz mono. Every chunk carries an absolute 48 kHz frame index. The ASR
+input also carries that frame index, so a completed inference is assigned the
+audio's original time, not the time at which the worker finished.
+
+- A gap, dropped chunk, device recovery or discontinuity resets the resampler
+  and audio history, emits an ASR discontinuity, and starts the next subtitle
+  run after the real gap. Missing audio is never presented as continuous.
+- A bounded ASR queue drops whole intervals when inference cannot keep up and
+  records the dropped frames; the excluded interval is not bridged.
+- Device loss, permission denial, terminal errors and stalled capture are
+  surfaced as warnings or session failures.
+- Subtitle history and the diarization audio ring are bounded.
+
+System capture is implemented and verified on macOS 14.4 or later on arm64.
+Windows, Linux and macOS x64 report the capability as unavailable and refuse to
+start; they do not silently switch to microphone input.
+
+## Recognition Paths
+
+Both paths feed the same subtitle scheduler and use 16 kHz mono audio.
+
+**Streaming:** the Zipformer bilingual zh-en int8 model runs continuous online
+recognition with endpointing. Partial text is emitted as it changes; an endpoint
+produces final text. It does not wait for a VAD utterance boundary. Final
+segments keep their audio for speaker embedding.
+
+**Segmented:** Silero VAD closes bounded utterances or cuts at the configured
+maximum length, then SenseVoice int8 transcribes each segment. This is real
+segmented recognition, not native streaming. It still produces results during
+the session; it does not wait for the recording to end.
+
+Model format and decoding differences stay inside `asr/`. `auto` resolves to the
+selected model's actual capability. An explicit incompatible mode is rejected
+with an error and is disabled in the UI; `auto` is never a fallback after an
+inference failure.
+
+## Speaker Attribution
+
+Every finalized segment can be queued for CAM++ speaker embedding. The registry
+maintains session-wide profiles with cosine matching, bounded capacity and
+confidence/uncertainty fields. A label may appear after the source text.
+
+Diarization runs over bounded rolling windows (20 seconds by default, configured
+from 5 to 60 seconds), scheduled at roughly half-window intervals. Local
+clusters are converted to embeddings and matched to the same session-wide
+registry, so a local cluster number is not exposed as a global speaker ID.
+Overlap regions mark attribution as uncertain. This is windowed quasi-real-time
+analysis, not whole-recording diarization and not overlapping-speech
+separation. No separate speaker tracks are produced.
+
+The speaker queue and diarization queue are bounded; dropped work produces
+notices or unknown/uncertain labels rather than blocking recognition.
+
+## Translation
+
+`TranslationEngine` is a small blocking interface. The only compiled adapter is
+Bergamot through `fxtranslate`, using Firefox Translations-format models.
+Complete source text is submitted on a dedicated worker; the result returns as
+an asynchronous patch for the same subtitle ID and text revision.
+
+- Bergamot declares complete-text (`text`) only. `streaming` is rejected; an
+  asynchronous callback is not described as incremental translation.
+- `auto` resolves to `text`.
+- Pending requests for an older revision of the same subtitle are replaced.
+  The queue is bounded and evicts the oldest request with an explicit error
+  rather than leaving it pending.
+- Results carry session, subtitle, source revision and target language.
+  Cancelled, stale or config-invalidated results cannot overwrite newer text.
+- Translation failure never blocks or removes the source caption. A segment
+  whose detected source already matches the target is marked not-needed.
+- Language directions come from the pinned local model registry
+  (`en → zh-Hans`, `zh-Hans → en`); no arbitrary language pair is inferred from
+  Firefox's supported-language list.
+
+## Subtitle Scheduling
+
+The scheduler keeps one store per session. A stable subtitle ID is derived from
+the session ID and the ASR local segment ID. The store tracks:
+
+- audio start/end in session seconds;
+- source text and a monotonically increasing text revision;
+- final/partial state;
+- optional speaker attribution and uncertainty;
+- translation status, target, engine, model and source revision.
+
+Patches are typed `upsert`, `finalize`, `speaker` or `translation`. Source,
+speaker and translation patches update the same segment independently. React
+applies patches by ID instead of appending every inference result as a new
+caption.
+
+Patches are batched at 80 ms; statistics are emitted at 750 ms. History is
+bounded by configuration (400 segments by default, 50–2000 allowed). Notices
+are capped at 100 and duplicate adjacent notices within two seconds are
+suppressed.
+
+## Session Lifecycle
 
 ```text
-stopped/failed → starting → running → stopping → stopped
-                     ↘ failed (startup, handshake, auth or information failure)
-running → failed (process exited unexpectedly or control connection lost)
+idle → starting → running → stopping → idle
+          ↘ failed (validation, model load, permission, capture or worker error)
+running → stopping/failed (stop, restart, app exit or pipeline failure)
 ```
 
-- Rust serializes start, stop and restart behind a single transition lock; a repeated start reuses the running engine, and it never scans ports or restarts automatically in a loop.
-- A successful start must complete process creation, the stdout handshake, WebSocket authentication and the `engine.info` query.
-- A failed start cleans up that child process and keeps the most recent engine stderr output in the failure reason; regular logs and the startup handshake stay separate.
-- Rust watches both the managed child process and the established control connection. Either loss transitions the matching running engine to `failed`, clears its connection/credential and notifies the frontend through `engine://state` so TanStack Query caches are updated or invalidated.
-- The engine handles errors per WebSocket connection; an oversized or otherwise failing peer is closed without terminating the engine or other authenticated connections.
-- Stopping sends an authenticated `engine.shutdown` and waits for the process to exit; on timeout it force-kills only the child it created. App exit runs the same cleanup path.
-- Frontend queries and actions use `networkMode: 'always'`. Start, stop and restart share one serialized TanStack Query mutation, so a later successful action replaces an earlier action error instead of leaving stale alerts. Zustand still holds only local interaction state such as the theme.
+- Start, stop, restart and shutdown are serialized behind one operation lock.
+  Repeated start reuses an active session; a session that is still stopping
+  rejects a new start.
+- Start loads only the models required by the selected ASR mode and enabled
+  speaker features, waits up to 180 seconds for initialization, and reports
+  the real failure instead of showing a ready state.
+- Stop stops capture, flushes ASR, lets native inference reach a safe boundary,
+  closes the translation queue and joins workers. Native inference cannot be
+  preemptively cancelled.
+- App exit runs the same cleanup path. Models are reused for the session, not
+  reloaded per segment.
+- Workers are threads inside the desktop process. A native crash is not
+  isolated from the UI; this boundary is shown in the session information.
 
-## Development and Distribution Resources
+## Frontend Contract
 
-- Development: Rust runs `apps/engine/src/main.ts` with the current Node.js 24, using `apps/engine` as the working directory.
-- Build: `pnpm --filter @sonasub/desktop prepare:engine` verifies and prepares the pinned Node.js version, builds the self-contained engine artifact and writes it into `apps/desktop/src-tauri/resources/`.
-- macOS bundle: the runtime and engine live in `SonaSub.app/Contents/Resources/`; Rust resolves resource paths in one place.
-- Runtime binaries and generated artifacts are not committed; versions, download file names and SHA-256 values are recorded in `apps/desktop/src-tauri/scripts/node-runtime.json`.
-- The current default packaging target is the macOS `.app`; runtime configurations for other platforms are listed, but installer execution still needs verification on each platform.
+Tauri commands:
 
-## Imports
+- `get_capabilities`
+- `get_config`
+- `save_config`
+- `session_snapshot`
+- `start_session`
+- `stop_session`
+- `restart_session`
 
-- Shared UI: `@sonasub/ui/components/*`, `@sonasub/ui/lib/*`, `@sonasub/ui/theme`, `@sonasub/ui/globals.css`.
-- Interface language: `@sonasub/i18n` for locale types, shared resources, the configured i18next instance, `I18nextProvider` and `useTranslation`.
-- `packages/ui` uses the `#lib/*` package-internal alias; the desktop uses `@/*` pointing at `apps/desktop/src`.
-- New exports must be added to the package's `package.json` `exports`, otherwise consumers cannot resolve them.
-- Workspaces that declare `vite` use the `npm:@voidzero-dev/vite-plus-core@<vite-plus version>` alias to match the Vite+ core; WXT and Tauri keep their own CLIs.
+Tauri events:
 
-## Interface Languages
+- `session://status`
+- `session://subtitles`
+- `session://stats`
+- `session://notice`
 
-- `packages/i18n` owns the bundled `en-US` and `zh-CN` interface resources, locale resolution, i18next configuration and TypeScript Selector API types. Both apps use the same resources; `packages/ui` receives translated strings through props and stays translation-agnostic.
-- Each app creates one i18next instance before React renders and exposes it through `I18nextProvider`. The desktop persists its preference in `localStorage`; the extension persists through `browser.storage.local`.
-- “Follow system” resolves Chinese system languages to `zh-CN`, English system languages to `en-US`, and everything else to `en-US`. An explicit locale stored by the user takes priority, and switching the preference clears the stored override.
-- The active language is reflected in `<html lang>`. Raw engine errors, logs and technical diagnostics remain untranslated.
+React queries and mutations use `networkMode: 'always'` because this is local
+IPC, not network I/O. Event listeners are removed on unmount. Zustand remains
+limited to local interaction state such as the theme; session data is a
+TanStack Query cache updated by Rust events.
 
-## Styles and Theme
+## Configuration And Capabilities
 
-- `packages/ui/src/styles/globals.css` is the single entry for Tailwind 4 and the CSS variables, including the `@theme inline` mapping and `.dark` variables.
-- Each app imports `@sonasub/ui/globals.css` in its own CSS entry and then scans its own source with `@source`; the shared package scans itself through `@source` inside `globals.css`. JS imports only the app's own CSS entry.
-- Theme state is managed by the Zustand store from `@sonasub/ui/theme` and takes effect through `<html class="dark">`.
-- The app icon lives at `apps/desktop/src-tauri/icons/icon.png` and is referenced by `tauri.conf.json`.
+Configuration is persisted as JSON with atomic replace; invalid values are
+rejected before saving and corrupt files are reported instead of silently
+resetting. A running session locks configuration changes. Restart applies the
+new saved configuration.
+
+Important fields:
+
+- ASR mode (`auto` / `streaming` / `segmented`), model and source language;
+- maximum segment length, VAD threshold, minimum speech/silence and stable wait;
+- translation mode (`auto` / `streaming` / `text`), trigger
+  (`finalOnly` / `stableSegment`) and target language;
+- speaker embedding/diarization switches, window, maximum speakers and
+  similarity threshold;
+- audio output device and subtitle history limit.
+
+Capabilities are computed from the model registry, the compiled adapters and
+the current platform. A user preference cannot turn an unsupported mode into a
+supported one. UI language, speech source language and translation target
+language are separate settings.
+
+## Imports And Packaging
+
+- Shared UI: `@sonasub/ui/components/*`, `@sonasub/ui/hooks/*`,
+  `@sonasub/ui/lib/*`, `@sonasub/ui/theme`, `@sonasub/ui/globals.css`.
+- Interface language: `@sonasub/i18n` for locale resources, i18next setup and
+  typed selectors.
+- `packages/ui` internal imports use `#lib/*` and `#hooks/*`; desktop internal
+  imports use `@/*`.
+- New exports must be listed in the owning package's `exports`.
+
+The macOS bundle contains only the application executable, icon and plist. It
+does not contain a Node.js runtime, engine artifact or WebSocket protocol.
+Model weights stay in the application-data directory and are never bundled or
+downloaded by the app. See [models.md](models.md).
+
+## Interface Languages And Theme
+
+`packages/i18n` owns both bundled locales. The desktop stores its locale
+preference in `localStorage`; system Chinese resolves to `zh-CN`, system
+English to `en-US`, and other languages to `en-US`. The active locale is
+reflected in `<html lang>`.
+
+`packages/ui/src/styles/globals.css` is the single Tailwind 4 and theme
+variable entry. Theme switching uses the Zustand store from `@sonasub/ui/theme`
+and `<html class="dark">`.

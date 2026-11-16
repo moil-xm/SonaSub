@@ -48,11 +48,7 @@ export default defineConfig({
         },
       },
       {
-        files: ['apps/engine/src/**'],
-        env: { node: true },
-      },
-      {
-        files: ['apps/desktop/src-tauri/scripts/**'],
+        files: ['scripts/**'],
         env: { node: true },
       },
     ],

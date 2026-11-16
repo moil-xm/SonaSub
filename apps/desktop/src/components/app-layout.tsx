@@ -1,5 +1,6 @@
 import type { ChangeEvent } from 'react';
 import { Icon } from '@iconify/react';
+import captionsIcon from '@iconify-icons/lucide/captions';
 import sunIcon from '@iconify-icons/lucide/sun';
 import { isLanguagePreference, useTranslation } from '@sonasub/i18n';
 import { Link, Outlet } from '@tanstack/react-router';
@@ -7,6 +8,7 @@ import { Button } from '@sonasub/ui/components/button';
 import { useTheme, useToggleTheme } from '@sonasub/ui/theme';
 
 import { setLanguagePreference, useLanguagePreference } from '@/i18n';
+import { useSessionEvents } from '@/lib/session';
 
 function handleLanguageChange(event: ChangeEvent<HTMLSelectElement>) {
   const preference = event.currentTarget.value;
@@ -18,17 +20,23 @@ export function AppLayout() {
   const theme = useTheme();
   const toggleTheme = useToggleTheme();
   const languagePreference = useLanguagePreference();
+  useSessionEvents();
   let toggleLabel: string = t(($) => $.theme.switchToDark);
   if (theme === 'dark') toggleLabel = t(($) => $.theme.switchToLight);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="flex items-center justify-between border-b border-border px-6 py-4">
+      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-background/95 px-6 py-3 backdrop-blur">
         <div className="flex items-center gap-6">
-          <span className="text-sm font-semibold tracking-wide">SonaSub</span>
+          <span className="flex items-center gap-2 text-sm font-semibold tracking-wide">
+            <span className="grid size-7 place-items-center rounded-md bg-primary text-primary-foreground">
+              <Icon icon={captionsIcon} className="size-4" />
+            </span>
+            SonaSub
+          </span>
           <nav className="flex items-center gap-4 text-sm">
             <Link to="/" activeProps={{ className: 'text-primary font-medium' }}>
-              {t(($) => $.navigation.overview)}
+              {t(($) => $.navigation.live)}
             </Link>
             <Link to="/about" activeProps={{ className: 'text-primary font-medium' }}>
               {t(($) => $.navigation.about)}
@@ -52,7 +60,7 @@ export function AppLayout() {
           </Button>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-3xl px-6 py-8">
+      <main className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6">
         <Outlet />
       </main>
     </div>

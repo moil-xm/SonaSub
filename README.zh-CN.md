@@ -2,91 +2,174 @@
 
 [English](README.md) | **简体中文**
 
-开源实时字幕项目。当前已打通桌面前端 → Tauri Rust → 本机 Node.js 引擎的真实通信与进程生命周期：启动、状态查询、停止、重启、失败提示和退出清理。Chrome 扩展仍只有 popup；音频采集、语音识别、翻译与扩展采集尚未实现。
+开源的系统音频实时字幕工具。SonaSub 采集 macOS 系统输出，使用
+sherpa-onnx 完成流式或分段语音识别、说话人关联，使用 Bergamot 完成本地
+翻译，并在桌面界面实时显示字幕。完整运行时为原生 Rust，安装包不包含
+Node.js。
+
+原文字幕在识别产生后立即显示；说话人标签和译文作为异步结果，独立更新到
+同一条字幕上。项目不包含模拟结果、回退引擎、伪造的流式翻译或麦克风兜底。
+
+## 功能
+
+- 通过 Core Audio process tap 采集 macOS 系统输出（macOS 14.4+，arm64）。
+- 流式 Zipformer 中英双语识别，输出增量文本与最终文本。
+- Silero VAD + SenseVoice 分段识别，支持中、英、日、韩、粤语。
+- CAM++ 说话人嵌入，以及有界窗口的 Pyannote Diarization。
+- 原生 Bergamot 翻译，支持 en -> zh-Hans 与 zh-Hans -> en。
+- Rust 字幕调度：稳定 ID、修订号，以及原文、说话人、译文独立 Patch。
+- React 实时字幕工作台：模型与模式配置、模型就绪提示、会话控制、通知与
+  运行指标。
+- 模型齐全后，核心链路可断网运行。
+
+Chrome 扩展仍是独立的 Manifest V3 工程，目前只有 popup。标签页采集属于
+后续工作，不会被当作隐藏的音频兜底来源。
 
 ## 技术栈
 
-- 工程管理：pnpm workspace + Vite+（`vp` 统一管理格式、检查、类型检查与构建）
-- 桌面：Tauri 2 + Rust，前端 React + TypeScript
-- 样式与组件：Tailwind CSS 4 + CSS Variables、shadcn/ui、Iconify 静态图标
-- 界面语言：i18next + react-i18next，共享 `en-US` / `zh-CN` 资源与类型安全 Selector
+- 工程管理：pnpm workspace + Vite+（`vp` 管理格式、检查、类型检查、测试与构建）
+- 桌面：Tauri 2 + Rust、React + TypeScript
+- UI：Tailwind CSS 4 + CSS Variables、shadcn/ui、Iconify 静态图标
 - 路由与状态：TanStack Router / Query / Form、Zustand、Day.js
-- 本地引擎：Node.js 24 LTS；开发直接运行 TypeScript，安装包使用随应用分发的 Node.js 与自包含构建产物
+- 原生语音：`sherpa-rs 0.6.8`，底层 sherpa-onnx v1.12.9
+- 原生系统音频：`flexaudio 0.8.1` / `flexaudio-os-macos 0.8.1`
+- 原生翻译：`fxtranslate 0.5.0` + 固定版本 Bergamot 模型
 - 扩展：WXT + React + TypeScript（Manifest V3）
 
 ## 环境要求
 
-- Node.js 24 LTS（`^24.11.0`）
-- pnpm 12（`packageManager` 已固定为 `pnpm@12.15.0`）
-- Rust 稳定版 ≥ 1.90（含 `rustfmt`、`clippy`），仅桌面原生后端需要
-- macOS 需 Xcode Command Line Tools；Linux 需 Tauri 2 的 WebKitGTK 等系统依赖
+- Node.js 24 LTS（`^24.11.0`）与 pnpm 12，仅用于开发和模型准备；打包后的
+  桌面应用不依赖 Node.js。
+- Rust 稳定版 >= 1.90，含 `rustfmt` 与 `clippy`。
+- macOS 14.4 或更高版本（Apple Silicon / arm64）；Xcode Command Line Tools。
+- CMake 3.20 或更高版本，用于构建固定的 sherpa-onnx 运行时（`brew install cmake`）。
+- 模型准备需要 `curl`、`tar` 与 `zstd`（可用 `brew install zstd` 安装）。
+
+系统音频采集已在 macOS arm64 实际验证。Windows、Linux 与 macOS x64 尚未
+验证；在这些平台启动会话会返回明确的“不支持”错误。
 
 ## 初始化
 
 ```bash
 pnpm install
+pnpm prepare:native
+pnpm prepare:models
+pnpm dev:desktop:app
 ```
+
+首次采集时，macOS 会请求“系统音频录制”权限。SonaSub 不会改用麦克风输入。
+
+`prepare:native` 会用上游修复补丁构建固定的 sherpa-onnx v1.12.9 静态运行时。
+该运行时直接链接进桌面二进制，不是独立服务，也不包含 Node.js 进程。
+
+模型文件不进入安装包，默认目录为：
+
+```text
+~/Library/Application Support/dev.sonasub.desktop/models/
+```
+
+模型来源、版本、校验值与断点续传流程见 [docs/models.md](docs/models.md)。
 
 ## 常用命令
 
 ```bash
 pnpm dev:desktop        # 桌面前端开发服务器 http://localhost:5173
-pnpm dev:desktop:app    # Tauri 桌面应用（编译 Rust 并打开窗口）
+pnpm dev:desktop:app    # Tauri 桌面应用（编译 Rust）
 pnpm dev:extension      # WXT 扩展开发
-pnpm start:engine       # 无 Rust 认证信息时拒绝独立启动（预期失败）
 
-pnpm test               # 协议、真实 Node.js 引擎、桌面 UI 与 i18n 测试
+pnpm prepare:native     # 构建带补丁的 sherpa-onnx 静态运行时
+pnpm prepare:models     # 下载并校验全部固定模型
 pnpm check              # 格式 + 代码检查 + 类型检查
+pnpm check:fix          # 自动修复格式与可修复的检查问题
 pnpm typecheck          # 仅类型检查
 pnpm lint               # 仅代码检查
 pnpm fmt                # 仅格式化
-pnpm check:rust         # cargo fmt --check + clippy
-pnpm build              # 构建 desktop / engine / extension
-pnpm --filter @sonasub/desktop prepare:engine # 准备分发 Node.js 与引擎产物
-pnpm --filter @sonasub/desktop tauri:build    # 构建当前平台安装包
-pnpm --filter @sonasub/desktop exec tauri build --debug --bundles app --no-sign # macOS 本地未签名验证包
-pnpm build:extension:zip # 打包扩展 zip
+pnpm check:rust         # cargo fmt --check + clippy -D warnings
+pnpm test               # 桌面 UI/状态与共享 i18n 测试
+pnpm build              # 构建桌面前端与扩展
+
+pnpm --filter @sonasub/desktop tauri:build
+pnpm --filter @sonasub/desktop exec tauri build --debug --bundles app --no-sign
+pnpm build:extension:zip
 ```
 
-桌面概览页提供引擎状态、启动/停止/重启、真实版本与启动时间。开发模式的诊断区域显示 PID 与本机端口；认证信息不会传给前端。
+Rust 测试：
 
-桌面顶栏与扩展 popup 均提供界面语言设置。语言偏好会跨重启保留，默认跟随系统语言。
-
-macOS 本地验证包位于 `apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app`。构建会下载并校验 Node.js 24.22.1；运行时和引擎资源位于应用包的 `Contents/Resources/`。未签名包仅用于本机验证，不等同于已签名/公证的发布包。
-
-扩展开发产物在 `apps/extension/.output/chrome-mv3-dev`，生产产物在 `apps/extension/.output/chrome-mv3`，可在 Chrome 扩展页以「加载已解压的扩展程序」载入。
-
-## 结构
-
-```
-apps/desktop      桌面前端与 src-tauri 原生后端
-apps/engine       本机 WebSocket 引擎与真实运行信息
-apps/extension    Chrome 扩展 popup
-packages/ui       共享组件、主题、图标与样式
-packages/i18n     共享界面翻译与类型安全的 i18next 配置
-packages/protocol 桌面后端与引擎的通信契约
-.agents/skills    项目专属 Skills
-docs/architecture.md  模块职责与依赖边界
-AGENTS.md         全仓库开发约定
+```bash
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1
 ```
 
-开发约定见 [AGENTS.md](AGENTS.md)，模块边界见 [docs/architecture.md](docs/architecture.md)。
+依赖大模型的测试默认忽略：
 
-## 当前验证
+```bash
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
+  --test native_pipeline -- --ignored --test-threads=1 --nocapture
+```
 
-- `pnpm install --frozen-lockfile`、`pnpm check`、`pnpm check:rust`、`pnpm test`（22 个测试）、`pnpm build`。
-- `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`（14 个测试）：真实进程并发启动、停止/重启、意外退出、控制连接断开、认证隔离与退出清理。
-- 同一组 11 个真实进程 Rust 集成测试在禁止外网、仅允许回环网络的环境中通过。
-- macOS arm64 实际构建并运行 `.app`，验证随包 Node.js 与引擎产物，并在真实应用中检查启动/停止/重启、失败恢复、意外退出提示、超大消息连接隔离与受管子进程退出清理。
-- CI 工作流已配置冻结安装、检查、TypeScript 测试、构建、引擎资源准备与串行 Rust 测试；独立启动引擎按预期因缺少认证信息而失败。本次改动尚未推送，因此新的远端 CI 运行尚未验证。
-- Windows、Linux 与 macOS x64 的安装包运行尚未验证。
+## 配置规则
+
+设置面板包含：
+
+- 系统输出设备；
+- ASR 模式（`auto` / `streaming` / `segmented`）、模型与源语言；
+- 最大分段长度、VAD 阈值、最小静音/语音时长、稳定等待时间；
+- 翻译模式（`auto` / `streaming` / `text`）、触发策略
+  （`finalOnly` / `stableSegment`）与目标语言；
+- 说话人嵌入/Diarization、窗口长度、最大人数与匹配阈值；
+- 字幕历史上限。
+
+`auto` 由当前模型与已编译适配器决定；不支持的显式模式会被拒绝并在界面
+禁用。Bergamot 只能返回完整文本，因此 `streaming` 不可用。配置原子写入，
+会话运行期间锁定，下次启动或重启时生效。
+
+## 架构
+
+```
+apps/desktop                 React 工作台 + src-tauri Rust 应用
+  src/                       Tauri IPC/事件、实时字幕与配置界面
+  src-tauri/src/audio/       Core Audio 系统采集与 48k -> 16k DSP
+  src-tauri/src/asr/         流式 Zipformer 与分段 SenseVoice
+  src-tauri/src/speaker/     CAM++ 注册表与窗口化 Diarization
+  src-tauri/src/translation/ TranslationEngine 边界与 Bergamot Worker
+  src-tauri/src/subtitles/   稳定 ID、修订号与 Patch 调度
+  src-tauri/src/session/     生命周期、有界队列、事件与指标
+apps/extension               Chrome 扩展 popup（尚无采集）
+packages/ui                  共享组件、主题、图标与样式
+packages/i18n                英文与简体中文界面资源
+docs/architecture.md         运行时边界与链路细节
+docs/models.md               模型来源、版本与校验信息
+```
+
+React 只通过 Tauri 命令与事件控制 Rust。音频样本、模型句柄与推理 Worker
+不会进入 JavaScript。完整链路见 [docs/architecture.md](docs/architecture.md)，
+开发约定见 [AGENTS.md](AGENTS.md)。
+
+## 打包
+
+macOS 验证包位于：
+
+```text
+apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app
+```
+
+安装包只包含可执行文件、图标与 plist，不包含 Node.js、旧引擎产物、
+WebSocket 协议或模型权重。本地未签名包不等同于已签名/公证的发布包。
+
+## 验证
+
+本次变更的最终验证记录会覆盖 TypeScript 检查与测试、Rust 格式/Clippy/测试、
+忽略标记的原生模型测试，以及使用真实系统输出播放的 macOS `.app` 验证：
+两条 ASR 路径、两个 Bergamot 方向、说话人与重叠语音行为、配置持久化、
+停止/重启与退出清理。
+
+Windows、Linux 与 macOS x64 安装包尚未验证。
 
 ## Star History
 
 <a href="https://www.star-history.com/?repos=moil-xm%2FSonaSub&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
+  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&theme=dark&legend=top-left" />
+  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&theme=light&legend=top-left" />
+  <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
  </picture>
 </a>

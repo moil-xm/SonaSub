@@ -1,6 +1,6 @@
 # SonaSub
 
-Open-source real-time subtitling project. The desktop app and the local engine already communicate for real, including the full process lifecycle; pnpm workspace + Vite+ manage the JS/TS toolchain, while Tauri and WXT keep their own build entries.
+Open-source real-time subtitling project. The desktop app captures macOS system audio and runs sherpa-onnx recognition, speaker analysis and Bergamot translation locally in Rust; React controls the session through Tauri IPC and events. pnpm workspace + Vite+ manage the JS/TS toolchain, while Tauri and WXT keep their own build entries.
 
 ## Language
 
@@ -9,13 +9,12 @@ Open-source real-time subtitling project. The desktop app and the local engine a
 
 ## Tech Stack and Module Responsibilities
 
-| Module              | Responsibility                                                     | Technology                                                                               |
-| ------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `apps/desktop`      | React state and control UI; Rust process, connection and lifecycle | React + TypeScript, TanStack Router/Query/Form, Zustand, Tauri 2 + Rust                  |
-| `apps/engine`       | Loopback WebSocket service and real runtime information            | Node.js 24 LTS; TypeScript in development, self-contained build in distribution          |
-| `apps/extension`    | Chrome extension (Manifest V3)                                     | WXT + React + TypeScript                                                                 |
-| `packages/ui`       | Shared components, theme variables, icons, styles                  | shadcn/ui, Tailwind CSS 4 + CSS Variables, static Iconify icons, Day.js provided by apps |
-| `packages/protocol` | Contracts between the desktop backend and the engine               | TypeScript types and boundary parsing                                                    |
+| Module           | Responsibility                                                                                  | Technology                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `apps/desktop`   | React control UI; Rust system-audio capture, inference workers, subtitles and session lifecycle | React + TypeScript, TanStack Router/Query/Form, Zustand, Tauri 2 + Rust                  |
+| `apps/extension` | Chrome extension (Manifest V3), popup only for now                                              | WXT + React + TypeScript                                                                 |
+| `packages/ui`    | Shared components, theme variables, icons, styles, hooks                                        | shadcn/ui, Tailwind CSS 4 + CSS Variables, static Iconify icons, Day.js provided by apps |
+| `packages/i18n`  | Shared English and Simplified Chinese resources and typed i18next setup                         | i18next + react-i18next                                                                  |
 
 Dependency direction and import conventions are in [docs/architecture.md](docs/architecture.md).
 
@@ -23,9 +22,11 @@ Dependency direction and import conventions are in [docs/architecture.md](docs/a
 
 - Apps never import each other's internal source; packages never depend on apps.
 - `packages/ui` must not call Tauri, Chrome extension or Node-only APIs.
-- Native capabilities live in `src-tauri`, local processing in `apps/engine`, platform code in the owning app.
+- Native capabilities and local processing live in `apps/desktop/src-tauri`; platform-specific code stays in the owning app.
 - Cross-app reuse goes through `packages/*` only, and new exports are added to that package's `exports`.
-- React controls the engine only through Tauri IPC; the process handle, port, credentials and lifecycle stay in Rust. The engine listens on `127.0.0.1` only and accepts control requests after authentication.
+- React controls the session only through Tauri IPC and events; continuous audio, model handles, worker threads and lifecycle stay in Rust.
+- The packaged desktop app must not bundle, download or launch Node.js. The extension is isolated from desktop Tauri IPC and has no capture implementation yet.
+- Model weights live in the platform application-data directory, never in the installer; see [docs/models.md](docs/models.md).
 
 ## File Organization and Naming
 
@@ -51,8 +52,8 @@ Dependency direction and import conventions are in [docs/architecture.md](docs/a
 
 ## State Responsibilities
 
-- TanStack Query: engine state and action results; local IPC queries and actions use `networkMode: 'always'`, and Rust state events update or invalidate the cache.
-- TanStack Form: form fields and validation state (dependency pinned, no forms yet).
+- TanStack Query: session capabilities, configuration, snapshot and action results; local IPC queries and actions use `networkMode: 'always'`, and Rust events update the cache by subtitle ID.
+- TanStack Form: configuration fields and validation state; the form saves before a session starts and is locked while a session is active.
 - Zustand: local interaction state such as the theme; never async resource caches.
 
 ## Commands
@@ -67,13 +68,13 @@ pnpm typecheck               # Type checking only
 pnpm lint                    # Linting only
 pnpm fmt                     # Formatting only
 pnpm check:rust              # cargo fmt --check + clippy -D warnings
-pnpm build                   # vp run -r build: desktop (Vite+), engine (vp pack), extension (WXT)
-pnpm test                    # Protocol, real Node.js engine, desktop UI and i18n tests
+pnpm build                   # vp run -r build: desktop (Vite+) and extension (WXT)
+pnpm test                    # Desktop UI/state and shared i18n tests
 pnpm dev:desktop             # Desktop frontend dev server (http://localhost:5173)
 pnpm dev:desktop:app         # Tauri desktop app (compiles Rust)
 pnpm dev:extension           # WXT extension development (Chrome)
-pnpm start:engine            # Refuses standalone startup without Rust-owned credentials (expected failure)
-pnpm --filter @sonasub/desktop prepare:engine # Prepare the distributed Node.js runtime and engine artifact
+pnpm prepare:native          # Build the pinned patched sherpa-onnx static runtime
+pnpm prepare:models          # Download and checksum the pinned local models
 pnpm --filter @sonasub/desktop tauri:build    # Build the installer for the current platform
 ```
 
@@ -86,7 +87,7 @@ Project Skills live in [.agents/skills](.agents/skills); pick by task, reading a
 | Workspace, dependencies, toolchain, exports, scripts     | [project-workspace](.agents/skills/project-workspace/SKILL.md)       |
 | Pages, shared components, theme, forms, frontend state   | [project-frontend](.agents/skills/project-frontend/SKILL.md)         |
 | Naming, types and state habits for handwritten React/TSX | [react-conventions](.agents/skills/react-conventions/SKILL.md)       |
-| Desktop/Rust/engine/extension/shared package ownership   | [project-boundaries](.agents/skills/project-boundaries/SKILL.md)     |
+| Desktop/Rust/extension/shared package ownership          | [project-boundaries](.agents/skills/project-boundaries/SKILL.md)     |
 | Choosing checks for the change and preparing delivery    | [project-verification](.agents/skills/project-verification/SKILL.md) |
 
 Add a Skill only when a stable, repeated, project-specific judgment rule exists; never create one Skill per third-party library.
@@ -94,12 +95,13 @@ Add a Skill only when a stable, repeated, project-specific judgment rule exists;
 ## Delivery Requirements
 
 - State the change scope and owning module; list the verification commands actually run with their results, plus anything unverified in this environment.
+- Run `pnpm prepare:native` once per checkout before Rust checks; `build.rs` fails with that instruction when the pinned runtime is absent.
 - Check `git status` before and after changes, preserve existing staged, unstaged and untracked work, and never restore, delete or reformat unrelated files.
 - Docs-only or Skills-only changes: check frontmatter, reference paths and `git diff --check`; no compilation required.
 
-## Current Stage (temporary, not permanent rules)
+## Current Scope
 
-- This stage implements engine start, connection, status query, stop, restart, failure reporting and exit cleanup.
-- Later tasks will decide: audio capture, speech recognition, translation, model downloads, multi-tab handling and extension capture.
-- `packages/protocol` contains only the current engine protocol; the desktop has no TanStack Form form yet; the extension has only a popup.
-- These limits are lifted as tasks progress and are not long-term constraints.
+- The native desktop pipeline is implemented: macOS system-output capture, streaming and segmented ASR, windowed speaker analysis, Bergamot translation, subtitle scheduling and the live caption UI.
+- The Chrome extension still contains only a popup. Tab capture and extension-to-desktop communication are future work, not a hidden fallback path.
+- System capture is implemented and verified for macOS 14.4+ arm64. Other platforms and architectures must be reported as unverified rather than silently using another audio source.
+- Native workers run in the desktop process; a native crash is not isolated from the UI.

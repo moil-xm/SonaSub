@@ -13,7 +13,7 @@ They do not apply to generated artifacts (`routeTree.gen.ts`, WXT-generated file
 
 - Boolean values prefer the `is`, `has`, `can`, `should` prefixes.
 - Callback props use `onXxx`; event handlers inside a component use `handleXxx`.
-- Hooks are named `useXxx`; file names follow the AGENTS.md kebab-case rule (for example `use-engine-status.ts`), not mall's camelCase file names.
+- Hooks are named `useXxx`; file names follow the AGENTS.md kebab-case rule (for example `use-now.ts`), not mall's camelCase file names.
 - Module-level semantic constants use `UPPER_SNAKE_CASE`.
 - Component props types are named `XxxProps` and compose native element or existing component props with `React.ComponentProps<...>`.
 
@@ -48,7 +48,7 @@ They do not apply to generated artifacts (`routeTree.gen.ts`, WXT-generated file
 - Destructure the return value of `useQuery` / `useMutation`; never store the whole result object in a variable.
 - Control queries that depend on other data with `enabled`; include only inputs that truly determine the data in `queryKey`.
 - Derive rendered data from `data`; never mirror server data into local state or Zustand unless the user is editing a form snapshot.
-- Command-style operations (start/stop/restart engine and similar) use `useMutation`; use `mutateAsync` when the caller must await the result, `mutate` for pure UI triggers.
+- Command-style operations (start/stop/restart session and similar) use `useMutation`; use `mutateAsync` when the caller must await the result, `mutate` for pure UI triggers.
 - When a child command affects parent data, pass an explicit refresh callback or invalidate the matching `queryKey` instead of letting the child mutate parent cache.
 - Local IPC queries and actions use `networkMode: 'always'`; Rust state events update or invalidate the cache (see AGENTS.md).
 

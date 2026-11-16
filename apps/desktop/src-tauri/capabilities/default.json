@@ -1,13 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default app-shell permissions plus engine lifecycle commands.",
+  "description": "Default app-shell permissions plus local caption session commands.",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "allow-start-command",
-    "allow-stop-command",
-    "allow-restart-command",
-    "allow-status-command"
+    "allow-get-capabilities",
+    "allow-get-config",
+    "allow-save-config",
+    "allow-session-snapshot",
+    "allow-start-session",
+    "allow-stop-session",
+    "allow-restart-session"
   ]
 }

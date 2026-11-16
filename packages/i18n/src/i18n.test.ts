@@ -82,7 +82,7 @@ describe('translation resources', () => {
   it('resolves selectors, interpolation and plurals synchronously in both locales', async () => {
     const instance = createI18n('en-US');
 
-    expect(instance.t(($) => $.navigation.overview)).toBe('Overview');
+    expect(instance.t(($) => $.navigation.live)).toBe('Live');
     expect(instance.t(($) => $.about.description, { time: '2026-11-16 12:00' })).toContain(
       '2026-11-16 12:00',
     );
@@ -91,7 +91,7 @@ describe('translation resources', () => {
 
     await instance.changeLanguage('zh-CN');
 
-    expect(instance.t(($) => $.navigation.overview)).toBe('概览');
+    expect(instance.t(($) => $.navigation.live)).toBe('实时字幕');
     expect(instance.t(($) => $.about.description, { time: '2026-11-16 12:00' })).toContain(
       '2026-11-16 12:00',
     );

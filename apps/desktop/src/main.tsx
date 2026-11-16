@@ -8,7 +8,19 @@ import { i18n } from './i18n';
 import { routeTree } from './routeTree';
 import './styles/app.css';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      networkMode: 'always',
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+    mutations: {
+      networkMode: 'always',
+      retry: false,
+    },
+  },
+});
 const router = createRouter({ routeTree });
 
 declare module '@tanstack/react-router' {
