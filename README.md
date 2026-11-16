@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Open-source real-time subtitling project. The repository is currently at the engineering-skeleton stage: a desktop app shell, a Chrome extension popup and a local engine entry point, together with shared tooling configuration and collaboration conventions. Audio capture, speech recognition and translation are not implemented yet.
+Open-source real-time subtitling project. The desktop frontend now communicates with a real local Node.js engine through Tauri Rust, with start, status, stop, restart, failure reporting and exit cleanup. The Chrome extension still contains only a popup. Audio capture, speech recognition, translation and extension capture are not implemented yet.
 
 ## Tech Stack
 
@@ -10,7 +10,7 @@ Open-source real-time subtitling project. The repository is currently at the eng
 - Desktop: Tauri 2 + Rust, frontend in React + TypeScript
 - Styling and components: Tailwind CSS 4 + CSS Variables, shadcn/ui, static Iconify icons
 - Routing and state: TanStack Router / Query / Form, Zustand, Day.js
-- Local engine: Node.js 24 LTS running TypeScript directly
+- Local engine: Node.js 24 LTS; TypeScript in development, a bundled runtime and self-contained build in installers
 - Extension: WXT + React + TypeScript (Manifest V3)
 
 ## Requirements
@@ -32,18 +32,24 @@ pnpm install
 pnpm dev:desktop        # Desktop frontend dev server at http://localhost:5173
 pnpm dev:desktop:app    # Tauri desktop app (compiles Rust and opens a window)
 pnpm dev:extension      # WXT extension development
-pnpm start:engine       # Run the engine entry point and exit cleanly
+pnpm start:engine       # Refuses standalone startup without Rust-owned authentication (expected failure)
 
+pnpm test               # Protocol and real Node.js engine tests
 pnpm check              # Formatting + linting + type checking
 pnpm typecheck          # Type checking only
 pnpm lint               # Linting only
 pnpm fmt                # Formatting only
 pnpm check:rust         # cargo fmt --check + clippy
 pnpm build              # Build desktop / engine / extension
+pnpm --filter @sonasub/desktop prepare:engine # Prepare the distributed Node.js runtime and engine
+pnpm --filter @sonasub/desktop tauri:build    # Build the current platform installer
+pnpm --filter @sonasub/desktop exec tauri build --debug --bundles app --no-sign # Local unsigned macOS verification build
 pnpm build:extension:zip # Package the extension zip
 ```
 
-The desktop native backend can also be built on its own: `pnpm --filter @sonasub/desktop exec tauri build --debug --no-bundle`. `bundle.active` is currently `false`, so no installer is produced.
+The overview page exposes engine state, start/stop/restart actions, real versions and startup time. Development diagnostics show the PID and loopback port; authentication credentials never reach the frontend.
+
+The local macOS verification bundle is `apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app`. Building downloads and checksum-verifies Node.js 24.22.1; the runtime and engine live under `Contents/Resources/`. An unsigned local build is not a signed/notarized release.
 
 Extension development output lives in `apps/extension/.output/chrome-mv3-dev` and production output in `apps/extension/.output/chrome-mv3`; load either from the Chrome extensions page via "Load unpacked".
 
@@ -51,13 +57,30 @@ Extension development output lives in `apps/extension/.output/chrome-mv3-dev` an
 
 ```
 apps/desktop      Desktop frontend and the src-tauri native backend
-apps/engine       Local processing engine entry point
+apps/engine       Loopback WebSocket engine and real process information
 apps/extension    Chrome extension popup
 packages/ui       Shared components, theme, icons and styles
-packages/protocol Home of cross-module communication contracts (currently empty)
+packages/protocol Desktop-backend/engine communication contract
 .agents/skills    Project-specific Skills
 docs/architecture.md  Module responsibilities and dependency boundaries
 AGENTS.md         Repository-wide development conventions
 ```
 
 Development conventions are in [AGENTS.md](AGENTS.md) and module boundaries in [docs/architecture.md](docs/architecture.md); both are written in Chinese.
+
+## Current Verification
+
+- `pnpm check`, `pnpm check:rust`, `pnpm test`, `pnpm build`.
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`: real-process concurrency, stop/restart, unexpected exit, authentication isolation and exit cleanup.
+- A macOS arm64 `.app` is built and launched with its bundled Node.js and engine artifact.
+- Windows, Linux and macOS x64 installer execution remain unverified.
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=moil-xm%2FSonaSub&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
+ </picture>
+</a>

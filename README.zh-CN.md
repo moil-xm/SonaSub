@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-开源实时字幕项目。当前仓库处于工程骨架阶段：提供桌面应用壳、Chrome 扩展 popup 与本地引擎入口，以及统一的工程配置与协作规范。音频采集、语音识别、翻译等业务能力尚未实现。
+开源实时字幕项目。当前已打通桌面前端 → Tauri Rust → 本机 Node.js 引擎的真实通信与进程生命周期：启动、状态查询、停止、重启、失败提示和退出清理。Chrome 扩展仍只有 popup；音频采集、语音识别、翻译与扩展采集尚未实现。
 
 ## 技术栈
 
@@ -10,7 +10,7 @@
 - 桌面：Tauri 2 + Rust，前端 React + TypeScript
 - 样式与组件：Tailwind CSS 4 + CSS Variables、shadcn/ui、Iconify 静态图标
 - 路由与状态：TanStack Router / Query / Form、Zustand、Day.js
-- 本地引擎：Node.js 24 LTS 直接运行 TypeScript
+- 本地引擎：Node.js 24 LTS；开发直接运行 TypeScript，安装包使用随应用分发的 Node.js 与自包含构建产物
 - 扩展：WXT + React + TypeScript（Manifest V3）
 
 ## 环境要求
@@ -32,18 +32,24 @@ pnpm install
 pnpm dev:desktop        # 桌面前端开发服务器 http://localhost:5173
 pnpm dev:desktop:app    # Tauri 桌面应用（编译 Rust 并打开窗口）
 pnpm dev:extension      # WXT 扩展开发
-pnpm start:engine       # 运行引擎入口并正常退出
+pnpm start:engine       # 无 Rust 认证信息时拒绝独立启动（预期失败）
 
+pnpm test               # 协议与真实 Node.js 引擎测试
 pnpm check              # 格式 + 代码检查 + 类型检查
 pnpm typecheck          # 仅类型检查
 pnpm lint               # 仅代码检查
 pnpm fmt                # 仅格式化
 pnpm check:rust         # cargo fmt --check + clippy
 pnpm build              # 构建 desktop / engine / extension
+pnpm --filter @sonasub/desktop prepare:engine # 准备分发 Node.js 与引擎产物
+pnpm --filter @sonasub/desktop tauri:build    # 构建当前平台安装包
+pnpm --filter @sonasub/desktop exec tauri build --debug --bundles app --no-sign # macOS 本地未签名验证包
 pnpm build:extension:zip # 打包扩展 zip
 ```
 
-桌面原生后端也可单独构建：`pnpm --filter @sonasub/desktop exec tauri build --debug --no-bundle`。当前 `bundle.active` 为 `false`，不产出安装包。
+桌面概览页提供引擎状态、启动/停止/重启、真实版本与启动时间。开发模式的诊断区域显示 PID 与本机端口；认证信息不会传给前端。
+
+macOS 本地验证包位于 `apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app`。构建会下载并校验 Node.js 24.22.1；运行时和引擎资源位于应用包的 `Contents/Resources/`。未签名包仅用于本机验证，不等同于已签名/公证的发布包。
 
 扩展开发产物在 `apps/extension/.output/chrome-mv3-dev`，生产产物在 `apps/extension/.output/chrome-mv3`，可在 Chrome 扩展页以「加载已解压的扩展程序」载入。
 
@@ -51,13 +57,30 @@ pnpm build:extension:zip # 打包扩展 zip
 
 ```
 apps/desktop      桌面前端与 src-tauri 原生后端
-apps/engine       本地处理引擎入口
+apps/engine       本机 WebSocket 引擎与真实运行信息
 apps/extension    Chrome 扩展 popup
 packages/ui       共享组件、主题、图标与样式
-packages/protocol 跨模块通信契约的归属位置（当前为空）
+packages/protocol 桌面后端与引擎的通信契约
 .agents/skills    项目专属 Skills
 docs/architecture.md  模块职责与依赖边界
 AGENTS.md         全仓库开发约定
 ```
 
 开发约定见 [AGENTS.md](AGENTS.md)，模块边界见 [docs/architecture.md](docs/architecture.md)。
+
+## 当前验证
+
+- `pnpm check`、`pnpm check:rust`、`pnpm test`、`pnpm build`。
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`：真实进程并发启动、停止/重启、意外退出、认证隔离与退出清理。
+- macOS arm64 实际构建并运行 `.app`，验证随包 Node.js 与引擎产物。
+- Windows、Linux 与 macOS x64 的安装包运行尚未验证。
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=moil-xm%2FSonaSub&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=moil-xm/SonaSub&type=date&legend=top-left" />
+ </picture>
+</a>
