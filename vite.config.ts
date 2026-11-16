@@ -1,0 +1,51 @@
+import { defineConfig } from 'vite-plus';
+
+export default defineConfig({
+  fmt: {
+    singleQuote: true,
+    semi: true,
+    printWidth: 100,
+    ignorePatterns: [
+      '**/dist/**',
+      '**/.output/**',
+      '**/.wxt/**',
+      '**/target/**',
+      '**/gen/schemas/**',
+      '**/node_modules/**',
+      'pnpm-lock.yaml',
+      'Cargo.lock',
+    ],
+  },
+  lint: {
+    plugins: ['typescript', 'unicorn', 'oxc'],
+    categories: { correctness: 'error', suspicious: 'warn' },
+    options: { typeAware: true, typeCheck: true },
+    ignorePatterns: [
+      '**/dist/**',
+      '**/.output/**',
+      '**/.wxt/**',
+      '**/target/**',
+      '**/gen/schemas/**',
+    ],
+    rules: {
+      'no-console': ['error', { allow: ['warn', 'error', 'info'] }],
+      'typescript/no-explicit-any': 'error',
+      'typescript/consistent-type-imports': 'error',
+    },
+    overrides: [
+      {
+        files: ['apps/desktop/src/**', 'apps/extension/**', 'packages/ui/src/**'],
+        plugins: ['react'],
+        env: { browser: true },
+        rules: {
+          'react/react-in-jsx-scope': 'off',
+          'react/self-closing-comp': 'error',
+        },
+      },
+      {
+        files: ['apps/engine/src/**'],
+        env: { node: true },
+      },
+    ],
+  },
+});

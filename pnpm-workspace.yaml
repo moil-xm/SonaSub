@@ -1,0 +1,18 @@
+packages:
+  - apps/*
+  - packages/*
+
+saveExact: true
+
+overrides:
+  'vite@*': 'npm:@voidzero-dev/vite-plus-core@1.6.0'
+
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: '*'
+
+onlyBuiltDependencies:
+  - esbuild
+  - '@tailwindcss/oxide'

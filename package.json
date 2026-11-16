@@ -1,0 +1,31 @@
+{
+  "name": "sonasub",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:desktop": "pnpm --filter @sonasub/desktop dev",
+    "dev:desktop:app": "pnpm --filter @sonasub/desktop tauri:dev",
+    "dev:extension": "pnpm --filter @sonasub/extension dev",
+    "start:engine": "pnpm --filter @sonasub/engine start",
+    "build": "vp run -r build",
+    "build:extension:zip": "pnpm --filter @sonasub/extension zip",
+    "check": "vp check",
+    "check:fix": "vp check --fix",
+    "typecheck": "vp check --no-fmt --no-lint",
+    "lint": "vp lint",
+    "fmt": "vp fmt",
+    "check:rust": "cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check && cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings"
+  },
+  "devDependencies": {
+    "@types/node": "24.11.0",
+    "typescript": "7.0.2",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0",
+    "vite-plus": "1.6.0"
+  },
+  "engines": {
+    "node": "^24.11.0",
+    "pnpm": ">=12"
+  },
+  "packageManager": "pnpm@12.15.0"
+}

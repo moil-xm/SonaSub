@@ -1,0 +1,7 @@
+{
+  "name": "@sonasub/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "description": "跨模块通信契约的归属位置。契约在后续任务中确定后再补充 exports。",
+  "type": "module"
+}
