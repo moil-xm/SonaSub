@@ -186,6 +186,104 @@ fn unexpected_exit_is_failed_and_can_be_retried() {
     wait_for_exit(replacement.info().expect("replacement info").pid);
 }
 
+struct TestDirectory(PathBuf);
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn connection_loss_is_failed_and_can_be_retried() {
+    let resources = source_resources();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let received = events.clone();
+    let directory = TestDirectory(std::env::temp_dir().join(format!(
+        "sonasub-connection-loss-test-{}",
+        std::process::id()
+    )));
+    std::fs::create_dir_all(&directory.0).expect("create connection loss test directory");
+    let entry = directory.0.join("engine.mjs");
+    let ws_entry = resources
+        .working_directory
+        .join("node_modules/ws/wrapper.mjs");
+    let ws_entry = serde_json::to_string(&ws_entry).expect("serialize ws entry path");
+    let marker_path = directory.0.join("disconnected");
+    let marker_path = serde_json::to_string(&marker_path).expect("serialize marker path");
+    std::fs::write(
+        &entry,
+        format!(
+            r#"
+import {{ existsSync, writeFileSync }} from 'node:fs';
+import {{ createServer }} from 'node:http';
+import {{ pathToFileURL }} from 'node:url';
+const {{ WebSocketServer }} = await import(pathToFileURL({ws_entry}).href);
+const server = createServer();
+const sockets = new WebSocketServer({{ server }});
+const marker = {marker_path};
+const disconnectFirstControl = !existsSync(marker);
+sockets.on('connection', (socket) => {{
+  socket.on('error', () => {{}});
+  socket.on('message', (raw) => {{
+    const message = JSON.parse(raw.toString());
+    if (message.type !== 'request' || message.method !== 'engine.info') return;
+    socket.send(JSON.stringify({{
+      protocolVersion: 1,
+      type: 'response',
+      id: message.id,
+      ok: true,
+      result: {{
+        engineVersion: '0.0.0',
+        nodeVersion: process.version,
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+      }},
+    }}));
+    if (disconnectFirstControl) {{
+      writeFileSync(marker, 'disconnected');
+      socket.close(1011, 'test control connection loss');
+    }}
+  }});
+}});
+server.listen(0, '127.0.0.1', () => {{
+  process.stdout.write(`SONASUB_HANDSHAKE ${{JSON.stringify({{
+    protocolVersion: 1,
+    port: server.address().port,
+    pid: process.pid,
+  }})}}\n`);
+}});
+setInterval(() => {{}}, 1000);
+"#
+        ),
+    )
+    .expect("write connection loss test engine");
+    let manager = EngineManager::new(EngineResources::custom(
+        resources.node,
+        entry,
+        directory.0.clone(),
+    ));
+    manager.set_listener(move |event| received.lock().expect("event log").push(event));
+    manager.start().expect("initial start");
+    let first_pid = running(&manager).info().expect("initial info").pid;
+    let failure = failed(&manager);
+    assert!(failure
+        .error()
+        .expect("failure reason")
+        .contains("connection"));
+    assert!(events
+        .lock()
+        .expect("event log")
+        .iter()
+        .any(|event| matches!(event, EngineEvent::Failed { .. })));
+    wait_for_exit(first_pid);
+    manager.start().expect("manual retry after connection loss");
+    let replacement = running(&manager);
+    assert_ne!(replacement.info().expect("replacement info").pid, first_pid);
+    manager.shutdown();
+    wait_for_exit(replacement.info().expect("replacement info").pid);
+}
+
 #[test]
 fn wrong_authentication_cannot_query_or_stop_the_real_engine() {
     let manager = EngineManager::new(source_resources());

@@ -18,6 +18,7 @@ description: Use when adding or changing a pnpm workspace, installing or upgradi
 3. Adding a workspace: create the directory under `apps/*` or `packages/*` with a `package.json` (`private: true`, `type: module`) and a `tsconfig.json` (`extends ../../tsconfig.base.json`). Packages never depend on apps.
 4. Adding a shared export: update the package's `exports` at the same time (`packages/ui` internal imports use `#lib/*`) and confirm consumers can resolve it.
 5. Configure the toolchain only in the root `vite.config.ts` `lint` / `fmt` blocks, with package-level differences as `overrides`; never add duplicate tools such as ESLint, Prettier or Biome. Rust checks use `cargo fmt` / `clippy`.
+   Root `pnpm test` discovers test projects under `apps/*` and `packages/*`; workspace-specific test environments stay in that workspace's Vite config.
 6. Scripts: each package keeps its own `dev` / `build`, and the root aggregates with `vp run -r <script>` or `pnpm --filter <name> <script>`; Tauri and WXT keep their own build entries.
 7. Run `pnpm install` to update `pnpm-lock.yaml`; after a Rust dependency change run `cargo generate-lockfile` or any cargo command inside `apps/desktop/src-tauri` to update `Cargo.lock`. Lock files must be committed.
 

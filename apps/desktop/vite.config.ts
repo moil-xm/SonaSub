@@ -18,4 +18,7 @@ export default defineConfig({
   build: {
     target: 'es2023',
   },
+  test: {
+    environment: 'happy-dom',
+  },
 });

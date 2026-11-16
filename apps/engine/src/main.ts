@@ -70,6 +70,10 @@ async function main(): Promise<void> {
   };
 
   sockets.on('connection', (socket, request) => {
+    socket.on('error', (error) => {
+      console.error(`The engine client connection failed: ${error.message}`);
+      socket.terminate();
+    });
     if (shuttingDown || request.socket.remoteAddress !== '127.0.0.1') {
       socket.close(1008, 'Only the loopback desktop backend may connect.');
       return;

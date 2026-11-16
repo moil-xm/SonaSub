@@ -27,6 +27,11 @@ use crate::{
 type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 type Listener = Arc<dyn Fn(EngineEvent) + Send + Sync>;
 
+struct ControlConnection {
+    pid: u32,
+    socket: Socket,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineDiagnostics {
@@ -107,7 +112,7 @@ struct Inner {
     state: Mutex<EngineState>,
     transition: Mutex<()>,
     child: Mutex<Option<Child>>,
-    socket: Mutex<Option<Socket>>,
+    socket: tokio::sync::Mutex<Option<ControlConnection>>,
     token: Mutex<Option<String>>,
     stderr: Arc<Mutex<VecDeque<String>>>,
     stderr_task: Mutex<Option<JoinHandle<()>>>,
@@ -129,7 +134,7 @@ impl EngineManager {
                 state: Mutex::new(EngineState::Stopped),
                 transition: Mutex::new(()),
                 child: Mutex::new(None),
-                socket: Mutex::new(None),
+                socket: tokio::sync::Mutex::new(None),
                 token: Mutex::new(None),
                 stderr: Arc::new(Mutex::new(VecDeque::new())),
                 stderr_task: Mutex::new(None),
@@ -171,10 +176,12 @@ impl EngineManager {
         match result {
             Ok(state) => Ok(state),
             Err(error) => {
-                self.inner.runtime.block_on(self.cleanup_child());
-                self.inner.runtime.block_on(self.drain_stderr());
-                *self.inner.socket.lock().expect("socket lock") = None;
-                *self.inner.token.lock().expect("token lock") = None;
+                self.inner.runtime.block_on(async {
+                    self.cleanup_child(None).await;
+                    self.drain_stderr().await;
+                    *self.inner.socket.lock().await = None;
+                    *self.inner.token.lock().expect("token lock") = None;
+                });
                 let error = self.with_stderr(error);
                 self.set_state(EngineState::Failed {
                     error: error.clone(),
@@ -213,12 +220,12 @@ impl EngineManager {
     pub fn shutdown(&self) {
         let _transition = self.inner.transition.lock().expect("transition lock");
         let pid = self.snapshot().info().map(|info| info.pid);
-        let socket = self.inner.socket.lock().expect("socket lock").take();
         self.inner.runtime.block_on(async {
-            if let Some(mut socket) = socket {
-                let _ = socket.close(None).await;
+            let connection = self.inner.socket.lock().await.take();
+            if let Some(mut connection) = connection {
+                let _ = connection.socket.close(None).await;
             }
-            self.cleanup_child().await;
+            self.cleanup_child(None).await;
         });
         *self.inner.token.lock().expect("token lock") = None;
         if pid.is_some() {
@@ -232,6 +239,25 @@ impl EngineManager {
         if let Some(listener) = self.inner.listener.lock().expect("listener lock").clone() {
             listener(event);
         }
+    }
+
+    fn fail_if_running(&self, pid: u32, error: String) -> bool {
+        let listener = {
+            let mut state = self.inner.state.lock().expect("state lock");
+            match &*state {
+                EngineState::Running { info, .. } if info.pid == pid => {
+                    *state = EngineState::Failed {
+                        error: error.clone(),
+                    };
+                    self.inner.listener.lock().expect("listener lock").clone()
+                }
+                _ => return false,
+            }
+        };
+        if let Some(listener) = listener {
+            listener(EngineEvent::Failed { error });
+        }
+        true
     }
 
     async fn start_process(&self) -> Result<EngineState, String> {
@@ -293,14 +319,18 @@ impl EngineManager {
                 info.node_version
             ));
         }
-        *self.inner.socket.lock().expect("socket lock") = Some(socket);
-        *self.inner.token.lock().expect("token lock") = Some(token);
         let state = EngineState::Running {
             info,
             port: handshake.port,
         };
+        {
+            let mut socket_guard = self.inner.socket.lock().await;
+            *socket_guard = Some(ControlConnection { pid, socket });
+            *self.inner.token.lock().expect("token lock") = Some(token);
+        }
         self.set_state(state.clone());
         self.watch_process(pid);
+        self.watch_connection(pid);
         Ok(state)
     }
 
@@ -392,10 +422,12 @@ impl EngineManager {
     }
 
     async fn stop_process(&self, pid: u32) -> Result<(), String> {
-        let mut socket = self.inner.socket.lock().expect("socket lock").take();
-        if let Some(socket) = socket.as_mut() {
-            let _ = self.request(socket, "engine.shutdown").await;
-            let _ = socket.close(None).await;
+        let mut connection = self.inner.socket.lock().await.take();
+        if let Some(connection) = connection.as_mut() {
+            let _ = self
+                .request(&mut connection.socket, "engine.shutdown")
+                .await;
+            let _ = connection.socket.close(None).await;
         }
         *self.inner.token.lock().expect("token lock") = None;
         self.wait_or_kill(pid).await;
@@ -429,11 +461,19 @@ impl EngineManager {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        self.cleanup_child().await;
+        self.cleanup_child(Some(pid)).await;
     }
 
-    async fn cleanup_child(&self) {
-        let child = self.inner.child.lock().expect("child lock").take();
+    async fn cleanup_child(&self, pid: Option<u32>) {
+        let child = {
+            let mut guard = self.inner.child.lock().expect("child lock");
+            match guard.as_mut() {
+                Some(child) if pid.is_none_or(|expected| child.id() == Some(expected)) => {
+                    guard.take()
+                }
+                _ => None,
+            }
+        };
         if let Some(mut child) = child {
             let _ = child.start_kill();
             let _ = child.wait().await;
@@ -476,15 +516,62 @@ impl EngineManager {
                     }
                 };
                 if let Some(status) = status {
-                    let current = manager.snapshot();
-                    if current.info().is_some_and(|info| info.pid == pid)
-                        && !matches!(current, EngineState::Stopping { .. })
+                    if manager
+                        .fail_if_running(pid, format!("The engine exited unexpectedly ({status})."))
                     {
-                        *manager.inner.socket.lock().expect("socket lock") = None;
+                        *manager.inner.socket.lock().await = None;
                         *manager.inner.token.lock().expect("token lock") = None;
-                        manager.set_state(EngineState::Failed {
-                            error: format!("The engine exited unexpectedly ({status})."),
-                        });
+                    }
+                    return;
+                }
+            }
+        });
+    }
+
+    fn watch_connection(&self, pid: u32) {
+        let manager = self.clone();
+        self.inner.runtime.spawn(async move {
+            loop {
+                let mut socket_guard = manager.inner.socket.lock().await;
+                let Some(connection) = socket_guard.as_mut() else {
+                    return;
+                };
+                if connection.pid != pid {
+                    return;
+                }
+                let error = match tokio::time::timeout(
+                    Duration::from_millis(100),
+                    connection.socket.next(),
+                )
+                .await
+                {
+                    Ok(Some(Ok(Message::Close(_)))) | Ok(None) => {
+                        Some("The engine control connection closed.".to_owned())
+                    }
+                    Ok(Some(Err(error))) => {
+                        Some(format!("The engine control connection failed: {error}"))
+                    }
+                    Ok(Some(Ok(_))) | Err(_) => None,
+                };
+                if let Some(error) = error {
+                    let error = {
+                        let mut guard = manager.inner.child.lock().expect("child lock");
+                        match guard.as_mut() {
+                            Some(child) if child.id() == Some(pid) => match child.try_wait() {
+                                Ok(Some(status)) => {
+                                    format!("The engine exited unexpectedly ({status}).")
+                                }
+                                Ok(None) => error,
+                                Err(wait_error) => format!("{error}; process status: {wait_error}"),
+                            },
+                            _ => error,
+                        }
+                    };
+                    if manager.fail_if_running(pid, error) {
+                        *socket_guard = None;
+                        *manager.inner.token.lock().expect("token lock") = None;
+                        drop(socket_guard);
+                        manager.cleanup_child(Some(pid)).await;
                     }
                     return;
                 }

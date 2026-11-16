@@ -35,7 +35,7 @@ pnpm dev:desktop:app    # Tauri 桌面应用（编译 Rust 并打开窗口）
 pnpm dev:extension      # WXT 扩展开发
 pnpm start:engine       # 无 Rust 认证信息时拒绝独立启动（预期失败）
 
-pnpm test               # 协议与真实 Node.js 引擎测试
+pnpm test               # 协议、真实 Node.js 引擎、桌面 UI 与 i18n 测试
 pnpm check              # 格式 + 代码检查 + 类型检查
 pnpm typecheck          # 仅类型检查
 pnpm lint               # 仅代码检查
@@ -74,9 +74,11 @@ AGENTS.md         全仓库开发约定
 
 ## 当前验证
 
-- `pnpm check`、`pnpm check:rust`、`pnpm test`、`pnpm build`。
-- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`：真实进程并发启动、停止/重启、意外退出、认证隔离与退出清理。
-- macOS arm64 实际构建并运行 `.app`，验证随包 Node.js 与引擎产物。
+- `pnpm install --frozen-lockfile`、`pnpm check`、`pnpm check:rust`、`pnpm test`（22 个测试）、`pnpm build`。
+- `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`（14 个测试）：真实进程并发启动、停止/重启、意外退出、控制连接断开、认证隔离与退出清理。
+- 同一组 11 个真实进程 Rust 集成测试在禁止外网、仅允许回环网络的环境中通过。
+- macOS arm64 实际构建并运行 `.app`，验证随包 Node.js 与引擎产物，并在真实应用中检查启动/停止/重启、失败恢复、意外退出提示、超大消息连接隔离与受管子进程退出清理。
+- CI 工作流已配置冻结安装、检查、TypeScript 测试、构建、引擎资源准备与串行 Rust 测试；独立启动引擎按预期因缺少认证信息而失败。本次改动尚未推送，因此新的远端 CI 运行尚未验证。
 - Windows、Linux 与 macOS x64 的安装包运行尚未验证。
 
 ## Star History

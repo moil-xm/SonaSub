@@ -40,15 +40,16 @@ graph TD
 ```text
 stopped/failed → starting → running → stopping → stopped
                      ↘ failed (startup, handshake, auth or information failure)
-running → failed (process exited unexpectedly)
+running → failed (process exited unexpectedly or control connection lost)
 ```
 
 - Rust serializes start, stop and restart behind a single transition lock; a repeated start reuses the running engine, and it never scans ports or restarts automatically in a loop.
 - A successful start must complete process creation, the stdout handshake, WebSocket authentication and the `engine.info` query.
 - A failed start cleans up that child process and keeps the most recent engine stderr output in the failure reason; regular logs and the startup handshake stay separate.
-- Rust watches the managed child process and notifies the frontend through `engine://state` so TanStack Query caches are updated or invalidated.
+- Rust watches both the managed child process and the established control connection. Either loss transitions the matching running engine to `failed`, clears its connection/credential and notifies the frontend through `engine://state` so TanStack Query caches are updated or invalidated.
+- The engine handles errors per WebSocket connection; an oversized or otherwise failing peer is closed without terminating the engine or other authenticated connections.
 - Stopping sends an authenticated `engine.shutdown` and waits for the process to exit; on timeout it force-kills only the child it created. App exit runs the same cleanup path.
-- Frontend queries and actions use `networkMode: 'always'`; Zustand still holds only local interaction state such as the theme.
+- Frontend queries and actions use `networkMode: 'always'`. Start, stop and restart share one serialized TanStack Query mutation, so a later successful action replaces an earlier action error instead of leaving stale alerts. Zustand still holds only local interaction state such as the theme.
 
 ## Development and Distribution Resources
 

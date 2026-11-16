@@ -68,7 +68,7 @@ pnpm lint                    # Linting only
 pnpm fmt                     # Formatting only
 pnpm check:rust              # cargo fmt --check + clippy -D warnings
 pnpm build                   # vp run -r build: desktop (Vite+), engine (vp pack), extension (WXT)
-pnpm test                    # Protocol and real Node.js engine tests
+pnpm test                    # Protocol, real Node.js engine, desktop UI and i18n tests
 pnpm dev:desktop             # Desktop frontend dev server (http://localhost:5173)
 pnpm dev:desktop:app         # Tauri desktop app (compiles Rust)
 pnpm dev:extension           # WXT extension development (Chrome)

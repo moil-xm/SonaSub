@@ -35,7 +35,7 @@ pnpm dev:desktop:app    # Tauri desktop app (compiles Rust and opens a window)
 pnpm dev:extension      # WXT extension development
 pnpm start:engine       # Refuses standalone startup without Rust-owned authentication (expected failure)
 
-pnpm test               # Protocol and real Node.js engine tests
+pnpm test               # Protocol, real Node.js engine, desktop UI and i18n tests
 pnpm check              # Formatting + linting + type checking
 pnpm typecheck          # Type checking only
 pnpm lint               # Linting only
@@ -74,9 +74,11 @@ Development conventions are in [AGENTS.md](AGENTS.md) and module boundaries in [
 
 ## Current Verification
 
-- `pnpm check`, `pnpm check:rust`, `pnpm test`, `pnpm build`.
-- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`: real-process concurrency, stop/restart, unexpected exit, authentication isolation and exit cleanup.
-- A macOS arm64 `.app` is built and launched with its bundled Node.js and engine artifact.
+- `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm check:rust`, `pnpm test` (22 tests), `pnpm build`.
+- `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` (14 tests): real-process concurrency, stop/restart, unexpected exit, control-connection loss, authentication isolation and exit cleanup.
+- The same 11 real-process Rust integration tests pass with external network access denied and loopback allowed.
+- A macOS arm64 `.app` is built and launched with its bundled Node.js and engine artifact; start/stop/restart, failure recovery, unexpected-exit reporting, oversized-peer isolation and managed-child exit cleanup are checked in the real app.
+- The CI workflow defines frozen installs, checks, TypeScript tests, builds, prepared engine resources and serial Rust tests; standalone engine startup is checked as an expected credential failure. These changes have not been pushed, so a new remote CI run is not yet verified.
 - Windows, Linux and macOS x64 installer execution remain unverified.
 
 ## Star History

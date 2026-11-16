@@ -1,11 +1,10 @@
-import { Icon } from '@iconify/react';
+import alertIcon from '@iconify-icons/lucide/circle-alert';
 import playIcon from '@iconify-icons/lucide/play';
 import refreshIcon from '@iconify-icons/lucide/refresh-cw';
 import squareIcon from '@iconify-icons/lucide/square';
-import alertIcon from '@iconify-icons/lucide/circle-alert';
-import dayjs from 'dayjs';
+import { Icon } from '@iconify/react';
 import { useTranslation } from '@sonasub/i18n';
-import { useQuery } from '@tanstack/react-query';
+import type { EngineInfo } from '@sonasub/protocol/engine';
 import { Button } from '@sonasub/ui/components/button';
 import {
   Card,
@@ -14,7 +13,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@sonasub/ui/components/card';
-import type { EngineInfo } from '@sonasub/protocol/engine';
+import { useQuery } from '@tanstack/react-query';
+import dayjs from 'dayjs';
 
 import { engineStatusOptions, useEngineAction, useEngineEvents } from '@/lib/engine';
 
@@ -27,17 +27,9 @@ export function EngineStatus() {
     isError: isStatusError,
     error: statusError,
   } = useQuery(engineStatusOptions);
-  const start = useEngineAction('start');
-  const stop = useEngineAction('stop');
-  const restart = useEngineAction('restart');
-  const isBusy =
-    start.isPending ||
-    stop.isPending ||
-    restart.isPending ||
-    state?.state === 'starting' ||
-    state?.state === 'stopping';
+  const { mutate: runAction, isPending: isActionPending, error: actionError } = useEngineAction();
+  const isBusy = isActionPending || state?.state === 'starting' || state?.state === 'stopping';
   const isEngineFailed = state?.state === 'failed';
-  let actionError: Error | null = start.error ?? restart.error ?? stop.error;
   let stateError: string | undefined;
   if (isEngineFailed) stateError = state.error;
   let info: EngineInfo | undefined;
@@ -91,7 +83,7 @@ export function EngineStatus() {
       <CardContent className="space-y-5">
         <div className="flex flex-wrap gap-3">
           <Button
-            onClick={() => start.mutate()}
+            onClick={() => runAction('start')}
             disabled={isBusy || isStatusPending || state?.state === 'running'}
           >
             <Icon icon={playIcon} className="size-4" />
@@ -99,7 +91,7 @@ export function EngineStatus() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => stop.mutate()}
+            onClick={() => runAction('stop')}
             disabled={isBusy || state?.state !== 'running'}
           >
             <Icon icon={squareIcon} className="size-4" />
@@ -107,7 +99,7 @@ export function EngineStatus() {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => restart.mutate()}
+            onClick={() => runAction('restart')}
             disabled={isBusy || isStatusPending || state?.state === 'stopped'}
           >
             <Icon icon={refreshIcon} className="size-4" />

@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
+  test: {
+    projects: ['apps/*', 'packages/*'],
+  },
   fmt: {
     singleQuote: true,
     semi: true,

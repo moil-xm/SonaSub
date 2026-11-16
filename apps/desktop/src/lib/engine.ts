@@ -36,12 +36,13 @@ export function useEngineEvents() {
   }, [queryClient]);
 }
 
-export function useEngineAction(action: EngineAction) {
+export function useEngineAction() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: ['engine', action],
+    mutationKey: ['engine', 'action'],
+    scope: { id: 'engine-action' },
     networkMode: 'always',
-    mutationFn: () => invoke<EngineState>(`${action}_command`),
+    mutationFn: (action: EngineAction) => invoke<EngineState>(`${action}_command`),
     onSuccess: (state) => {
       queryClient.setQueryData(engineStatusOptions.queryKey, state);
     },

@@ -132,6 +132,40 @@ describe('real Node engine server', () => {
     socket.close();
   });
 
+  it('keeps authenticated control usable after another peer exceeds the payload limit', async () => {
+    const engine = await startEngine();
+    const control = await openSocket(engine.port);
+    send(control, { protocolVersion: 1, type: 'auth', token: 'test-token' });
+    const before = response(control, 'before-oversize', 'engine.info');
+    send(control, {
+      protocolVersion: 1,
+      type: 'request',
+      id: 'before-oversize',
+      method: 'engine.info',
+    });
+    expect((await before).ok).toBe(true);
+
+    const oversized = await openSocket(engine.port);
+    const exited = once(engine.process, 'exit');
+    const ended = Promise.race([once(oversized, 'close'), once(oversized, 'error')]);
+    oversized.send(Buffer.alloc(8193));
+    const outcome = await Promise.race([exited.then(() => 'exit'), ended.then(() => 'closed')]);
+    expect(outcome).toBe('closed');
+
+    const after = response(control, 'after-oversize', 'engine.info');
+    send(control, {
+      protocolVersion: 1,
+      type: 'request',
+      id: 'after-oversize',
+      method: 'engine.info',
+    });
+    const value = await after;
+    expect(value.ok).toBe(true);
+    if (value.ok) expect(value.result?.pid).toBe(engine.pid);
+    expect(engine.process.exitCode).toBeNull();
+    control.close();
+  });
+
   it('acknowledges an authenticated shutdown and exits without leaving a socket', async () => {
     const engine = await startEngine();
     const socket = await openSocket(engine.port);

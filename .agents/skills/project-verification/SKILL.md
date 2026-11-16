@@ -13,17 +13,17 @@ description: Use when finishing a SonaSub change and deciding which checks to ru
 
 ## Choose by Scope
 
-| Change scope                     | Commands                                                                                                                                                  |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Any TS/TSX/config                | `pnpm check`                                                                                                                                              |
-| Desktop frontend                 | `pnpm --filter @sonasub/desktop build`; for UI changes also `pnpm dev:desktop`                                                                            |
-| Tauri / Rust                     | `pnpm check:rust` + `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`; run the real app for UI changes                   |
-| Engine                           | `pnpm test` + `pnpm --filter @sonasub/engine build`; standalone `pnpm start:engine` must refuse to start without credentials                              |
-| Engine lifecycle / distribution  | `pnpm --filter @sonasub/desktop prepare:engine`; build and run the macOS `.app` and check real information, restart, unexpected exit and app-exit cleanup |
-| Extension                        | `pnpm --filter @sonasub/extension build` (output `.output/chrome-mv3`, `manifest_version` 3); for interaction changes also `pnpm dev:extension`           |
-| Workspace / dependencies / locks | `pnpm install` then `pnpm build`                                                                                                                          |
-| All apps                         | `pnpm build`                                                                                                                                              |
-| Docs / Skills only               | frontmatter and reference-path checks, `git diff --check`; no compilation required                                                                        |
+| Change scope                     | Commands                                                                                                                                                                             |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Any TS/TSX/config                | `pnpm check`                                                                                                                                                                         |
+| Desktop frontend                 | `pnpm test` + `pnpm --filter @sonasub/desktop build`; for UI changes also `pnpm dev:desktop`                                                                                         |
+| Tauri / Rust                     | `pnpm check:rust` + `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`; run the real app for UI changes                                              |
+| Engine                           | `pnpm test` + `pnpm --filter @sonasub/engine build`; standalone `pnpm start:engine` must refuse to start without credentials                                                         |
+| Engine lifecycle / distribution  | `pnpm --filter @sonasub/desktop prepare:engine`; build and run the macOS `.app` and check real information, restart, unexpected exit, connection loss, recovery and app-exit cleanup |
+| Extension                        | `pnpm --filter @sonasub/extension build` (output `.output/chrome-mv3`, `manifest_version` 3); for interaction changes also `pnpm dev:extension`                                      |
+| Workspace / dependencies / locks | `pnpm install` then `pnpm build`                                                                                                                                                     |
+| All apps                         | `pnpm build`                                                                                                                                                                         |
+| Docs / Skills only               | frontmatter and reference-path checks, `git diff --check`; no compilation required                                                                                                   |
 
 ## Steps
 
@@ -31,8 +31,9 @@ description: Use when finishing a SonaSub change and deciding which checks to ru
 2. Run each command and read its full output and exit code; on failure locate the owning workspace and root cause, fix it, then re-run the same command. Never swallow errors.
 3. Skill changes: check that each `SKILL.md` `name` matches its directory, that `description` is non-empty, that referenced relative paths exist and that commands exist in `package.json`.
 4. Record items the environment cannot complete (GUI required, missing Rust system dependencies) with the reason, never with "should work".
-5. Verify the lifecycle with real processes: concurrent starts do not duplicate, wrong credentials cannot control the engine, failed starts keep engine diagnostics, stop/restart update PID/port consistently, unexpected exit surfaces as failure, and app exit cleans only the managed child process. Offline verification targets built artifacts only and needs no internet.
-6. Re-run the checks covering the final change before finishing, so results match the current files.
+5. Verify the lifecycle with real processes: concurrent starts do not duplicate, wrong credentials cannot control the engine, failed starts keep engine diagnostics, stop/restart update PID/port consistently, unexpected exit and control-connection loss surface as failure, recovery clears stale action errors, oversized peers do not kill the engine, and app exit cleans only the managed child process. Offline verification targets built artifacts only and needs no internet.
+6. CI gates must include frozen installs, `pnpm check`, `pnpm test`, builds, prepared engine resources, `pnpm check:rust` and serial `cargo test`; standalone `pnpm start:engine` is an expected credential failure, not a success gate.
+7. Re-run the checks covering the final change before finishing, so results match the current files.
 
 ## Constraints
 
