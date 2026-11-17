@@ -92,6 +92,9 @@ Project Skills live in [.agents/skills](.agents/skills); pick by task, reading a
 | Pages, shared components, theme, forms, frontend state   | [project-frontend](.agents/skills/project-frontend/SKILL.md)         |
 | Naming, types and state habits for handwritten React/TSX | [react-conventions](.agents/skills/react-conventions/SKILL.md)       |
 | Desktop/Rust/extension/shared package ownership          | [project-boundaries](.agents/skills/project-boundaries/SKILL.md)     |
+| Rust implementation, ownership, errors, concurrency, FFI | [rust-engineering](.agents/skills/rust-engineering/SKILL.md)          |
+| System capture, realtime audio, timing and backpressure   | [native-audio-pipeline](.agents/skills/native-audio-pipeline/SKILL.md) |
+| Native session startup, shutdown, worker ownership       | [native-session-lifecycle](.agents/skills/native-session-lifecycle/SKILL.md) |
 | Choosing checks for the change and preparing delivery    | [project-verification](.agents/skills/project-verification/SKILL.md) |
 
 Add a Skill only when a stable, repeated, project-specific judgment rule exists; never create one Skill per third-party library.
@@ -109,3 +112,4 @@ Add a Skill only when a stable, repeated, project-specific judgment rule exists;
 - The Chrome extension still contains only a popup. Tab capture and extension-to-desktop communication are future work, not a hidden fallback path.
 - System capture is implemented and verified for macOS 14.4+ arm64. Other platforms and architectures must be reported as unverified rather than silently using another audio source.
 - Native workers run in the desktop process; a native crash is not isolated from the UI.
+
