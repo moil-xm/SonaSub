@@ -4,7 +4,7 @@ import { Icon } from '@iconify/react';
 import checkIcon from '@iconify-icons/lucide/check';
 import loaderCircleIcon from '@iconify-icons/lucide/loader-circle';
 import triangleAlertIcon from '@iconify-icons/lucide/triangle-alert';
-import { useForm, useStore } from '@tanstack/react-form';
+import { useForm, useSelector } from '@tanstack/react-form';
 import { useTranslation } from '@sonasub/i18n';
 import { Alert, AlertDescription, AlertTitle } from '@sonasub/ui/components/alert';
 import { Button } from '@sonasub/ui/components/button';
@@ -175,10 +175,10 @@ function ConfigForm({
       form.reset(saved.config);
     },
   });
-  const isDirty = useStore(form.store, (state) => state.isDirty);
-  const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
-  const speakers = useStore(form.store, (state) => state.values.speakers);
-  const formConfig: AppConfig = useStore(form.store, (state) => state.values);
+  const isDirty = useSelector(form.store, (state) => state.isDirty);
+  const isSubmitting = useSelector(form.store, (state) => state.isSubmitting);
+  const speakers = useSelector(form.store, (state) => state.values.speakers);
+  const formConfig: AppConfig = useSelector(form.store, (state) => state.values);
   const readiness = assessModelReadiness(capabilities, formConfig);
   const selectedModel = readiness.selectedAsr;
   let isLocked = false;
