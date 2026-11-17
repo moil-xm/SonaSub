@@ -13,13 +13,23 @@ They do not apply to generated artifacts (`routeTree.gen.ts`, WXT-generated file
 
 - Boolean values prefer the `is`, `has`, `can`, `should` prefixes.
 - Callback props use `onXxx`; event handlers inside a component use `handleXxx`.
-- Hooks are named `useXxx`; file names follow the AGENTS.md kebab-case rule (for example `use-now.ts`), not mall's camelCase file names.
+- Hooks are named `useXxx`; non-component module files follow the AGENTS.md kebab-case rule (for example `use-now.ts`), not mall's camelCase file names.
 - Module-level semantic constants use `UPPER_SNAKE_CASE`.
 - Component props types are named `XxxProps` and compose native element or existing component props with `React.ComponentProps<...>`.
 
+## Component Directories
+
+- Every React component owns a directory named after it in kebab-case, mirroring the Ant Design `components/<name>/` layout: `src/components/live-subtitles/`.
+- The directory holds the implementation file in PascalCase (`LiveSubtitles.tsx`), the named sub-components of that component (`SubtitleRow.tsx`), the colocated `LiveSubtitles.test.tsx` and `LiveSubtitles.type.ts`, and an `index.ts` public entry.
+- `index.ts` only re-exports the component, its props types and the sub-components that form the public surface; it holds no implementation logic. Private sub-components stay unexported.
+- Consumers import the directory (`@/components/live-subtitles`), never a file inside it. Sibling files inside one directory use relative paths (`./SubtitleRow`).
+- One named React component per file. Plain helper functions stay in the file that uses them.
+- Keep a component directory flat; add `style/`, `demo/` or `__tests__/` only when a real need appears.
+- WXT entrypoints own their directory shape (`index.html`, `main.tsx`); the component file inside is PascalCase and imported directly by the entry.
+
 ## Type Files
 
-- Handwritten business types live in an adjacent `*.type.ts` (`ComponentName.type.ts` for TSX components, `use-xxx.type.ts` for hooks), imported at runtime files with `import type`.
+- Handwritten business types live in an adjacent `*.type.ts` inside the same directory (`ComponentName.type.ts` for TSX components, `use-xxx.type.ts` for hooks), imported at runtime files with `import type`.
 - `*.type.ts` may contain only type declarations, `import type` and `export type`; it must not emit runtime code.
 - Handwritten business types and component props use `type`, not `interface`; reserve `interface` for generated declarations or required third-party declaration merging.
 - A component-private props type of two or three lines may stay in the component file; split it into `*.type.ts` once it is consumed across files or clearly grows.
@@ -41,6 +51,7 @@ They do not apply to generated artifacts (`routeTree.gen.ts`, WXT-generated file
 ## Public Entry
 
 - A module `index.ts` is a public entry only and holds no implementation logic; cross-module consumers import from the nearest public entry instead of referencing another module's implementation, hooks or type leaf files directly.
+- Every component directory exposes its component through `index.ts`; a component is imported from the directory, never from the implementation file inside it.
 - New public exports from `packages/ui` update the `package.json` `exports` (see [project-workspace](../project-workspace/SKILL.md)).
 
 ## TanStack Query (mall's useRequest Habit)

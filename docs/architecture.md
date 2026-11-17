@@ -250,6 +250,11 @@ language are separate settings.
   typed selectors.
 - `packages/ui` internal imports use `#lib/*` and `#hooks/*`; desktop internal
   imports use `@/*`.
+- Desktop components follow the Ant Design-style `components/<name>/` layout:
+  every component owns a kebab-case directory that holds its PascalCase
+  implementation file, its named sub-components and an `index.ts` public
+  entry. Imports point at the directory (`@/components/live-subtitles`), never
+  at a file inside it.
 - New exports must be listed in the owning package's `exports`.
 
 The macOS bundle contains only the application executable, icon and plist. It

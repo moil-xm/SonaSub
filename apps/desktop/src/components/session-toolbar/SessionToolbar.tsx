@@ -1,5 +1,4 @@
 import { Icon } from '@iconify/react';
-import loaderCircleIcon from '@iconify-icons/lucide/loader-circle';
 import playIcon from '@iconify-icons/lucide/play';
 import rotateCwIcon from '@iconify-icons/lucide/rotate-cw';
 import settingsIcon from '@iconify-icons/lucide/settings';
@@ -11,6 +10,7 @@ import { Button } from '@sonasub/ui/components/button';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 
+import { ReadinessIssues } from '@/components/readiness-issues';
 import { useNow } from '@/hooks/use-now';
 import { getErrorMessage } from '@/lib/error';
 import { formatDuration } from '@/lib/format';
@@ -23,7 +23,9 @@ import {
 } from '@/lib/session';
 import type { SessionStatus } from '@/lib/session.type';
 
-import { ReadinessIssues } from './readiness-issues';
+import { ActionIcon } from './ActionIcon';
+import { SessionDataErrors } from './SessionDataErrors';
+import { SessionMetric } from './SessionMetric';
 
 function statusTone(status: SessionStatus): string {
   if (status.state === 'running') return 'bg-success';
@@ -32,76 +34,6 @@ function statusTone(status: SessionStatus): string {
   }
   if (status.state === 'failed') return 'bg-destructive';
   return 'bg-muted-foreground';
-}
-
-type ActionIconProps = {
-  icon: typeof playIcon;
-  isLoading: boolean;
-};
-
-function ActionIcon({ icon, isLoading }: ActionIconProps) {
-  if (isLoading) return <Icon icon={loaderCircleIcon} className="animate-spin" />;
-  return <Icon icon={icon} />;
-}
-
-type SessionMetricProps = {
-  label: string;
-  value: string;
-};
-
-type SessionDataErrorsProps = {
-  capabilitiesError: Error | null;
-  configError: Error | null;
-  snapshotError: Error | null;
-};
-
-function SessionMetric({ label, value }: SessionMetricProps) {
-  return (
-    <div className="min-w-0 bg-card px-4 py-2.5">
-      <dt className="text-[10.5px] font-medium tracking-[0.06em] text-muted-foreground uppercase">
-        {label}
-      </dt>
-      <dd className="mt-0.5 truncate text-[12.5px] font-medium" title={value}>
-        {value}
-      </dd>
-    </div>
-  );
-}
-
-function SessionDataErrors({
-  capabilitiesError,
-  configError,
-  snapshotError,
-}: SessionDataErrorsProps) {
-  const { t } = useTranslation();
-
-  return (
-    <>
-      {capabilitiesError && (
-        <Alert variant="destructive">
-          <Icon icon={triangleAlertIcon} />
-          <AlertTitle>{t(($) => $.workbench.errors.capabilities)}</AlertTitle>
-          <AlertDescription>{getErrorMessage(capabilitiesError)}</AlertDescription>
-        </Alert>
-      )}
-
-      {configError && (
-        <Alert variant="destructive">
-          <Icon icon={triangleAlertIcon} />
-          <AlertTitle>{t(($) => $.workbench.errors.config)}</AlertTitle>
-          <AlertDescription>{getErrorMessage(configError)}</AlertDescription>
-        </Alert>
-      )}
-
-      {snapshotError && (
-        <Alert variant="destructive">
-          <Icon icon={triangleAlertIcon} />
-          <AlertTitle>{t(($) => $.workbench.errors.snapshot)}</AlertTitle>
-          <AlertDescription>{getErrorMessage(snapshotError)}</AlertDescription>
-        </Alert>
-      )}
-    </>
-  );
 }
 
 export function SessionToolbar() {

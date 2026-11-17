@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from '@sonasub/i18n';
 
 import { initializeI18n } from './i18n';
-import { Popup } from './popup';
+import { Popup } from './Popup';
 import './popup.css';
 
 const i18n = await initializeI18n();

@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import type { ReactNode } from 'react';
 import { Icon } from '@iconify/react';
 import checkIcon from '@iconify-icons/lucide/check';
 import chevronRightIcon from '@iconify-icons/lucide/chevron-right';
@@ -20,25 +19,16 @@ import {
 } from '@sonasub/ui/components/alert-dialog';
 import { Button } from '@sonasub/ui/components/button';
 import { Input } from '@sonasub/ui/components/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@sonasub/ui/components/select';
+import { SelectItem } from '@sonasub/ui/components/select';
 import { Switch } from '@sonasub/ui/components/switch';
 import { useQuery } from '@tanstack/react-query';
 import { useBlocker } from '@tanstack/react-router';
 
+import { ReadinessIssues } from '@/components/readiness-issues';
+import { SettingsList, SettingsRow, SettingsSection } from '@/components/settings-section';
 import { getErrorMessage } from '@/lib/error';
 import { assessModelReadiness } from '@/lib/model-readiness';
-import {
-  sessionCapabilitiesOptions,
-  sessionConfigOptions,
-  sessionSnapshotOptions,
-  useSaveConfig,
-} from '@/lib/session';
+import { sessionSnapshotOptions, useSaveConfig } from '@/lib/session';
 import type {
   AppConfig,
   AsrMode,
@@ -48,42 +38,8 @@ import type {
   TranslationTrigger,
 } from '@/lib/session.type';
 
-import { ReadinessIssues } from './readiness-issues';
-import { SettingsList, SettingsRow, SettingsSection } from './settings-section';
-
-type SettingSelectProps = {
-  children: ReactNode;
-  disabled: boolean;
-  id: string;
-  onChange: (value: string) => void;
-  value: string;
-};
-
-type LanguageNameProps = {
-  code: string;
-};
-
-function LanguageName({ code }: LanguageNameProps) {
-  const { t } = useTranslation();
-  if (code === 'auto') return t(($) => $.languages.auto);
-  if (code === 'zh' || code === 'zh-Hans') return t(($) => $.languages.chinese);
-  if (code === 'en') return t(($) => $.languages.english);
-  if (code === 'ja') return t(($) => $.languages.japanese);
-  if (code === 'ko') return t(($) => $.languages.korean);
-  if (code === 'yue') return t(($) => $.languages.cantonese);
-  return code;
-}
-
-function SettingSelect({ id, value, disabled, onChange, children }: SettingSelectProps) {
-  return (
-    <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger id={id} className="w-full md:w-[220px]">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>{children}</SelectContent>
-    </Select>
-  );
-}
+import { LanguageName } from './LanguageName';
+import { SettingSelect } from './SettingSelect';
 
 function asAsrMode(value: string): AsrMode {
   if (value === 'streaming') return 'streaming';
@@ -106,53 +62,6 @@ function parseNumber(value: string): number {
   return Number(value);
 }
 
-export function SessionConfigForm() {
-  const { t } = useTranslation();
-  const { data: capabilities, error: capabilitiesError } = useQuery(sessionCapabilitiesOptions);
-  const { data: configView, error: configError } = useQuery(sessionConfigOptions);
-
-  const isInitialLoading = (!capabilities && !capabilitiesError) || (!configView && !configError);
-  if (isInitialLoading) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        {t(($) => $.config.loading)}
-      </div>
-    );
-  }
-
-  if (!capabilities || !configView) {
-    return (
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1040px] space-y-3 px-4 py-4 md:px-6 md:py-5">
-          {capabilitiesError && (
-            <Alert variant="destructive">
-              <Icon icon={triangleAlertIcon} />
-              <AlertTitle>{t(($) => $.workbench.errors.capabilities)}</AlertTitle>
-              <AlertDescription>{getErrorMessage(capabilitiesError)}</AlertDescription>
-            </Alert>
-          )}
-          {configError && (
-            <Alert variant="destructive">
-              <Icon icon={triangleAlertIcon} />
-              <AlertTitle>{t(($) => $.workbench.errors.config)}</AlertTitle>
-              <AlertDescription>{getErrorMessage(configError)}</AlertDescription>
-            </Alert>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <ConfigForm
-      capabilities={capabilities}
-      configView={configView}
-      configError={configError}
-      capabilitiesError={capabilitiesError}
-    />
-  );
-}
-
 type ConfigFormProps = {
   capabilities: Capabilities;
   configView: ConfigView;
@@ -160,7 +69,12 @@ type ConfigFormProps = {
   capabilitiesError: Error | null;
 };
 
-function ConfigForm({ capabilities, configView, configError, capabilitiesError }: ConfigFormProps) {
+export function ConfigForm({
+  capabilities,
+  configView,
+  configError,
+  capabilitiesError,
+}: ConfigFormProps) {
   const { t } = useTranslation();
   const { data: snapshot } = useQuery(sessionSnapshotOptions);
   const saveConfig = useSaveConfig();

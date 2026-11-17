@@ -1,6 +1,4 @@
 import { Icon } from '@iconify/react';
-import alertCircleIcon from '@iconify-icons/lucide/alert-circle';
-import infoIcon from '@iconify-icons/lucide/info';
 import triangleAlertIcon from '@iconify-icons/lucide/triangle-alert';
 import dayjs from 'dayjs';
 import { useTranslation } from '@sonasub/i18n';
@@ -11,35 +9,10 @@ import { useNow } from '@/hooks/use-now';
 import { getErrorMessage } from '@/lib/error';
 import { formatDuration, formatLatency, formatPercent } from '@/lib/format';
 import { sessionSnapshotOptions } from '@/lib/session';
-import type { SessionNotice } from '@/lib/session.type';
+import { SettingsList, SettingsSection } from '@/components/settings-section';
 
-import { SettingsList, SettingsSection } from './settings-section';
-
-type MetricProps = {
-  label: string;
-  value: string;
-};
-
-function Metric({ label, value }: MetricProps) {
-  return (
-    <div className="bg-card px-4 py-3">
-      <p className="text-[10.5px] font-medium tracking-[0.06em] text-muted-foreground uppercase">
-        {label}
-      </p>
-      <p className="mt-1 font-mono text-[15px] font-medium tabular-nums">{value}</p>
-    </div>
-  );
-}
-
-function NoticeIcon({ notice }: { notice: SessionNotice }) {
-  if (notice.level === 'error') {
-    return <Icon icon={alertCircleIcon} className="size-3.5 text-destructive" />;
-  }
-  if (notice.level === 'warning') {
-    return <Icon icon={triangleAlertIcon} className="size-3.5 text-warning" />;
-  }
-  return <Icon icon={infoIcon} className="size-3.5 text-muted-foreground" />;
-}
+import { Metric } from './Metric';
+import { NoticeIcon } from './NoticeIcon';
 
 export function SessionDiagnostics() {
   const { t } = useTranslation();

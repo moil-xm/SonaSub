@@ -7,7 +7,7 @@ import { emptySessionStats } from '@/lib/session-cache';
 import { sessionSnapshotOptions } from '@/lib/session';
 import type { SessionSnapshot } from '@/lib/session.type';
 
-import { LiveSubtitles } from './live-subtitles';
+import { LiveSubtitles } from './LiveSubtitles';
 
 const snapshot: SessionSnapshot = {
   status: {

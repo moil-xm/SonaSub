@@ -30,9 +30,11 @@ Dependency direction and import conventions are in [docs/architecture.md](docs/a
 
 ## File Organization and Naming
 
-- Files and directories use kebab-case; React components and types use PascalCase, functions and variables use camelCase.
-- Desktop pages live in `apps/desktop/src/routes` and are registered in `src/routeTree.ts`; layout components live in `src/components`.
-- Shared components live in `packages/ui/src/components/<name>.tsx`; package-internal imports use `#lib/*`, desktop-internal imports use `@/*`.
+- Directories and non-component modules use kebab-case; React components and types use PascalCase, functions and variables use camelCase.
+- Every React component lives in its own directory named after it in kebab-case, following the Ant Design `components/<name>/` layout. `apps/desktop/src/components/live-subtitles/` holds `LiveSubtitles.tsx`, its colocated `LiveSubtitles.test.tsx` and `LiveSubtitles.type.ts`, the named sub-components (`SubtitleRow.tsx`) and an `index.ts` public entry that only re-exports.
+- Consumers import the component directory (`@/components/live-subtitles`), never the implementation file inside it.
+- Desktop pages live in `apps/desktop/src/routes/<route>/` and are registered in `src/routeTree.ts`; layout components live in `src/components`.
+- Shared shadcn/ui primitives stay flat in `packages/ui/src/components/<name>.tsx` because the shadcn CLI writes flat files; package-internal imports use `#lib/*`, desktop-internal imports use `@/*`.
 - Declare dependencies in the workspace that uses them; dev tools go to `devDependencies`; versions are pinned exactly (`.npmrc`).
 
 ## TypeScript / React / Rust

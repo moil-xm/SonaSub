@@ -1,10 +1,4 @@
-import { Icon } from '@iconify/react';
-import arrowUpRightIcon from '@iconify-icons/lucide/arrow-up-right';
-import { getVersion } from '@tauri-apps/api/app';
-import { isTauri } from '@tauri-apps/api/core';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { isLanguagePreference, useTranslation } from '@sonasub/i18n';
-import { Button } from '@sonasub/ui/components/button';
 import {
   Select,
   SelectContent,
@@ -14,8 +8,13 @@ import {
 } from '@sonasub/ui/components/select';
 import { Switch } from '@sonasub/ui/components/switch';
 import { useSetTheme, useTheme } from '@sonasub/ui/theme';
-import { useQuery } from '@tanstack/react-query';
 
+import {
+  SegmentedControl,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+} from '@/components/settings-section';
 import { setLanguagePreference, useLanguagePreference } from '@/i18n';
 import {
   useAccentColor,
@@ -31,31 +30,13 @@ import {
 } from '@/stores/app-preferences';
 import type { AccentColor, CaptionTextSize } from '@/stores/app-preferences.type';
 
-import {
-  SegmentedControl,
-  SettingsList,
-  SettingsRow,
-  SettingsSection,
-} from '../components/settings-section';
-
-const REPOSITORY_URL = 'https://github.com/moil-xm/SonaSub';
-const RELEASES_URL = 'https://github.com/moil-xm/SonaSub/releases';
-const LICENSE_URL = 'https://github.com/moil-xm/SonaSub/blob/main/LICENSE';
-const ISSUES_URL = 'https://github.com/moil-xm/SonaSub/issues';
-
-type SettingsTab = 'general' | 'about';
-
-type SettingsPageProps = {
-  tab: SettingsTab;
-};
-
 type AccentOption = {
   label: string;
   swatchClass: string;
   value: AccentColor;
 };
 
-function GeneralSettings() {
+export function GeneralSettings() {
   const { t } = useTranslation();
   const theme = useTheme();
   const setTheme = useSetTheme();
@@ -257,114 +238,4 @@ function GeneralSettings() {
       </SettingsSection>
     </div>
   );
-}
-
-type AboutLinkRowProps = {
-  description: string;
-  title: string;
-  url: string;
-};
-
-function AboutLinkRow({ title, description, url }: AboutLinkRowProps) {
-  const { t } = useTranslation();
-  return (
-    <SettingsRow title={title} description={description}>
-      <Button
-        variant="ghost"
-        size="sm"
-        aria-label={`${t(($) => $.settings.about.open)} ${title}`}
-        onClick={() => void openUrl(url)}
-      >
-        {t(($) => $.settings.about.open)}
-        <Icon icon={arrowUpRightIcon} />
-      </Button>
-    </SettingsRow>
-  );
-}
-
-function AboutSettings() {
-  const { t } = useTranslation();
-  const versionQuery = useQuery({
-    queryKey: ['app', 'version'],
-    queryFn: getVersion,
-    networkMode: 'always',
-    retry: false,
-    enabled: isTauri(),
-  });
-  let versionLabel = '…';
-  if (versionQuery.data) versionLabel = versionQuery.data;
-  else if (versionQuery.isError) versionLabel = t(($) => $.settings.about.versionUnavailable);
-
-  return (
-    <div className="space-y-6">
-      <p className="max-w-2xl text-[13px] leading-5 text-muted-foreground">
-        {t(($) => $.settings.about.description)}
-      </p>
-
-      <SettingsSection title={t(($) => $.settings.about.appSection)}>
-        <SettingsList>
-          <SettingsRow
-            title={t(($) => $.settings.about.version)}
-            description={t(($) => $.settings.about.versionDescription)}
-          >
-            <span className="font-mono text-xs tabular-nums text-muted-foreground">
-              {versionLabel}
-            </span>
-          </SettingsRow>
-        </SettingsList>
-      </SettingsSection>
-
-      <SettingsSection title={t(($) => $.settings.about.linksSection)}>
-        <SettingsList>
-          <AboutLinkRow
-            title={t(($) => $.settings.about.repository)}
-            description={t(($) => $.settings.about.repositoryDescription)}
-            url={REPOSITORY_URL}
-          />
-          <AboutLinkRow
-            title={t(($) => $.settings.about.releases)}
-            description={t(($) => $.settings.about.releasesDescription)}
-            url={RELEASES_URL}
-          />
-          <AboutLinkRow
-            title={t(($) => $.settings.about.license)}
-            description={t(($) => $.settings.about.licenseDescription)}
-            url={LICENSE_URL}
-          />
-          <AboutLinkRow
-            title={t(($) => $.settings.about.issues)}
-            description={t(($) => $.settings.about.issuesDescription)}
-            url={ISSUES_URL}
-          />
-        </SettingsList>
-      </SettingsSection>
-
-      <SettingsSection title={t(($) => $.settings.about.runtimeSection)}>
-        <SettingsList>
-          <p className="px-4 py-3 text-xs leading-5 text-muted-foreground">
-            {t(($) => $.settings.about.runtimeDescription)}
-          </p>
-        </SettingsList>
-      </SettingsSection>
-    </div>
-  );
-}
-
-function SettingsPage({ tab }: SettingsPageProps) {
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-[1040px] px-4 py-4 md:px-6 md:py-5">
-        {tab === 'general' && <GeneralSettings />}
-        {tab === 'about' && <AboutSettings />}
-      </div>
-    </div>
-  );
-}
-
-export function GeneralSettingsPage() {
-  return <SettingsPage tab="general" />;
-}
-
-export function AboutSettingsPage() {
-  return <SettingsPage tab="about" />;
 }
