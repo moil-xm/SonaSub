@@ -44,6 +44,10 @@ pub struct AsrModelSpec {
     pub label: &'static str,
     pub kind: AsrModelKind,
     pub source_languages: &'static [&'static str],
+    /// Whether a forced source language changes the recognition result.
+    pub supports_source_language: bool,
+    /// Why a forced source language is not available for this model.
+    pub source_language_note: Option<&'static str>,
     pub upstream: &'static str,
     pub version: &'static str,
     pub files: &'static [ModelFile],
@@ -69,6 +73,10 @@ pub const ASR_MODELS: &[AsrModelSpec] = &[
         label: "Zipformer bilingual zh-en (streaming)",
         kind: AsrModelKind::Streaming,
         source_languages: &["zh", "en"],
+        supports_source_language: false,
+        source_language_note: Some(
+            "The bilingual streaming model detects the language of every utterance. A forced source language would not change the result.",
+        ),
         upstream: "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models",
         version: "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20",
         files: &[
@@ -99,6 +107,8 @@ pub const ASR_MODELS: &[AsrModelSpec] = &[
         label: "SenseVoice multilingual (segmented)",
         kind: AsrModelKind::Segmented,
         source_languages: &["zh", "en", "ja", "ko", "yue"],
+        supports_source_language: true,
+        source_language_note: None,
         upstream: "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models",
         version: "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
         files: &[
@@ -206,6 +216,10 @@ pub struct AsrModelCapability {
     #[serde(rename = "supportedModes")]
     pub supported_modes: Vec<String>,
     pub source_languages: Vec<String>,
+    /// Whether a forced source language changes the recognition result.
+    pub supports_source_language: bool,
+    /// Why a forced source language is not available for this model.
+    pub source_language_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -249,6 +263,10 @@ pub struct Capabilities {
     pub translation_models: Vec<TranslationModelCapability>,
     pub translation_targets: Vec<LanguageOption>,
     pub translation_engine: String,
+    /// The native runtime that executes the translation models.
+    pub translation_runtime: String,
+    /// The model family the compiled adapter reads.
+    pub translation_model_family: String,
     pub translation_modes: Vec<ModeCapability>,
     pub diarization: ModelStatus,
     pub speaker_embedding: ModelStatus,
@@ -397,6 +415,8 @@ impl ModelPaths {
                         .iter()
                         .map(|language| (*language).to_owned())
                         .collect(),
+                    supports_source_language: model.supports_source_language,
+                    source_language_reason: model.source_language_note.map(ToOwned::to_owned),
                 }
             })
             .collect();
@@ -430,6 +450,8 @@ impl ModelPaths {
                 })
                 .collect(),
             translation_engine: BERGAMOT_ENGINE_ID.to_owned(),
+            translation_runtime: crate::translation::TRANSLATION_RUNTIME.to_owned(),
+            translation_model_family: crate::translation::TRANSLATION_MODEL_FAMILY.to_owned(),
             translation_modes: vec![
                 ModeCapability {
                     mode: "auto".to_owned(),
@@ -445,7 +467,7 @@ impl ModelPaths {
                     mode: "streaming".to_owned(),
                     available: false,
                     reason: Some(
-                        "The Bergamot adapter returns complete translated text; it does not expose incremental output."
+                        "The fxtranslate runtime returns complete translated text for one submitted source string; it does not expose incremental output."
                             .to_owned(),
                     ),
                 },

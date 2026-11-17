@@ -1,4 +1,5 @@
 pub mod types;
+pub mod workers;
 
 use std::{
     collections::VecDeque,
@@ -18,7 +19,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 use crate::{
-    asr::{AsrEngine, AsrEvent, AsrFinal, AsrInput, AsrPartial},
+    asr::{AsrControl, AsrEngine, AsrEvent, AsrFinal, AsrInput, AsrPartial},
     audio::{
         self,
         dsp::{AudioHistory, DownmixResampler},
@@ -32,22 +33,25 @@ use crate::{
     },
     speaker::{DiarizationWindow, SpeakerEngine, SpeakerInfo, SpeakerRegistry},
     subtitles::{StableCandidate, SubtitleBatch, SubtitlePatch, SubtitleStore},
-    translation::{TranslationQueue, TranslationRequest, TranslationResult},
+    translation::{PushOutcome, TranslationRequest, TranslationResult},
 };
 
 use self::types::{
     AsrInfo, SessionInfo, SessionMetrics, SessionNotice, SessionSnapshot, SessionStatus,
-    SpeakerInfoStatus, TranslationInfo,
+    SpeakerInfoStatus, StatsEvent, StatusEvent, TranslationInfo,
+};
+use self::workers::{
+    DiarizationInput, DiarizationResult, DiarizationTask, ShutdownState, SpeakerInput,
+    SpeakerResult, SpeakerTask, WorkerEvent, WorkerKind, WorkerRuntime,
 };
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
 const UI_BATCH_INTERVAL: Duration = Duration::from_millis(80);
 const STATS_INTERVAL: Duration = Duration::from_millis(750);
 const NOTICE_LIMIT: usize = 100;
-const ASR_QUEUE_DEPTH: usize = 128;
-const SPEAKER_QUEUE_DEPTH: usize = 8;
-const DIARIZATION_QUEUE_DEPTH: usize = 2;
-const WORKER_EVENT_QUEUE_DEPTH: usize = 1024;
+/// How often the session reports that it is still waiting for native work
+/// that cannot be interrupted.
+const NATIVE_WAIT_NOTICE_INTERVAL: Duration = Duration::from_secs(10);
 const RUN_BOUNDARY: &str =
     "Recognition, diarization and translation share this process through worker threads; a native crash cannot be isolated from the desktop app.";
 
@@ -69,10 +73,19 @@ struct ManagerInner {
 
 struct RuntimeState {
     status: SessionStatus,
+    session_id: Option<String>,
     store: SubtitleStore,
     metrics: SessionMetrics,
     notices: VecDeque<SessionNotice>,
     config: AppConfig,
+    /// Monotonic counter of every published state change.
+    revision: u64,
+    /// Revision of the current status.
+    status_revision: u64,
+    /// Revision of the current subtitle list.
+    subtitle_revision: u64,
+    /// Revision of the current statistics.
+    stats_revision: u64,
 }
 
 struct ControlState {
@@ -111,10 +124,15 @@ impl SessionManager {
                 models: ModelPaths::new(data_dir.join("models")),
                 runtime: Mutex::new(RuntimeState {
                     status: SessionStatus::Idle,
+                    session_id: None,
                     store: SubtitleStore::new(String::new(), history_limit),
                     metrics: SessionMetrics::new(now_ms()),
                     notices,
                     config,
+                    revision: 0,
+                    status_revision: 0,
+                    subtitle_revision: 0,
+                    stats_revision: 0,
                 }),
                 control: Mutex::new(ControlState {
                     stop: None,
@@ -190,6 +208,8 @@ impl SessionManager {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             runtime.config = config;
+            let history_limit = runtime.config.ui.history_limit;
+            runtime.store.set_history_limit(history_limit);
         }
         *self
             .inner
@@ -293,8 +313,10 @@ impl SessionManager {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             runtime.status = SessionStatus::Starting {
+                session_id: session_id.clone(),
                 stage: "Validating models and audio capture".to_owned(),
             };
+            runtime.session_id = Some(session_id.clone());
             runtime.store = SubtitleStore::new(session_id.clone(), history_limit);
             runtime.metrics = SessionMetrics::new(started_at_ms);
             runtime.notices.clear();
@@ -302,6 +324,7 @@ impl SessionManager {
         publish_status(
             &self.inner,
             SessionStatus::Starting {
+                session_id: session_id.clone(),
                 stage: "Validating models and audio capture".to_owned(),
             },
         );
@@ -332,7 +355,7 @@ impl SessionManager {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             control.stop = Some(stop.clone());
             control.handle = Some(handle);
-            control.session_id = Some(session_id);
+            control.session_id = Some(session_id.clone());
         }
 
         match ready_rx.recv_timeout(STARTUP_TIMEOUT) {
@@ -343,6 +366,19 @@ impl SessionManager {
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 stop.store(true, Ordering::SeqCst);
+                // The worker thread keeps running until it observes the stop
+                // flag. The handle stays registered so a later stop can join
+                // it; the state reports the pending cancellation instead of
+                // pretending the cleanup already finished.
+                publish_status(
+                    &self.inner,
+                    SessionStatus::Stopping {
+                        session_id: session_id.clone(),
+                        stage:
+                            "Cancelling the session start; the worker is still loading native models"
+                                .to_owned(),
+                    },
+                );
                 Err(format!(
                     "The session did not become ready within {} seconds. It is being cancelled.",
                     STARTUP_TIMEOUT.as_secs()
@@ -400,9 +436,18 @@ impl SessionManager {
             .status
             .clone();
         if !matches!(status, SessionStatus::Stopping { .. }) {
+            let session_id = self
+                .inner
+                .runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .session_id
+                .clone()
+                .unwrap_or_default();
             publish_status(
                 &self.inner,
                 SessionStatus::Stopping {
+                    session_id,
                     stage: "Flushing recognition and waiting for native inference".to_owned(),
                 },
             );
@@ -521,6 +566,12 @@ fn validate_configuration(config: &AppConfig) -> Result<(), String> {
             asr.label, config.recognition.source_language
         ));
     }
+    if config.recognition.source_language != "auto" && !asr.supports_source_language {
+        return Err(format!(
+            "ASR model `{}` detects the language of every utterance, so a forced source language has no effect. Use `auto` instead.",
+            asr.label
+        ));
+    }
     if !SUPPORTED_LANGUAGES
         .iter()
         .any(|(code, _)| *code == config.translation.target_language)
@@ -605,13 +656,11 @@ struct Runner {
     last_patch_emit: Instant,
     last_stats_emit: Instant,
     last_diarization: Instant,
+    shutdown_started: Option<Instant>,
+    last_wait_notice: Instant,
     ending: bool,
     failure: Option<String>,
-    asr_done: bool,
-    speaker_done: bool,
-    diarization_done: bool,
-    translation_done: bool,
-    translation_closed: bool,
+    shutdown: ShutdownState,
     resources: ResourceMonitor,
 }
 
@@ -716,7 +765,7 @@ impl Runner {
 
         stage(&context, "Loading Bergamot translation model")?;
         let workers = WorkerRuntime::spawn(
-            asr_engine,
+            Box::new(asr_engine),
             context.inner.models.clone(),
             translation_spec,
             speaker_engine,
@@ -724,7 +773,13 @@ impl Runner {
             registry,
         )
         .map_err(StartupError::Failed)?;
-        stage(&context, "Starting macOS system audio capture")?;
+        // Every failure after the workers exist has to release them, otherwise
+        // the recognition and translation threads stay blocked on their
+        // queues for the lifetime of the process.
+        if let Err(error) = stage(&context, "Starting macOS system audio capture") {
+            workers.shutdown();
+            return Err(error);
+        }
         let (capture_tx, capture_rx) = bounded(250);
         let capture_handle = match audio::start(
             CaptureOptions {
@@ -748,17 +803,28 @@ impl Runner {
             model_id: selected_asr.id.to_owned(),
             model_label: selected_asr.label.to_owned(),
             mode: asr_mode_string(asr_mode).to_owned(),
-            source_language: context.config.recognition.source_language.clone(),
+            // A model that detects the language per utterance ignores a
+            // forced source language. The session reports the language that
+            // is actually in effect.
+            source_language: if selected_asr.supports_source_language {
+                context.config.recognition.source_language.clone()
+            } else {
+                "auto".to_owned()
+            },
             max_segment_secs: context.config.recognition.max_segment_secs,
         };
+        let translation_capabilities =
+            crate::translation::adapter_capabilities(BERGAMOT_ENGINE_ID)?;
         let translation_info = TranslationInfo {
-            engine: BERGAMOT_ENGINE_ID.to_owned(),
+            engine: translation_capabilities.engine.clone(),
+            runtime: translation_capabilities.runtime.clone(),
+            model_family: translation_capabilities.model_family.clone(),
             model_id: translation_spec.id.to_owned(),
             model_label: translation_spec.label.to_owned(),
             mode: translation_mode_string(translation_mode).to_owned(),
             target_language: context.config.translation.target_language.clone(),
             trigger: translation_trigger_string(context.config.translation.trigger).to_owned(),
-            streaming: false,
+            streaming: translation_capabilities.streaming,
         };
         let info = SessionInfo {
             session_id: context.session_id.clone(),
@@ -804,13 +870,11 @@ impl Runner {
             last_patch_emit: now,
             last_stats_emit: now,
             last_diarization: now,
+            shutdown_started: None,
+            last_wait_notice: now,
             ending: false,
             failure: None,
-            asr_done: false,
-            speaker_done: !speakers_enabled,
-            diarization_done: !diarization_enabled,
-            translation_done: false,
-            translation_closed: false,
+            shutdown: ShutdownState::new(speakers_enabled, diarization_enabled),
             resources: ResourceMonitor::new(),
         };
         publish_status(
@@ -857,13 +921,19 @@ impl Runner {
                 }
                 recv(ticker) -> _ => self.handle_tick(),
             }
+            // The translation queue may only close once the recognition
+            // worker stopped and every subtitle it produced was consumed.
+            // Closing it earlier would drop the translation of the last
+            // subtitle.
             if self.ending
-                && self.asr_done
-                && self.speaker_done
-                && self.diarization_done
-                && self.translation_done
-                && self.workers.events.is_empty()
+                && self
+                    .shutdown
+                    .may_close_translation(self.workers.events.is_empty())
             {
+                self.workers.queue.close();
+                self.shutdown.mark_translation_closed();
+            }
+            if self.ending && self.shutdown.all_finished() && self.workers.events.is_empty() {
                 break;
             }
         }
@@ -1010,26 +1080,16 @@ impl Runner {
 
     fn mark_worker_done(&mut self, kind: WorkerKind) {
         match kind {
-            WorkerKind::Asr => {
-                if self.asr_done {
-                    return;
-                }
-                self.asr_done = true;
-                if self.ending && !self.translation_closed {
-                    self.workers.queue.close();
-                    self.translation_closed = true;
-                }
-            }
+            WorkerKind::Asr => {}
             WorkerKind::Speaker => {
-                self.speaker_done = true;
                 self.workers.speaker_tx = None;
             }
             WorkerKind::Diarization => {
-                self.diarization_done = true;
                 self.workers.diarization_tx = None;
             }
-            WorkerKind::Translation => self.translation_done = true,
+            WorkerKind::Translation => {}
         }
+        self.shutdown.worker_done(kind);
     }
 
     fn handle_asr_event(&mut self, event: AsrEvent) {
@@ -1104,7 +1164,7 @@ impl Runner {
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     runtime.metrics.speaker(result.latency_ms);
-                    runtime.store.set_speaker(&result.segment_id, Some(speaker))
+                    runtime.store.set_speaker(&result.segment_id, speaker)
                 };
                 if let Some(patch) = patch {
                     self.pending_patches.push(patch);
@@ -1188,7 +1248,7 @@ impl Runner {
                     .runtime
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                runtime.store.set_speaker(&segment.id, Some(speaker))
+                runtime.store.set_speaker(&segment.id, speaker)
             };
             if let Some(patch) = patch {
                 patches.push(patch);
@@ -1336,32 +1396,57 @@ impl Runner {
         if let Some(patch) = patch {
             self.pending_patches.push(patch);
         }
-        if let Some(evicted) = self.workers.queue.push(request) {
-            let patch = {
-                let mut runtime = self
-                    .inner
-                    .runtime
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                runtime.store.set_translation_error(
-                    &evicted.segment_id,
-                    evicted.text_revision,
-                    &evicted.target_language,
-                    BERGAMOT_ENGINE_ID,
-                    &evicted.model_id,
-                    "Translation queue was full; a newer subtitle superseded this request."
-                        .to_owned(),
-                )
-            };
-            if let Some(patch) = patch {
-                self.pending_patches.push(patch);
+        match self.workers.queue.push(request) {
+            PushOutcome::Queued => {}
+            PushOutcome::Displaced(evicted) => {
+                let patch = {
+                    let mut runtime = self
+                        .inner
+                        .runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    runtime.store.set_translation_error(
+                        &evicted.segment_id,
+                        evicted.text_revision,
+                        &evicted.target_language,
+                        BERGAMOT_ENGINE_ID,
+                        &evicted.model_id,
+                        "Translation queue was full; a newer subtitle superseded this request."
+                            .to_owned(),
+                    )
+                };
+                if let Some(patch) = patch {
+                    self.pending_patches.push(patch);
+                }
+            }
+            PushOutcome::Closed(rejected) => {
+                let patch = {
+                    let mut runtime = self
+                        .inner
+                        .runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    runtime.store.set_translation_unavailable(
+                        &rejected.segment_id,
+                        "The translation worker already stopped, so this subtitle stays source-only."
+                            .to_owned(),
+                        &rejected.target_language,
+                        BERGAMOT_ENGINE_ID,
+                    )
+                };
+                if let Some(patch) = patch {
+                    self.pending_patches.push(patch);
+                }
             }
         }
     }
 
     fn handle_tick(&mut self) {
         for kind in self.workers.finished_workers() {
-            if !self.ending {
+            // A worker that exited without reporting its completion left a
+            // pending event in the queue that explains why. The failure is
+            // only reported once the queue is empty.
+            if !self.ending && self.workers.events.is_empty() {
                 self.begin_shutdown(Some(format!(
                     "The {} worker exited unexpectedly.",
                     kind.label()
@@ -1372,6 +1457,7 @@ impl Runner {
         if self.stop.load(Ordering::SeqCst) && !self.ending {
             self.begin_shutdown(None);
         }
+        self.report_native_wait();
         if !self.ending {
             self.schedule_stable_translations();
             self.schedule_diarization();
@@ -1381,6 +1467,29 @@ impl Runner {
         if self.last_stats_emit.elapsed() >= STATS_INTERVAL {
             self.publish_stats();
         }
+    }
+
+    /// Reports that the session is still waiting for native work.
+    ///
+    /// A native inference call cannot be interrupted, so the session keeps
+    /// waiting instead of dropping the worker handle and pretending the
+    /// cleanup finished.
+    fn report_native_wait(&mut self) {
+        let Some(started) = self.shutdown_started else {
+            return;
+        };
+        if started.elapsed() < NATIVE_WAIT_NOTICE_INTERVAL
+            || self.last_wait_notice.elapsed() < NATIVE_WAIT_NOTICE_INTERVAL
+        {
+            return;
+        }
+        self.last_wait_notice = Instant::now();
+        add_notice(
+            &self.inner,
+            "info",
+            "Still waiting for the native speech runtime to return. Native inference cannot be interrupted, so the session keeps the worker until it finishes."
+                .to_owned(),
+        );
     }
 
     fn schedule_stable_translations(&mut self) {
@@ -1463,10 +1572,12 @@ impl Runner {
         }
         self.ending = true;
         self.failure = failure;
+        self.shutdown_started = Some(Instant::now());
         self.stop.store(true, Ordering::SeqCst);
         publish_status(
             &self.inner,
             SessionStatus::Stopping {
+                session_id: self.session_id.clone(),
                 stage: if self.failure.is_some() {
                     "Stopping after a pipeline failure".to_owned()
                 } else {
@@ -1480,13 +1591,14 @@ impl Runner {
         let (keepalive, receiver) = bounded(1);
         self.capture_rx = receiver;
         self._capture_keepalive = Some(keepalive);
-        if let Some(sender) = self.workers.asr_tx.as_ref() {
-            if sender
-                .send_timeout(AsrInput::Stop, Duration::from_secs(5))
-                .is_err()
-                && self.failure.is_none()
-            {
-                self.failure = Some("The ASR worker did not accept the stop request.".to_owned());
+        // The stop signal travels on the control channel so it is never
+        // blocked behind a full audio backlog. A busy recognition worker
+        // therefore always reaches its flush and reports the last subtitle.
+        if let Some(sender) = self.workers.asr_control_tx.as_ref() {
+            if let Err(error) = sender.try_send(AsrControl::Stop) {
+                if error.is_disconnected() {
+                    self.workers.asr_control_tx = None;
+                }
             }
         }
         if let Some(sender) = self.workers.speaker_tx.as_ref() {
@@ -1509,7 +1621,18 @@ impl Runner {
             return;
         }
         let patches = mem::take(&mut self.pending_patches);
+        let revision = {
+            let mut runtime = self
+                .inner
+                .runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime.revision = runtime.revision.saturating_add(1);
+            runtime.subtitle_revision = runtime.revision;
+            runtime.revision
+        };
         let batch = SubtitleBatch {
+            revision,
             session_id: self.session_id.clone(),
             patches,
         };
@@ -1518,15 +1641,20 @@ impl Runner {
     }
 
     fn publish_stats(&mut self) {
-        let stats = {
-            let runtime = self
+        let (revision, stats) = {
+            let mut runtime = self
                 .inner
                 .runtime
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            runtime.metrics.snapshot()
+            runtime.revision = runtime.revision.saturating_add(1);
+            runtime.stats_revision = runtime.revision;
+            (runtime.revision, runtime.metrics.snapshot())
         };
-        let _ = self.inner.app.emit("session://stats", stats);
+        let _ = self
+            .inner
+            .app
+            .emit("session://stats", StatsEvent { revision, stats });
         self.last_stats_emit = Instant::now();
     }
 }
@@ -1557,14 +1685,19 @@ fn publish_failed(inner: &Arc<ManagerInner>, error: &str) {
 }
 
 fn publish_status(inner: &Arc<ManagerInner>, status: SessionStatus) {
-    {
+    let revision = {
         let mut runtime = inner
             .runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         runtime.status = status.clone();
-    }
-    let _ = inner.app.emit("session://status", status);
+        runtime.revision = runtime.revision.saturating_add(1);
+        runtime.status_revision = runtime.revision;
+        runtime.revision
+    };
+    let _ = inner
+        .app
+        .emit("session://status", StatusEvent { revision, status });
 }
 
 fn add_notice(inner: &Arc<ManagerInner>, level: &str, message: String) {
@@ -1612,10 +1745,16 @@ fn snapshot(inner: &Arc<ManagerInner>) -> SessionSnapshot {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     SessionSnapshot {
+        revision: runtime.revision,
+        session_id: runtime.session_id.clone(),
         status: runtime.status.clone(),
+        status_revision: runtime.status_revision,
+        subtitle_revision: runtime.subtitle_revision,
+        stats_revision: runtime.stats_revision,
         segments: runtime.store.snapshot(),
         stats: runtime.metrics.snapshot(),
         notices: runtime.notices.iter().cloned().collect(),
+        history_limit: runtime.store.history_limit(),
     }
 }
 
@@ -1623,7 +1762,7 @@ fn stage(context: &RunnerContext, label: &str) -> Result<(), StartupError> {
     if context.stop.load(Ordering::SeqCst) {
         return Err(StartupError::Cancelled);
     }
-    {
+    let (revision, status) = {
         let mut runtime = context
             .inner
             .runtime
@@ -1636,15 +1775,17 @@ fn stage(context: &RunnerContext, label: &str) -> Result<(), StartupError> {
             return Err(StartupError::Cancelled);
         }
         runtime.status = SessionStatus::Starting {
+            session_id: context.session_id.clone(),
             stage: label.to_owned(),
         };
-    }
-    let _ = context.inner.app.emit(
-        "session://status",
-        SessionStatus::Starting {
-            stage: label.to_owned(),
-        },
-    );
+        runtime.revision = runtime.revision.saturating_add(1);
+        runtime.status_revision = runtime.revision;
+        (runtime.revision, runtime.status.clone())
+    };
+    let _ = context
+        .inner
+        .app
+        .emit("session://status", StatusEvent { revision, status });
     Ok(())
 }
 
@@ -1693,271 +1834,6 @@ fn translation_trigger_string(trigger: TranslationTrigger) -> &'static str {
         TranslationTrigger::FinalOnly => "finalOnly",
         TranslationTrigger::StableSegment => "stableSegment",
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WorkerKind {
-    Asr,
-    Speaker,
-    Diarization,
-    Translation,
-}
-
-impl WorkerKind {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Asr => "ASR",
-            Self::Speaker => "speaker",
-            Self::Diarization => "diarization",
-            Self::Translation => "translation",
-        }
-    }
-}
-
-enum WorkerEvent {
-    Asr(AsrEvent),
-    Speaker(SpeakerResult),
-    Diarization(DiarizationResult),
-    Translation(TranslationResult),
-    Done(WorkerKind),
-}
-
-struct SpeakerTask {
-    segment_id: String,
-    samples: Arc<Vec<f32>>,
-    queued_at: Instant,
-}
-
-enum SpeakerInput {
-    Task(SpeakerTask),
-    Stop,
-}
-
-struct SpeakerResult {
-    segment_id: String,
-    result: Result<Option<SpeakerInfo>, String>,
-    latency_ms: u64,
-}
-
-struct DiarizationTask {
-    start_secs: f64,
-    samples: Arc<Vec<f32>>,
-}
-
-enum DiarizationInput {
-    Task(DiarizationTask),
-    Stop,
-}
-
-struct DiarizationResult {
-    result: Result<DiarizationWindow, String>,
-}
-
-struct WorkerRuntime {
-    events: Receiver<WorkerEvent>,
-    asr_tx: Option<Sender<AsrInput>>,
-    speaker_tx: Option<Sender<SpeakerInput>>,
-    diarization_tx: Option<Sender<DiarizationInput>>,
-    queue: Arc<TranslationQueue>,
-    handles: Vec<(WorkerKind, JoinHandle<()>)>,
-}
-
-impl WorkerRuntime {
-    fn spawn(
-        asr_engine: AsrEngine,
-        models: ModelPaths,
-        translation_spec: &'static crate::models::TranslationModelSpec,
-        speaker_engine: Option<SpeakerEngine>,
-        diarization_engine: Option<crate::speaker::DiarizationEngine>,
-        registry: Option<Arc<Mutex<SpeakerRegistry>>>,
-    ) -> Result<Self, String> {
-        let (event_tx, event_rx) = bounded(WORKER_EVENT_QUEUE_DEPTH);
-        let (asr_tx, asr_rx) = bounded(ASR_QUEUE_DEPTH);
-        let (speaker_tx, speaker_rx) = bounded(SPEAKER_QUEUE_DEPTH);
-        let (diarization_tx, diarization_rx) = bounded(DIARIZATION_QUEUE_DEPTH);
-        let queue = Arc::new(TranslationQueue::new());
-        let mut handles = Vec::new();
-        let mut optional_speaker_tx = None;
-        let mut optional_diarization_tx = None;
-
-        let asr_events = event_tx.clone();
-        let handle = thread::Builder::new()
-            .name("sonasub-asr".to_owned())
-            .spawn(move || run_asr_worker(asr_engine, asr_rx, asr_events))
-            .map_err(|error| format!("Failed to start the ASR worker: {error}"))?;
-        handles.push((WorkerKind::Asr, handle));
-
-        if let (Some(engine), Some(registry)) = (speaker_engine, registry.clone()) {
-            let speaker_events = event_tx.clone();
-            let handle = thread::Builder::new()
-                .name("sonasub-speaker".to_owned())
-                .spawn(move || run_speaker_worker(engine, registry, speaker_rx, speaker_events))
-                .map_err(|error| format!("Failed to start the speaker worker: {error}"))?;
-            handles.push((WorkerKind::Speaker, handle));
-            optional_speaker_tx = Some(speaker_tx);
-        }
-
-        if let (Some(engine), Some(registry)) = (diarization_engine, registry) {
-            let diarization_events = event_tx.clone();
-            let handle = thread::Builder::new()
-                .name("sonasub-diarization".to_owned())
-                .spawn(move || {
-                    run_diarization_worker(engine, registry, diarization_rx, diarization_events)
-                })
-                .map_err(|error| format!("Failed to start the diarization worker: {error}"))?;
-            handles.push((WorkerKind::Diarization, handle));
-            optional_diarization_tx = Some(diarization_tx);
-        }
-        let translation_events = event_tx.clone();
-        let translation_queue = queue.clone();
-        let (load_tx, load_rx) = mpsc::channel::<Result<(), String>>();
-        let handle = thread::Builder::new()
-            .name("sonasub-translation".to_owned())
-            .spawn(move || {
-                match crate::translation::BergamotEngine::load(&models, translation_spec) {
-                    Ok(engine) => {
-                        let _ = load_tx.send(Ok(()));
-                        crate::translation::run_worker(engine, &translation_queue, |result| {
-                            let _ = translation_events.send(WorkerEvent::Translation(result));
-                        });
-                    }
-                    Err(error) => {
-                        let _ = load_tx.send(Err(error));
-                    }
-                }
-                let _ = translation_events.send(WorkerEvent::Done(WorkerKind::Translation));
-            })
-            .map_err(|error| format!("Failed to start the translation worker: {error}"))?;
-        handles.push((WorkerKind::Translation, handle));
-        drop(event_tx);
-        let workers = Self {
-            events: event_rx,
-            asr_tx: Some(asr_tx),
-            speaker_tx: optional_speaker_tx,
-            diarization_tx: optional_diarization_tx,
-            queue,
-            handles,
-        };
-        match load_rx.recv_timeout(Duration::from_secs(120)) {
-            Ok(Ok(())) => Ok(workers),
-            Ok(Err(error)) => {
-                workers.shutdown();
-                Err(error)
-            }
-            Err(error) => {
-                workers.shutdown();
-                Err(format!(
-                    "The Bergamot translation worker did not load the model: {error}"
-                ))
-            }
-        }
-    }
-
-    fn empty() -> Self {
-        let (_, event_rx) = bounded(WORKER_EVENT_QUEUE_DEPTH);
-        Self {
-            events: event_rx,
-            asr_tx: None,
-            speaker_tx: None,
-            diarization_tx: None,
-            queue: Arc::new(TranslationQueue::new()),
-            handles: Vec::new(),
-        }
-    }
-
-    fn shutdown(mut self) {
-        self.queue.close();
-        self.asr_tx = None;
-        self.speaker_tx = None;
-        self.diarization_tx = None;
-        for (_, handle) in self.handles {
-            let _ = handle.join();
-        }
-    }
-
-    fn finished_workers(&self) -> Vec<WorkerKind> {
-        self.handles
-            .iter()
-            .filter(|(_, handle)| handle.is_finished())
-            .map(|(kind, _)| *kind)
-            .collect()
-    }
-
-    fn join(self) {
-        for (_, handle) in self.handles {
-            let _ = handle.join();
-        }
-    }
-}
-
-fn run_asr_worker(mut engine: AsrEngine, input: Receiver<AsrInput>, events: Sender<WorkerEvent>) {
-    while let Ok(message) = input.recv() {
-        let mut emit = |event| {
-            let _ = events.send(WorkerEvent::Asr(event));
-        };
-        let result = match message {
-            AsrInput::Audio {
-                samples,
-                start_frame_48k,
-            } => engine.push(&samples, start_frame_48k, &mut emit),
-            AsrInput::Discontinuity { at_secs } => {
-                engine.discontinuity(at_secs, &mut emit);
-                Ok(())
-            }
-            AsrInput::Stop => {
-                if let Err(error) = engine.flush(&mut emit) {
-                    emit(AsrEvent::Fatal(error));
-                }
-                break;
-            }
-        };
-        if let Err(error) = result {
-            emit(AsrEvent::Fatal(error));
-            break;
-        }
-    }
-    let _ = events.send(WorkerEvent::Done(WorkerKind::Asr));
-}
-
-fn run_speaker_worker(
-    mut engine: SpeakerEngine,
-    registry: Arc<Mutex<SpeakerRegistry>>,
-    input: Receiver<SpeakerInput>,
-    events: Sender<WorkerEvent>,
-) {
-    while let Ok(message) = input.recv() {
-        let SpeakerInput::Task(task) = message else {
-            break;
-        };
-        let result = engine.embedding(&task.samples).map(|embedding| {
-            let mut registry = registry
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            registry.identify(&embedding, true).0
-        });
-        let _ = events.send(WorkerEvent::Speaker(SpeakerResult {
-            segment_id: task.segment_id,
-            result,
-            latency_ms: task.queued_at.elapsed().as_millis() as u64,
-        }));
-    }
-    let _ = events.send(WorkerEvent::Done(WorkerKind::Speaker));
-}
-
-fn run_diarization_worker(
-    mut engine: crate::speaker::DiarizationEngine,
-    registry: Arc<Mutex<SpeakerRegistry>>,
-    input: Receiver<DiarizationInput>,
-    events: Sender<WorkerEvent>,
-) {
-    while let Ok(message) = input.recv() {
-        let DiarizationInput::Task(task) = message else {
-            break;
-        };
-        let result = engine.analyze(task.start_secs, task.samples, &registry);
-        let _ = events.send(WorkerEvent::Diarization(DiarizationResult { result }));
-    }
-    let _ = events.send(WorkerEvent::Done(WorkerKind::Diarization));
 }
 
 struct ResourceMonitor {

@@ -158,6 +158,8 @@ export const enUs = {
     sourceLanguage: 'Speech language',
     sourceLanguageHint:
       'Auto leaves language handling to the selected model. Translation chooses its direction per finalized segment.',
+    sourceLanguageAutoOnly:
+      'This model detects the language of every utterance, so the source language stays on automatic.',
     translationSection: 'Local translation',
     translationHint:
       '{{engine}} runs in this process as complete-text translation. Source text appears first and never waits for it.',
@@ -220,6 +222,19 @@ export const enUs = {
     speakerLatency: 'Speaker latency',
     dropped: 'Dropped frames',
     audioLevel: 'Captured audio level',
+  },
+  pipeline: {
+    title: 'Native pipeline',
+    recognition: 'Recognition',
+    translation: 'Translation',
+    speakers: 'Speakers',
+    engine: 'Adapter',
+    runtime: 'Runtime',
+    modelFamily: 'Model family',
+    model: 'Model',
+    route: 'Route',
+    sourceLanguage: 'Effective speech language',
+    idle: 'No session has run yet.',
   },
   notices: {
     title: 'Runtime notices',

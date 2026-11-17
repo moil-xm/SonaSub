@@ -22,6 +22,16 @@ pub enum AsrInput {
     Discontinuity {
         at_secs: f64,
     },
+}
+
+/// Control signals for the recognition worker.
+///
+/// The stop signal travels on its own channel so it can never be blocked by a
+/// full audio backlog. A session that stops while the worker is still busy
+/// decoding therefore always reaches the flush path instead of waiting for
+/// the queue to drain.
+#[derive(Debug, Clone, Copy)]
+pub enum AsrControl {
     Stop,
 }
 
@@ -55,6 +65,55 @@ pub enum AsrEvent {
 pub enum AsrEngine {
     Streaming(StreamingEngine),
     Segmented(SegmentedEngine),
+}
+
+/// The recognition surface used by the recognition worker.
+///
+/// The trait keeps the worker protocol independent from the concrete engines
+/// so the stop and flush behaviour can be verified without the acoustic
+/// models.
+pub trait Recognition: Send {
+    fn push(
+        &mut self,
+        samples: &[f32],
+        start_frame_48k: u64,
+        emit: &mut dyn FnMut(AsrEvent),
+    ) -> Result<(), String>;
+    fn discontinuity(&mut self, at_secs: f64, emit: &mut dyn FnMut(AsrEvent))
+        -> Result<(), String>;
+    fn flush(&mut self, emit: &mut dyn FnMut(AsrEvent)) -> Result<(), String>;
+}
+
+impl Recognition for AsrEngine {
+    fn push(
+        &mut self,
+        samples: &[f32],
+        start_frame_48k: u64,
+        emit: &mut dyn FnMut(AsrEvent),
+    ) -> Result<(), String> {
+        match self {
+            Self::Streaming(engine) => engine.push(samples, start_frame_48k, emit),
+            Self::Segmented(engine) => engine.push(samples, start_frame_48k, emit),
+        }
+    }
+
+    fn discontinuity(
+        &mut self,
+        at_secs: f64,
+        emit: &mut dyn FnMut(AsrEvent),
+    ) -> Result<(), String> {
+        match self {
+            Self::Streaming(engine) => engine.discontinuity(at_secs, emit),
+            Self::Segmented(engine) => engine.discontinuity(at_secs, emit),
+        }
+    }
+
+    fn flush(&mut self, emit: &mut dyn FnMut(AsrEvent)) -> Result<(), String> {
+        match self {
+            Self::Streaming(engine) => engine.flush(emit),
+            Self::Segmented(engine) => engine.flush(emit),
+        }
+    }
 }
 
 impl AsrEngine {
@@ -132,32 +191,6 @@ impl AsrEngine {
             AsrMode::Auto => {
                 Err("ASR auto mode must be resolved before loading a model.".to_owned())
             }
-        }
-    }
-
-    pub fn push(
-        &mut self,
-        samples: &[f32],
-        start_frame_48k: u64,
-        emit: &mut dyn FnMut(AsrEvent),
-    ) -> Result<(), String> {
-        match self {
-            Self::Streaming(engine) => engine.push(samples, start_frame_48k, emit),
-            Self::Segmented(engine) => engine.push(samples, start_frame_48k, emit),
-        }
-    }
-
-    pub fn discontinuity(&mut self, at_secs: f64, emit: &mut dyn FnMut(AsrEvent)) {
-        match self {
-            Self::Streaming(engine) => engine.discontinuity(at_secs, emit),
-            Self::Segmented(engine) => engine.discontinuity(at_secs, emit),
-        }
-    }
-
-    pub fn flush(&mut self, emit: &mut dyn FnMut(AsrEvent)) -> Result<(), String> {
-        match self {
-            Self::Streaming(engine) => engine.flush(emit),
-            Self::Segmented(engine) => engine.flush(emit),
         }
     }
 }

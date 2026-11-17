@@ -264,7 +264,8 @@ export function ConfigForm({
                         const currentLanguage = form.state.values.recognition.sourceLanguage;
                         if (
                           currentLanguage !== 'auto' &&
-                          !nextModel.sourceLanguages.includes(currentLanguage)
+                          (!nextModel.sourceLanguages.includes(currentLanguage) ||
+                            !nextModel.supportsSourceLanguage)
                         ) {
                           form.setFieldValue('recognition.sourceLanguage', 'auto');
                         }
@@ -319,27 +320,37 @@ export function ConfigForm({
               </form.Field>
 
               <form.Field name="recognition.sourceLanguage">
-                {(field) => (
-                  <SettingsRow
-                    labelFor="source-language"
-                    title={t(($) => $.config.sourceLanguage)}
-                    description={t(($) => $.config.sourceLanguageHint)}
-                  >
-                    <SettingSelect
-                      id="source-language"
-                      value={field.state.value}
-                      disabled={isDisabled}
-                      onChange={field.handleChange}
+                {(field) => {
+                  // A model that detects the language per utterance cannot
+                  // honour a forced source language, so the control is
+                  // locked on automatic and explains why.
+                  const supportsSourceLanguage = selectedModel?.supportsSourceLanguage ?? false;
+                  const description = supportsSourceLanguage
+                    ? t(($) => $.config.sourceLanguageHint)
+                    : t(($) => $.config.sourceLanguageAutoOnly);
+                  return (
+                    <SettingsRow
+                      labelFor="source-language"
+                      title={t(($) => $.config.sourceLanguage)}
+                      description={description}
                     >
-                      <SelectItem value="auto">{t(($) => $.languages.auto)}</SelectItem>
-                      {selectedModel?.sourceLanguages.map((language) => (
-                        <SelectItem key={language} value={language}>
-                          <LanguageName code={language} />
-                        </SelectItem>
-                      ))}
-                    </SettingSelect>
-                  </SettingsRow>
-                )}
+                      <SettingSelect
+                        id="source-language"
+                        value={supportsSourceLanguage ? field.state.value : 'auto'}
+                        disabled={isDisabled || !supportsSourceLanguage}
+                        onChange={field.handleChange}
+                      >
+                        <SelectItem value="auto">{t(($) => $.languages.auto)}</SelectItem>
+                        {supportsSourceLanguage &&
+                          selectedModel?.sourceLanguages.map((language) => (
+                            <SelectItem key={language} value={language}>
+                              <LanguageName code={language} />
+                            </SelectItem>
+                          ))}
+                      </SettingSelect>
+                    </SettingsRow>
+                  );
+                }}
               </form.Field>
             </SettingsList>
           </SettingsSection>

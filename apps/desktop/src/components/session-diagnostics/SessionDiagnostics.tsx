@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNow } from '@/hooks/use-now';
 import { getErrorMessage } from '@/lib/error';
 import { formatDuration, formatLatency, formatPercent } from '@/lib/format';
-import { sessionSnapshotOptions } from '@/lib/session';
+import { sessionCapabilitiesOptions, sessionSnapshotOptions } from '@/lib/session';
 import { SettingsList, SettingsSection } from '@/components/settings-section';
 
 import { Metric } from './Metric';
@@ -18,6 +18,7 @@ export function SessionDiagnostics() {
   const { t } = useTranslation();
   const now = useNow();
   const { data: snapshot, isPending, error } = useQuery(sessionSnapshotOptions);
+  const { data: capabilities } = useQuery(sessionCapabilitiesOptions);
 
   if (isPending) {
     return (
@@ -49,6 +50,8 @@ export function SessionDiagnostics() {
   let runBoundary = '';
   if (status.state === 'running') runBoundary = status.info.runBoundary;
   const recentNotices = notices.toReversed().slice(0, 20);
+  const translationModes = capabilities?.translationModes ?? [];
+  const asrModels = capabilities?.asrModels ?? [];
 
   return (
     <div className="h-full overflow-y-auto">
@@ -95,6 +98,53 @@ export function SessionDiagnostics() {
                 {runBoundary}
               </div>
             )}
+          </SettingsList>
+        </SettingsSection>
+
+        <SettingsSection title={t(($) => $.pipeline.title)}>
+          <SettingsList>
+            <dl className="divide-y divide-border/70 text-xs">
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <dt className="text-muted-foreground">{t(($) => $.pipeline.engine)}</dt>
+                <dd className="min-w-0 truncate text-right">
+                  {capabilities?.translationEngine ?? '-'}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <dt className="text-muted-foreground">{t(($) => $.pipeline.runtime)}</dt>
+                <dd className="min-w-0 truncate text-right">
+                  {capabilities?.translationRuntime ?? '-'}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <dt className="text-muted-foreground">{t(($) => $.pipeline.modelFamily)}</dt>
+                <dd className="min-w-0 truncate text-right">
+                  {capabilities?.translationModelFamily ?? '-'}
+                </dd>
+              </div>
+              {translationModes.map((mode) => (
+                <div key={mode.mode} className="flex items-center justify-between gap-4 px-4 py-3">
+                  <dt className="text-muted-foreground">
+                    {t(($) => $.pipeline.route)}: {mode.mode}
+                  </dt>
+                  <dd className="min-w-0 truncate text-right">
+                    {mode.available ? '-' : (mode.reason ?? '-')}
+                  </dd>
+                </div>
+              ))}
+              {asrModels.map((model) => (
+                <div key={model.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                  <dt className="text-muted-foreground">
+                    {t(($) => $.pipeline.recognition)}: {model.kind}
+                  </dt>
+                  <dd className="min-w-0 truncate text-right">
+                    {model.supportsSourceLanguage
+                      ? model.sourceLanguages.join(', ')
+                      : t(($) => $.config.sourceLanguageAutoOnly)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
           </SettingsList>
         </SettingsSection>
 

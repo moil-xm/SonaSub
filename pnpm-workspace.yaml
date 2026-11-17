@@ -4,6 +4,16 @@ packages:
 
 saveExact: true
 
+# Dependency policy for every environment, including CI.
+#
+# pnpm 12 defaults `minimumReleaseAge` to 1440 minutes, which rejects a
+# freshly published version even when the lockfile already pins it. The
+# repository pins exact versions and commits `pnpm-lock.yaml`, so the lockfile
+# together with its integrity hashes is the reviewed artifact. Declaring the
+# release-age gate as disabled here keeps `pnpm install --frozen-lockfile`
+# identical on a developer machine and on CI.
+minimumReleaseAge: 0
+
 overrides:
   'vite@*': 'npm:@voidzero-dev/vite-plus-core@1.6.0'
   '@testing-library/user-event': '14.6.9'

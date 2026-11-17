@@ -11,6 +11,11 @@ use sherpa_rs::{
     speaker_id::{EmbeddingExtractor, ExtractorConfig},
 };
 
+/// Speaker labels come from two independent paths. The per-utterance
+/// embedding is preliminary; the windowed diarization is the correction.
+pub const SPEAKER_SOURCE_EMBEDDING: &str = "embedding";
+pub const SPEAKER_SOURCE_DIARIZATION: &str = "diarization";
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpeakerInfo {
@@ -76,7 +81,7 @@ impl SpeakerRegistry {
                         confidence: Some(score.clamp(0.0, 1.0)),
                         uncertain: false,
                         overlap: false,
-                        source: "embedding".to_owned(),
+                        source: SPEAKER_SOURCE_EMBEDDING.to_owned(),
                     }),
                     false,
                 );
@@ -98,7 +103,7 @@ impl SpeakerRegistry {
                     confidence: None,
                     uncertain: true,
                     overlap: false,
-                    source: "embedding".to_owned(),
+                    source: SPEAKER_SOURCE_EMBEDDING.to_owned(),
                 }),
                 true,
             );
@@ -124,7 +129,7 @@ impl SpeakerRegistry {
                     confidence: Some(score.clamp(0.0, 1.0)),
                     uncertain: false,
                     overlap: false,
-                    source: "diarization".to_owned(),
+                    source: SPEAKER_SOURCE_DIARIZATION.to_owned(),
                 });
             }
         }

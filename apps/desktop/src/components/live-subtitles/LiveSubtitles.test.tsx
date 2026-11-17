@@ -10,6 +10,8 @@ import type { SessionSnapshot } from '@/lib/session';
 import { LiveSubtitles } from './LiveSubtitles';
 
 const snapshot: SessionSnapshot = {
+  revision: 1,
+  sessionId: 'session',
   status: {
     state: 'running',
     info: {
@@ -27,6 +29,8 @@ const snapshot: SessionSnapshot = {
       },
       translation: {
         engine: 'bergamot',
+        runtime: 'fxtranslate',
+        modelFamily: 'bergamot-firefox',
         modelId: 'en-zh',
         modelLabel: 'English to Chinese',
         mode: 'text',
@@ -44,6 +48,9 @@ const snapshot: SessionSnapshot = {
       runBoundary: 'Shared process',
     },
   },
+  statusRevision: 1,
+  subtitleRevision: 1,
+  statsRevision: 1,
   segments: [
     {
       id: 'session:1',
@@ -61,6 +68,7 @@ const snapshot: SessionSnapshot = {
         overlap: false,
         source: 'embedding',
       },
+      speakerRevision: 1,
       translation: {
         targetLanguage: 'zh-Hans',
         text: '你好，来自 SonaSub。',
@@ -79,6 +87,7 @@ const snapshot: SessionSnapshot = {
   ],
   stats: emptySessionStats(),
   notices: [],
+  historyLimit: 400,
 };
 
 afterEach(() => {

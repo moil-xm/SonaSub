@@ -6,9 +6,9 @@ use crate::subtitles::SubtitleSegment;
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum SessionStatus {
     Idle,
-    Starting { stage: String },
+    Starting { session_id: String, stage: String },
     Running { info: Box<SessionInfo> },
-    Stopping { stage: String },
+    Stopping { session_id: String, stage: String },
     Failed { error: String },
 }
 
@@ -51,6 +51,8 @@ pub struct AsrInfo {
 #[serde(rename_all = "camelCase")]
 pub struct TranslationInfo {
     pub engine: String,
+    pub runtime: String,
+    pub model_family: String,
     pub model_id: String,
     pub model_label: String,
     pub mode: String,
@@ -103,10 +105,38 @@ pub struct SessionNotice {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSnapshot {
+    /// Monotonic counter of every state change the backend applied.
+    pub revision: u64,
+    /// The session the current state belongs to. `None` before the first
+    /// session started.
+    pub session_id: Option<String>,
     pub status: SessionStatus,
+    /// Revision of the status this snapshot carries.
+    pub status_revision: u64,
+    /// Revision of the subtitle list this snapshot carries.
+    pub subtitle_revision: u64,
+    /// Revision of the statistics this snapshot carries.
+    pub stats_revision: u64,
     pub segments: Vec<SubtitleSegment>,
     pub stats: SessionStats,
     pub notices: Vec<SessionNotice>,
+    pub history_limit: usize,
+}
+
+/// A status change published to the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusEvent {
+    pub revision: u64,
+    pub status: SessionStatus,
+}
+
+/// A statistics update published to the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsEvent {
+    pub revision: u64,
+    pub stats: SessionStats,
 }
 
 pub struct SessionMetrics {

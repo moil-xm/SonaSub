@@ -169,6 +169,15 @@ speaker and translation patches update the same segment independently. React
 applies patches by ID instead of appending every inference result as a new
 caption.
 
+Status, subtitles and statistics are independent channels, and each channel
+carries a monotonic revision. The snapshot reports the revision of the status,
+the subtitle list and the statistics it holds, and every event repeats the
+revision it produced. A channel therefore never rolls back: an event that
+arrives after a newer one is dropped, and a snapshot that was taken before a
+newer event keeps the newer value for that channel. Within the subtitle list
+the text, the speaker assignment and the translation each carry their own
+revision, so a late patch cannot overwrite a newer value.
+
 Patches are batched at 80 ms; statistics are emitted at 750 ms. History is
 bounded by configuration (400 segments by default, 50–2000 allowed). Notices
 are capped at 100 and duplicate adjacent notices within two seconds are
@@ -218,7 +227,10 @@ Tauri events:
 React queries and mutations use `networkMode: 'always'` because this is local
 IPC, not network I/O. Event listeners are removed on unmount. Zustand remains
 limited to local interaction state such as the theme; session data is a
-TanStack Query cache updated by Rust events.
+TanStack Query cache updated by Rust events. The snapshot query merges a
+freshly read snapshot into the cache per channel, and the cache re-reads the
+snapshot once the event listeners are attached, so events published between
+the first read and the subscription are not lost.
 
 ## Configuration And Capabilities
 

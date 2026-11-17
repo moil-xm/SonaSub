@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::{
     asr::{AsrFinal, AsrPartial},
-    speaker::SpeakerInfo,
+    speaker::{SpeakerInfo, SPEAKER_SOURCE_DIARIZATION},
     translation::TranslationRequest,
 };
 
@@ -47,6 +47,9 @@ pub struct SubtitleSegment {
     pub revision: u32,
     pub is_final: bool,
     pub speaker: Option<SpeakerInfo>,
+    /// Increments every time the speaker of this segment is assigned. The
+    /// frontend uses it to reject a late speaker patch.
+    pub speaker_revision: u32,
     pub translation: Option<TranslationState>,
     pub source_language: Option<String>,
     pub created_at_ms: u64,
@@ -67,6 +70,7 @@ pub enum SubtitlePatch {
     Speaker {
         id: String,
         speaker: Option<SpeakerInfo>,
+        revision: u32,
     },
     Translation {
         id: String,
@@ -77,6 +81,7 @@ pub enum SubtitlePatch {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubtitleBatch {
+    pub revision: u64,
     pub session_id: String,
     pub patches: Vec<SubtitlePatch>,
 }
@@ -140,6 +145,7 @@ impl SubtitleStore {
                 revision: 1,
                 is_final: false,
                 speaker: None,
+                speaker_revision: 0,
                 translation: None,
                 source_language: None,
                 created_at_ms: now,
@@ -188,6 +194,7 @@ impl SubtitleStore {
                     revision: 1,
                     is_final: true,
                     speaker: None,
+                    speaker_revision: 0,
                     translation: None,
                     source_language: final_event.language,
                     created_at_ms: now,
@@ -202,16 +209,33 @@ impl SubtitleStore {
         patches
     }
 
-    pub fn set_speaker(&mut self, id: &str, speaker: Option<SpeakerInfo>) -> Option<SubtitlePatch> {
+    /// Merges a speaker result into a segment.
+    ///
+    /// Two independent paths produce speaker labels: a per-utterance embedding
+    /// and a windowed diarization. Diarization knows which voices overlapped
+    /// and covers a whole window, so it corrects the preliminary embedding
+    /// label. A late embedding must therefore not erase a diarization label or
+    /// its overlap marker; the outcome may not depend on arrival order.
+    pub fn set_speaker(&mut self, id: &str, speaker: SpeakerInfo) -> Option<SubtitlePatch> {
         let segment = self.segments.get_mut(id)?;
-        if segment.speaker == speaker {
-            return None;
+        if let Some(existing) = &segment.speaker {
+            if existing.source == SPEAKER_SOURCE_DIARIZATION
+                && speaker.source != SPEAKER_SOURCE_DIARIZATION
+            {
+                return None;
+            }
+            if *existing == speaker {
+                return None;
+            }
         }
-        segment.speaker = speaker.clone();
+        segment.speaker_revision = segment.speaker_revision.saturating_add(1);
+        segment.speaker = Some(speaker.clone());
         segment.updated_at_ms = now_ms();
+        let revision = segment.speaker_revision;
         Some(SubtitlePatch::Speaker {
             id: id.to_owned(),
-            speaker,
+            speaker: Some(speaker),
+            revision,
         })
     }
 
@@ -422,6 +446,17 @@ impl SubtitleStore {
             .collect()
     }
 
+    pub fn history_limit(&self) -> usize {
+        self.history_limit
+    }
+
+    /// Applies a new history limit and drops the subtitles that no longer
+    /// fit, so the backend store and the frontend cache agree.
+    pub fn set_history_limit(&mut self, limit: usize) {
+        self.history_limit = limit.max(50);
+        self.trim();
+    }
+
     pub fn is_stale(&self, request: &TranslationRequest, current_config_revision: u64) -> bool {
         if request.config_revision != current_config_revision {
             return true;
@@ -446,6 +481,10 @@ impl SubtitleStore {
     fn insert(&mut self, id: String, segment: SubtitleSegment) {
         self.order.push_back(id.clone());
         self.segments.insert(id, segment);
+        self.trim();
+    }
+
+    fn trim(&mut self) {
         while self.order.len() > self.history_limit {
             if let Some(removed) = self.order.pop_front() {
                 self.segments.remove(&removed);
@@ -487,6 +526,7 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::speaker::{SPEAKER_SOURCE_DIARIZATION, SPEAKER_SOURCE_EMBEDDING};
 
     fn partial(local_id: u64, text: &str, revision: u32) -> AsrPartial {
         AsrPartial {
@@ -547,5 +587,57 @@ mod tests {
             store.apply_partial(partial(id, "hello", 1));
         }
         assert_eq!(store.snapshot().len(), 50);
+    }
+
+    fn speaker(source: &str, overlap: bool) -> SpeakerInfo {
+        SpeakerInfo {
+            id: "S1".to_owned(),
+            index: 1,
+            confidence: Some(0.7),
+            uncertain: false,
+            overlap,
+            source: source.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_late_embedding_does_not_erase_a_diarization_label() {
+        let mut store = SubtitleStore::new("s".to_owned(), 50);
+        store.apply_partial(partial(1, "hello", 1));
+        store.set_speaker("s:1", speaker(SPEAKER_SOURCE_DIARIZATION, true));
+
+        let patch = store.set_speaker("s:1", speaker(SPEAKER_SOURCE_EMBEDDING, false));
+        assert!(patch.is_none());
+        let segment = store.segment("s:1").expect("segment exists");
+        assert_eq!(
+            segment
+                .speaker
+                .as_ref()
+                .map(|speaker| speaker.source.as_str()),
+            Some(SPEAKER_SOURCE_DIARIZATION)
+        );
+        assert!(segment
+            .speaker
+            .as_ref()
+            .is_some_and(|speaker| speaker.overlap));
+    }
+
+    #[test]
+    fn a_diarization_label_replaces_an_earlier_embedding_label() {
+        let mut store = SubtitleStore::new("s".to_owned(), 50);
+        store.apply_partial(partial(1, "hello", 1));
+        store.set_speaker("s:1", speaker(SPEAKER_SOURCE_EMBEDDING, false));
+
+        let patch = store.set_speaker("s:1", speaker(SPEAKER_SOURCE_DIARIZATION, true));
+        assert!(patch.is_some());
+        let segment = store.segment("s:1").expect("segment exists");
+        assert_eq!(
+            segment
+                .speaker
+                .as_ref()
+                .map(|speaker| speaker.source.as_str()),
+            Some(SPEAKER_SOURCE_DIARIZATION)
+        );
+        assert_eq!(segment.speaker_revision, 2);
     }
 }

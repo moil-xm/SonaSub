@@ -12,6 +12,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          # Same pnpm as `packageManager` in package.json, so the dependency
+          # policy in pnpm-workspace.yaml behaves the same as on a developer
+          # machine.
+          version: 12.15.0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -27,6 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
       - uses: actions/setup-node@v4
         with:
           node-version: 24

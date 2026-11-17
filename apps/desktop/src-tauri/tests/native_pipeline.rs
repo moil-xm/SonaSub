@@ -5,7 +5,7 @@ use std::{
 
 use sherpa_rs::diarize::{Diarize, DiarizeConfig};
 use sonasub_desktop_lib::{
-    asr::{AsrEngine, AsrEvent},
+    asr::{AsrEngine, AsrEvent, Recognition},
     config::{AsrMode, RecognitionConfig},
     models::{
         translation_files, ModelPaths, ASR_MODELS, ASR_SEGMENTED_ID, ASR_STREAMING_ID,

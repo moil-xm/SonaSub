@@ -9,6 +9,8 @@ import {
   applySessionStats,
   applySessionStatus,
   applySubtitleBatch,
+  isSessionSnapshot,
+  mergeSnapshot,
 } from '../session-cache';
 import type {
   AppConfig,
@@ -17,8 +19,8 @@ import type {
   SessionAction,
   SessionNotice,
   SessionSnapshot,
-  SessionStats,
-  SessionStatus,
+  StatsEvent,
+  StatusEvent,
   SubtitleBatch,
 } from './session.type';
 
@@ -45,6 +47,13 @@ export const sessionSnapshotOptions = queryOptions({
   networkMode: 'always',
   retry: false,
   refetchOnWindowFocus: true,
+  // A snapshot that was taken before a newer event must not roll that event
+  // back. Every channel carries its own revision, so the merge keeps the
+  // newer value per channel.
+  structuralSharing: (previous, incoming) =>
+    isSessionSnapshot(incoming)
+      ? mergeSnapshot(isSessionSnapshot(previous) ? previous : undefined, incoming)
+      : incoming,
 });
 
 export function useSessionEvents() {
@@ -60,7 +69,7 @@ export function useSessionEvents() {
       else unlisteners.push(unlisten);
     }
 
-    void listen<SessionStatus>('session://status', ({ payload }) => {
+    void listen<StatusEvent>('session://status', ({ payload }) => {
       queryClient.setQueryData<SessionSnapshot>(snapshotKey, (snapshot) => {
         if (!snapshot) return undefined;
         return applySessionStatus(snapshot, payload);
@@ -74,7 +83,7 @@ export function useSessionEvents() {
       });
     }).then(track);
 
-    void listen<SessionStats>('session://stats', ({ payload }) => {
+    void listen<StatsEvent>('session://stats', ({ payload }) => {
       queryClient.setQueryData<SessionSnapshot>(snapshotKey, (snapshot) => {
         if (!snapshot) return undefined;
         return applySessionStats(snapshot, payload);
@@ -87,6 +96,11 @@ export function useSessionEvents() {
         return appendSessionNotice(snapshot, payload);
       });
     }).then(track);
+
+    // Events published between the first snapshot read and the subscription
+    // are picked up by this read. The revision rules decide which of the two
+    // sources is newer.
+    void queryClient.invalidateQueries({ queryKey: snapshotKey });
 
     return () => {
       isDisposed = true;
@@ -104,7 +118,9 @@ export function useSessionAction() {
     networkMode: 'always',
     mutationFn: (action: SessionAction) => invoke<SessionSnapshot>(`${action}_session`),
     onSuccess: (snapshot) => {
-      queryClient.setQueryData(sessionSnapshotOptions.queryKey, snapshot);
+      queryClient.setQueryData<SessionSnapshot>(sessionSnapshotOptions.queryKey, (current) =>
+        mergeSnapshot(current, snapshot),
+      );
     },
   });
 }
@@ -118,6 +134,12 @@ export function useSaveConfig() {
     mutationFn: (config: AppConfig) => invoke<ConfigView>('save_config', { config }),
     onSuccess: (view) => {
       queryClient.setQueryData(sessionConfigOptions.queryKey, view);
+      // The history limit is part of the session contract, so the cached
+      // snapshot follows the saved configuration.
+      queryClient.setQueryData<SessionSnapshot>(sessionSnapshotOptions.queryKey, (snapshot) => {
+        if (!snapshot) return snapshot;
+        return { ...snapshot, historyLimit: view.config.ui.historyLimit };
+      });
     },
   });
 }

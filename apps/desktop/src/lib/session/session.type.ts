@@ -8,9 +8,9 @@ export type SessionAction = 'start' | 'stop' | 'restart';
 
 export type SessionStatus =
   | { state: 'idle' }
-  | { state: 'starting'; stage: string }
+  | { state: 'starting'; sessionId: string; stage: string }
   | { state: 'running'; info: SessionInfo }
-  | { state: 'stopping'; stage: string }
+  | { state: 'stopping'; sessionId: string; stage: string }
   | { state: 'failed'; error: string };
 
 export type AsrInfo = {
@@ -23,6 +23,8 @@ export type AsrInfo = {
 
 export type TranslationInfo = {
   engine: string;
+  runtime: string;
+  modelFamily: string;
   modelId: string;
   modelLabel: string;
   mode: 'text';
@@ -72,6 +74,10 @@ export type AsrModelCapability = ModelStatus & {
   kind: 'streaming' | 'segmented';
   supportedModes: string[];
   sourceLanguages: string[];
+  /** Whether a forced source language changes the recognition result. */
+  supportsSourceLanguage: boolean;
+  /** Why a forced source language is not available for this model. */
+  sourceLanguageReason: string | null;
 };
 
 export type TranslationModelCapability = ModelStatus & {
@@ -117,6 +123,10 @@ export type Capabilities = {
   translationModels: TranslationModelCapability[];
   translationTargets: LanguageOption[];
   translationEngine: string;
+  /** The native runtime that executes the translation models. */
+  translationRuntime: string;
+  /** The model family the compiled adapter reads. */
+  translationModelFamily: string;
   translationModes: ModeCapability[];
   diarization: ModelStatus;
   speakerEmbedding: ModelStatus;
@@ -210,6 +220,8 @@ export type SubtitleSegment = {
   revision: number;
   isFinal: boolean;
   speaker: SpeakerInfo | null;
+  /** Increments every time the speaker of this segment is assigned. */
+  speakerRevision: number;
   translation: TranslationState | null;
   sourceLanguage: string | null;
   createdAtMs: number;
@@ -219,12 +231,25 @@ export type SubtitleSegment = {
 export type SubtitlePatch =
   | { type: 'upsert'; segment: SubtitleSegment }
   | { type: 'finalize'; segment: SubtitleSegment }
-  | { type: 'speaker'; id: string; speaker: SpeakerInfo | null }
+  | { type: 'speaker'; id: string; speaker: SpeakerInfo | null; revision: number }
   | { type: 'translation'; id: string; translation: TranslationState | null };
 
 export type SubtitleBatch = {
+  revision: number;
   sessionId: string;
   patches: SubtitlePatch[];
+};
+
+/** A status change published by the backend. */
+export type StatusEvent = {
+  revision: number;
+  status: SessionStatus;
+};
+
+/** A statistics update published by the backend. */
+export type StatsEvent = {
+  revision: number;
+  stats: SessionStats;
 };
 
 export type SessionStats = {
@@ -256,8 +281,19 @@ export type SessionNotice = {
 };
 
 export type SessionSnapshot = {
+  /** Monotonic counter of every backend state change. */
+  revision: number;
+  /** The session the current state belongs to. */
+  sessionId: string | null;
   status: SessionStatus;
+  /** Revision of the status this snapshot carries. */
+  statusRevision: number;
+  /** Revision of the subtitle list this snapshot carries. */
+  subtitleRevision: number;
+  /** Revision of the statistics this snapshot carries. */
+  statsRevision: number;
   segments: SubtitleSegment[];
   stats: SessionStats;
   notices: SessionNotice[];
+  historyLimit: number;
 };
