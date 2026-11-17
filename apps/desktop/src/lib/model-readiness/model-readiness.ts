@@ -1,27 +1,6 @@
-import type {
-  AppConfig,
-  AsrModelCapability,
-  Capabilities,
-  TranslationModelCapability,
-} from './session.type';
+import type { AppConfig, Capabilities } from '../session';
 
-export type ReadinessIssue =
-  | 'unsupportedPlatform'
-  | 'unknownAsrModel'
-  | 'asrModel'
-  | 'asrMode'
-  | 'vadModel'
-  | 'translationModel'
-  | 'speakerModel'
-  | 'diarizationModel';
-
-export type ModelReadiness = {
-  canStart: boolean;
-  issues: ReadinessIssue[];
-  selectedAsr: AsrModelCapability | null;
-  selectedMode: 'streaming' | 'segmented' | null;
-  selectedTranslationModels: TranslationModelCapability[];
-};
+import type { ModelReadiness, ReadinessIssue } from './model-readiness.type';
 
 export function assessModelReadiness(
   capabilities: Capabilities,

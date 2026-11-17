@@ -2,7 +2,7 @@ import { Icon } from '@iconify/react';
 import loaderCircleIcon from '@iconify-icons/lucide/loader-circle';
 import { useTranslation } from '@sonasub/i18n';
 
-import type { SubtitleSegment } from '@/lib/session.type';
+import type { SubtitleSegment } from '@/lib/session';
 
 type TranslationBodyProps = {
   segment: SubtitleSegment;

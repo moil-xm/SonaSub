@@ -1,4 +1,4 @@
-import type { TranslationResource } from './resources/en-US';
+import type { TranslationResource } from '../resources';
 
 export type Locale = 'en-US' | 'zh-CN';
 

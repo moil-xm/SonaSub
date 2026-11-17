@@ -3,7 +3,7 @@ import alertCircleIcon from '@iconify-icons/lucide/alert-circle';
 import infoIcon from '@iconify-icons/lucide/info';
 import triangleAlertIcon from '@iconify-icons/lucide/triangle-alert';
 
-import type { SessionNotice } from '@/lib/session.type';
+import type { SessionNotice } from '@/lib/session';
 
 type NoticeIconProps = {
   notice: SessionNotice;

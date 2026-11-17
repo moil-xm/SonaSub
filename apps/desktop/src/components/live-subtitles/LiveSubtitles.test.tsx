@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 
 import { emptySessionStats } from '@/lib/session-cache';
 import { sessionSnapshotOptions } from '@/lib/session';
-import type { SessionSnapshot } from '@/lib/session.type';
+import type { SessionSnapshot } from '@/lib/session';
 
 import { LiveSubtitles } from './LiveSubtitles';
 

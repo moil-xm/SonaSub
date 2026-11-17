@@ -27,9 +27,19 @@ They do not apply to generated artifacts (`routeTree.gen.ts`, WXT-generated file
 - Keep a component directory flat; add `style/`, `demo/` or `__tests__/` only when a real need appears.
 - WXT entrypoints own their directory shape (`index.html`, `main.tsx`); the component file inside is PascalCase and imported directly by the entry.
 
+## Module Directories
+
+- A `.ts` module owns a directory named after it in kebab-case, with the same public-entry rule as a component: `src/lib/session/` holds `session.ts`, the colocated `session.type.ts` and an `index.ts` that re-exports the public API.
+- A module keeps its kebab-case file name; PascalCase stays reserved for React components and types.
+- Imports point at the directory (`@/lib/session`), never at a file inside it. A module that needs another module's types imports them from that module's public entry.
+- A barrel may use `export type * from './module.type'` when the type file is the unit's whole type surface; otherwise list the types explicitly.
+- A directory that groups sibling files of one kind is a collection, not a module: it keeps its own `index.ts` entry (`packages/i18n/src/resources/`).
+- App entry files (`main.tsx`, `routeTree.ts`) stay at the workspace root.
+- `packages/ui/src/components/*.tsx` and `packages/ui/src/lib/utils.ts` stay flat because the shadcn CLI writes flat files.
+
 ## Type Files
 
-- Handwritten business types live in an adjacent `*.type.ts` inside the same directory (`ComponentName.type.ts` for TSX components, `use-xxx.type.ts` for hooks), imported at runtime files with `import type`.
+- Handwritten business types live in an adjacent `*.type.ts` inside the same directory (`ComponentName.type.ts` for TSX components, `module.type.ts` for a `module.ts` module, `use-xxx.type.ts` for hooks), imported at runtime files with `import type`.
 - `*.type.ts` may contain only type declarations, `import type` and `export type`; it must not emit runtime code.
 - Handwritten business types and component props use `type`, not `interface`; reserve `interface` for generated declarations or required third-party declaration merging.
 - A component-private props type of two or three lines may stay in the component file; split it into `*.type.ts` once it is consumed across files or clearly grows.
@@ -51,7 +61,7 @@ They do not apply to generated artifacts (`routeTree.gen.ts`, WXT-generated file
 ## Public Entry
 
 - A module `index.ts` is a public entry only and holds no implementation logic; cross-module consumers import from the nearest public entry instead of referencing another module's implementation, hooks or type leaf files directly.
-- Every component directory exposes its component through `index.ts`; a component is imported from the directory, never from the implementation file inside it.
+- Every component or module directory exposes its public API through `index.ts`; consumers import the directory, never the implementation file inside it.
 - New public exports from `packages/ui` update the `package.json` `exports` (see [project-workspace](../project-workspace/SKILL.md)).
 
 ## TanStack Query (mall's useRequest Habit)

@@ -4,7 +4,7 @@ import { useTranslation } from '@sonasub/i18n';
 import { Badge } from '@sonasub/ui/components/badge';
 
 import { formatAudioTime } from '@/lib/format';
-import type { SubtitleSegment } from '@/lib/session.type';
+import type { SubtitleSegment } from '@/lib/session';
 
 import { TranslationBody } from './TranslationBody';
 

@@ -36,7 +36,7 @@ import type {
   ConfigView,
   TranslationMode,
   TranslationTrigger,
-} from '@/lib/session.type';
+} from '@/lib/session';
 
 import { LanguageName } from './LanguageName';
 import { SettingSelect } from './SettingSelect';

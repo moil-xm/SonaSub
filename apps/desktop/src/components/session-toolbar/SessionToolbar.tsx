@@ -21,7 +21,7 @@ import {
   sessionSnapshotOptions,
   useSessionAction,
 } from '@/lib/session';
-import type { SessionStatus } from '@/lib/session.type';
+import type { SessionStatus } from '@/lib/session';
 
 import { ActionIcon } from './ActionIcon';
 import { SessionDataErrors } from './SessionDataErrors';

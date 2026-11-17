@@ -255,6 +255,11 @@ language are separate settings.
   implementation file, its named sub-components and an `index.ts` public
   entry. Imports point at the directory (`@/components/live-subtitles`), never
   at a file inside it.
+- `.ts` modules use the same layout: `apps/desktop/src/lib/session/` holds
+  `session.ts`, its `session.type.ts` and an `index.ts` public entry, and
+  imports point at the directory (`@/lib/session`). A directory that groups
+  sibling files of one kind, such as `packages/i18n/src/resources/`, is a
+  collection that keeps its own `index.ts`.
 - New exports must be listed in the owning package's `exports`.
 
 The macOS bundle contains only the application executable, icon and plist. It

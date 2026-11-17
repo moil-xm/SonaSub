@@ -1,4 +1,4 @@
-import type { LanguagePreference, Locale } from './i18n.type';
+import type { LanguagePreference, Locale } from '../i18n';
 
 export const FALLBACK_LOCALE: Locale = 'en-US';
 

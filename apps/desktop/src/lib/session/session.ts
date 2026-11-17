@@ -9,7 +9,7 @@ import {
   applySessionStats,
   applySessionStatus,
   applySubtitleBatch,
-} from './session-cache';
+} from '../session-cache';
 import type {
   AppConfig,
   Capabilities,
@@ -20,18 +20,6 @@ import type {
   SessionStats,
   SessionStatus,
   SubtitleBatch,
-} from './session.type';
-
-export type {
-  AppConfig,
-  Capabilities,
-  ConfigView,
-  SessionNotice,
-  SessionSnapshot,
-  SessionStats,
-  SessionStatus,
-  SubtitleBatch,
-  SubtitleSegment,
 } from './session.type';
 
 export const sessionCapabilitiesOptions = queryOptions({

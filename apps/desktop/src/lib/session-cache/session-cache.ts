@@ -6,7 +6,7 @@ import type {
   SubtitleBatch,
   SubtitlePatch,
   SubtitleSegment,
-} from './session.type';
+} from '../session';
 
 const NOTICE_LIMIT = 100;
 

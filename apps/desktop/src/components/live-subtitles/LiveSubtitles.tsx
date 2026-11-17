@@ -9,7 +9,7 @@ import { Badge } from '@sonasub/ui/components/badge';
 import { useQuery } from '@tanstack/react-query';
 
 import { sessionSnapshotOptions } from '@/lib/session';
-import type { SubtitleSegment } from '@/lib/session.type';
+import type { SubtitleSegment } from '@/lib/session';
 
 import { SubtitleRow } from './SubtitleRow';
 

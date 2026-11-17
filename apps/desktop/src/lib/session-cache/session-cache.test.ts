@@ -6,12 +6,7 @@ import {
   applySubtitlePatches,
   emptySessionStats,
 } from './session-cache';
-import type {
-  SessionSnapshot,
-  SubtitlePatch,
-  SubtitleSegment,
-  TranslationState,
-} from './session.type';
+import type { SessionSnapshot, SubtitlePatch, SubtitleSegment, TranslationState } from '../session';
 
 function segment(overrides: Partial<SubtitleSegment> = {}): SubtitleSegment {
   return {

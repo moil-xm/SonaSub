@@ -28,7 +28,7 @@ import {
   useSetConfirmBeforeQuit,
   useSetReduceMotion,
 } from '@/stores/app-preferences';
-import type { AccentColor, CaptionTextSize } from '@/stores/app-preferences.type';
+import type { AccentColor, CaptionTextSize } from '@/stores/app-preferences';
 
 type AccentOption = {
   label: string;

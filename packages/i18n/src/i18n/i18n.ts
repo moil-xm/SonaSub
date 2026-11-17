@@ -1,8 +1,9 @@
 import { createInstance, type i18n as I18nInstance } from 'i18next';
 
+import { FALLBACK_LOCALE, SUPPORTED_LOCALES } from '../locale';
+import { resources } from '../resources';
+
 import type { Locale } from './i18n.type';
-import { FALLBACK_LOCALE, SUPPORTED_LOCALES } from './locale';
-import { resources } from './resources';
 
 function syncDocumentLanguage(language: string) {
   if (typeof document !== 'undefined') document.documentElement.lang = language;
