@@ -96,6 +96,12 @@ the patched runtime returns speaker segments.
 
 - The streaming Zipformer accepts 16 kHz mono audio and produces partial and
   final text continuously. It does not wait for a VAD endpoint.
+- The streaming Zipformer detects the language per utterance and cannot honour
+  a forced source language. The capability reports that, the configuration
+  control is locked on automatic, and the session reports the language that is
+  actually in effect. The segmented SenseVoice accepts a forced language, and
+  a configuration that forces an unsupported language is rejected before the
+  session starts.
 - SenseVoice uses Silero VAD and a maximum segment length to produce complete
   segment text. It is segmented recognition, not native streaming.
 - SenseVoice recognizes Chinese, English, Japanese, Korean and Cantonese, but
@@ -104,6 +110,9 @@ the patched runtime returns speaker segments.
   state.
 - Bergamot returns one complete translated string for a submitted source
   string. The adapter declares `text` only; `streaming` is not supported.
+- The translation adapter separates the native runtime (`fxtranslate`) from
+  the model family (`bergamot-firefox`). The runtime executes the pinned
+  weights; the model family names their Firefox Translations format.
 - CAM++ labels finalized subtitle segments. Pyannote analysis runs over
   bounded audio windows and associates local clusters with session-wide
   speakers through embeddings; it is windowed quasi-real-time diarization,
@@ -131,6 +140,57 @@ different engine.
 Rust compilation also fails fast when the patched native runtime is missing;
 `build.rs` reports the expected library path and the `pnpm prepare:native`
 command.
+
+## Planned: In-App Model Preparation
+
+The current preparation path is the development script `pnpm prepare:models`.
+It is a Node.js script, so it cannot run inside the packaged app, which ships
+without a Node.js runtime. The following design replaces the script with an
+in-app flow. It is a plan, not an implemented feature.
+
+### Scope
+
+- The user selects the model files from disk. The app installs them into the
+  platform application-data directory; the installer never contains weights.
+- Validation reports the missing file, its expected relative path, its
+  minimum size and its pinned SHA-256. The check runs on a worker thread and
+  reports progress, so a multi-hundred-megabyte file does not block the UI.
+- The install is atomic: the file is written to a temporary file in the same
+  directory, verified, and then renamed into place. A failed import leaves
+  the previous model untouched.
+- The model page reuses the readiness assessment of the workbench, so both
+  views report the same missing or invalid models.
+
+### Native surface
+
+- A new `models/` module in `apps/desktop/src-tauri/src/` owns the model
+  registry, the checksums and the install. The `models.rs` registry keeps
+  describing the required files.
+- New Tauri commands: a command that lists the required files with their
+  state, a command that validates one file and a command that installs one
+  file. Every command updates `capabilities` in the same change.
+- A `model://progress` event reports the phase of a long validation so the
+  interface can show real progress instead of an indeterminate spinner.
+
+### Interface
+
+- A new route `apps/desktop/src/routes/models/` with one card per pinned
+  model. A card shows the state of every file, the expected path, the
+  validation result and the action that repairs it.
+- The workbench keeps a short readiness summary and links to the model page
+  instead of repeating the full file list.
+- All copy is localized in `packages/i18n`.
+
+### Open decisions
+
+- Whether the app may download weights at all. The current promise is that
+  the packaged app has no network dependency. A local import keeps that
+  promise; an in-app download would need an explicit, separate decision and
+  a matching change to this document.
+- Whether a user-supplied model with a different checksum is accepted. The
+  current registry pins exact hashes, so strict verification rejects it.
+- Whether the pinned source language list of the streaming model is
+  configurable, or fixed by the registry.
 
 ## Pinned SHA-256
 

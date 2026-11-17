@@ -151,6 +151,7 @@ packages/ui                  Shared components, theme, icons and styles
 packages/i18n                English and Simplified Chinese UI resources
 docs/architecture.md         Runtime boundaries and pipeline details
 docs/models.md               Model sources, versions and checksums
+docs/validation.md           Executed checks, native results and open gaps
 ```
 
 React controls Rust only through Tauri commands and events. Audio samples,

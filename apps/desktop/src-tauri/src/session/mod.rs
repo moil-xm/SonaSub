@@ -925,11 +925,7 @@ impl Runner {
             // worker stopped and every subtitle it produced was consumed.
             // Closing it earlier would drop the translation of the last
             // subtitle.
-            if self.ending
-                && self
-                    .shutdown
-                    .may_close_translation(self.workers.events.is_empty())
-            {
+            if self.ending && self.shutdown.may_close_translation(&self.workers.events) {
                 self.workers.queue.close();
                 self.shutdown.mark_translation_closed();
             }

@@ -279,6 +279,9 @@ pub struct ModeCapability {
     pub mode: String,
     pub available: bool,
     pub reason: Option<String>,
+    /// A stable identifier for the reason, so the interface can show a
+    /// localized explanation instead of the raw backend text.
+    pub reason_code: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -457,11 +460,13 @@ impl ModelPaths {
                     mode: "auto".to_owned(),
                     available: true,
                     reason: None,
+                    reason_code: None,
                 },
                 ModeCapability {
                     mode: "text".to_owned(),
                     available: true,
                     reason: None,
+                    reason_code: None,
                 },
                 ModeCapability {
                     mode: "streaming".to_owned(),
@@ -470,6 +475,7 @@ impl ModelPaths {
                         "The fxtranslate runtime returns complete translated text for one submitted source string; it does not expose incremental output."
                             .to_owned(),
                     ),
+                    reason_code: Some("complete-text-only".to_owned()),
                 },
             ],
             diarization: self.model_status(
@@ -651,6 +657,20 @@ mod tests {
             TranslationMode::Text
         );
         assert!(resolve_translation_mode(TranslationMode::Streaming).is_err());
+    }
+
+    #[test]
+    fn a_missing_translation_route_carries_a_stable_reason_code() {
+        let paths = ModelPaths::new(std::env::temp_dir());
+        let capabilities = paths.capabilities();
+        let streaming = capabilities
+            .translation_modes
+            .iter()
+            .find(|mode| mode.mode == "streaming")
+            .expect("the streaming route is reported");
+        assert!(!streaming.available);
+        assert_eq!(streaming.reason_code.as_deref(), Some("complete-text-only"));
+        assert!(streaming.reason.is_some());
     }
 
     #[test]

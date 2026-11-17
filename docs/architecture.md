@@ -26,8 +26,11 @@ The desktop's Rust modules are deliberately separated:
   translation queue.
 - `subtitles/`: stable segment IDs, revisions and independent text, speaker and
   translation patches.
-- `session/`: serialized lifecycle, worker ownership, bounded queues, event
-  emission, metrics and cleanup.
+- `session/`: serialized lifecycle, event emission, metrics and cleanup.
+  `session/workers.rs` owns the recognition, speaker, diarization and
+  translation worker threads, their bounded queues and the shutdown
+  bookkeeping; `session/mod.rs` owns the session thread, the subtitle
+  scheduling and the published state.
 
 ## Native Runtime
 
@@ -86,6 +89,11 @@ audio's original time, not the time at which the worker finished.
 - A gap, dropped chunk, device recovery or discontinuity resets the resampler
   and audio history, emits an ASR discontinuity, and starts the next subtitle
   run after the real gap. Missing audio is never presented as continuous.
+- The segmented path recreates the Silero VAD after a gap. Clearing the
+  detector only drops the finished segments while its internal sample counter
+  keeps running, which would shift every following timestamp; a real reset
+  restarts that counter and the segment epoch, so the absolute time of a
+  recovered run stays correct.
 - A bounded ASR queue drops whole intervals when inference cannot keep up and
   records the dropped frames; the excluded interval is not bridged.
 - Device loss, permission denial, terminal errors and stalled capture are
@@ -115,6 +123,11 @@ selected model's actual capability. An explicit incompatible mode is rejected
 with an error and is disabled in the UI; `auto` is never a fallback after an
 inference failure.
 
+A final result never depends on an earlier partial. If the recognizer only
+produces text while flushing, that text still receives its own subtitle
+identity, and an empty final result falls back to the pending partial instead
+of dropping the segment.
+
 ## Speaker Attribution
 
 Every finalized segment can be queued for CAM++ speaker embedding. The registry
@@ -132,6 +145,13 @@ separation. No separate speaker tracks are produced.
 The speaker queue and diarization queue are bounded; dropped work produces
 notices or unknown/uncertain labels rather than blocking recognition.
 
+The two attribution sources are merged by authority, not by arrival order. A
+windowed diarization result knows which voices overlapped and covers the whole
+window, so it replaces a preliminary embedding label including its overlap
+marker. A late embedding result can therefore never erase a diarization label.
+Each assignment increments the segment's speaker revision, and the frontend
+rejects a speaker patch that is older than the revision it already applied.
+
 ## Translation
 
 `TranslationEngine` is a small blocking interface. The only compiled adapter is
@@ -139,6 +159,12 @@ Bergamot through `fxtranslate`, using Firefox Translations-format models.
 Complete source text is submitted on a dedicated worker; the result returns as
 an asynchronous patch for the same subtitle ID and text revision.
 
+- The adapter reports the native runtime (`fxtranslate`) and the model family
+  (`bergamot-firefox`) separately. The runtime executes the model; the model
+  family describes the pinned weight format. They are not interchangeable.
+- The translation worker receives its engine through the `TranslationEngine`
+  interface and is created by one factory entry point. Only the existing
+  adapter is implemented; there is no plugin registry or dynamic loading.
 - Bergamot declares complete-text (`text`) only. `streaming` is rejected; an
   asynchronous callback is not described as incremental translation.
 - `auto` resolves to `text`.
@@ -152,6 +178,13 @@ an asynchronous patch for the same subtitle ID and text revision.
 - Language directions come from the pinned local model registry
   (`en → zh-Hans`, `zh-Hans → en`); no arbitrary language pair is inferred from
   Firefox's supported-language list.
+- The translation queue closes only after the recognition worker stopped and
+  every event it produced was consumed. Closing it earlier would drop the
+  translation of the last subtitle; never closing it keeps the translation
+  worker waiting forever. The decision lives in
+  `ShutdownState::may_close_translation`, which reads the event queue itself
+  instead of receiving a boolean, so the emptiness check cannot be inverted
+  at the call site.
 
 ## Subtitle Scheduling
 
@@ -179,8 +212,10 @@ the text, the speaker assignment and the translation each carry their own
 revision, so a late patch cannot overwrite a newer value.
 
 Patches are batched at 80 ms; statistics are emitted at 750 ms. History is
-bounded by configuration (400 segments by default, 50–2000 allowed). Notices
-are capped at 100 and duplicate adjacent notices within two seconds are
+bounded by configuration (400 segments by default, 50–2000 allowed). The
+backend store and the frontend cache apply the same limit, so neither the
+subtitle history nor the rendered list grows without bound. Notices are
+capped at 100 and duplicate adjacent notices within two seconds are
 suppressed.
 
 ## Session Lifecycle
@@ -197,9 +232,23 @@ running → stopping/failed (stop, restart, app exit or pipeline failure)
 - Start loads only the models required by the selected ASR mode and enabled
   speaker features, waits up to 180 seconds for initialization, and reports
   the real failure instead of showing a ready state.
+- Every failure after the workers exist releases them again, including a
+  failure of a later initialization stage and a cancelled start.
+- The stop signal for the recognition worker travels on its own control
+  channel, which is never blocked by a full audio backlog. A worker that is
+  busy decoding still reaches its flush and reports the last subtitle.
 - Stop stops capture, flushes ASR, lets native inference reach a safe boundary,
   closes the translation queue and joins workers. Native inference cannot be
   preemptively cancelled.
+- The shutdown waits for the worker output to be consumed before it closes the
+  translation queue and before it confirms the session as finished. A worker
+  that blocks on a full output channel is drained on a separate thread while
+  the join runs, so the cleanup cannot deadlock.
+- A startup timeout keeps the worker registered and reports the pending
+  cancellation instead of claiming that the cleanup already finished. While a
+  native call cannot be interrupted, the session reports the waiting state
+  every few seconds instead of dropping the thread handle and treating the
+  cleanup as done.
 - App exit runs the same cleanup path. Models are reused for the session, not
   reloaded per segment.
 - Workers are threads inside the desktop process. A native crash is not
@@ -232,6 +281,14 @@ freshly read snapshot into the cache per channel, and the cache re-reads the
 snapshot once the event listeners are attached, so events published between
 the first read and the subscription are not lost.
 
+`starting`, `running` and `stopping` all carry the session they belong to. The
+cache tracks the active session ID and drops a subtitle batch, a status event
+or a snapshot that belongs to an older session or that carries a revision
+older than the one already applied. The text revision, the revision of the
+translation that belongs to it and the speaker revision are validated
+separately, so a stale translation or a stale speaker label cannot replace a
+newer value.
+
 ## Configuration And Capabilities
 
 Configuration is persisted as JSON with atomic replace; invalid values are
@@ -253,6 +310,13 @@ Capabilities are computed from the model registry, the compiled adapters and
 the current platform. A user preference cannot turn an unsupported mode into a
 supported one. UI language, speech source language and translation target
 language are separate settings.
+
+The source language is only a real setting for a model that can honour it. The
+streaming Zipformer detects the language per utterance and ignores a forced
+source language, so the control is locked on automatic and explains why; the
+session reports the language that is actually in effect. The segmented
+SenseVoice accepts a forced language. A configuration that forces a language a
+model does not support is rejected before the session starts.
 
 ## Imports And Packaging
 

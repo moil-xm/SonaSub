@@ -215,6 +215,8 @@ export const zhCn = {
     modelFamily: '模型体系',
     model: '模型',
     route: '路径',
+    supported: '支持',
+    completeTextOnly: '翻译运行时对每个提交的原文返回完整译文，不提供增量输出。',
     sourceLanguage: '实际生效的语音语言',
     idle: '尚未运行过会话。',
   },

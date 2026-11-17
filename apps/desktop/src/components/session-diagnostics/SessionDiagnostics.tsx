@@ -128,7 +128,11 @@ export function SessionDiagnostics() {
                     {t(($) => $.pipeline.route)}: {mode.mode}
                   </dt>
                   <dd className="min-w-0 truncate text-right">
-                    {mode.available ? '-' : (mode.reason ?? '-')}
+                    {mode.available
+                      ? t(($) => $.pipeline.supported)
+                      : mode.reasonCode === 'complete-text-only'
+                        ? t(($) => $.pipeline.completeTextOnly)
+                        : (mode.reason ?? t(($) => $.pipeline.supported))}
                   </dd>
                 </div>
               ))}

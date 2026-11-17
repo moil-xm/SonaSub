@@ -138,6 +138,7 @@ packages/ui                  共享组件、主题、图标与样式
 packages/i18n                英文与简体中文界面资源
 docs/architecture.md         运行时边界与链路细节
 docs/models.md               模型来源、版本与校验信息
+docs/validation.md           已执行的检查、原生验证结果与遗留项
 ```
 
 React 只通过 Tauri 命令与事件控制 Rust。音频样本、模型句柄与推理 Worker

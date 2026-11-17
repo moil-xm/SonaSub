@@ -233,6 +233,9 @@ export const enUs = {
     modelFamily: 'Model family',
     model: 'Model',
     route: 'Route',
+    supported: 'Supported',
+    completeTextOnly:
+      'The translation runtime returns complete translated text for one submitted source string; it does not expose incremental output.',
     sourceLanguage: 'Effective speech language',
     idle: 'No session has run yet.',
   },

@@ -91,6 +91,7 @@ export type ModeCapability = {
   mode: string;
   available: boolean;
   reason: string | null;
+  reasonCode: string | null;
 };
 
 export type LanguageOption = {

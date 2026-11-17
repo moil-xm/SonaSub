@@ -126,10 +126,15 @@ impl ShutdownState {
 
     /// Reports whether the translation queue may close now.
     ///
-    /// `events_pending` is true while the recognition worker still has
-    /// results that the session has not consumed.
-    pub fn may_close_translation(&self, events_pending: bool) -> bool {
-        self.asr_done && !self.translation_closed && !events_pending
+    /// The queue may only close once the recognition worker stopped and the
+    /// session consumed every event it produced. A subtitle that is still
+    /// queued would otherwise lose its translation, and a queue that never
+    /// closes keeps the translation worker waiting forever.
+    ///
+    /// The event queue is passed in instead of a flag so that the emptiness
+    /// check cannot be inverted at the call site.
+    pub fn may_close_translation(&self, events: &Receiver<WorkerEvent>) -> bool {
+        self.asr_done && !self.translation_closed && events.is_empty()
     }
 
     pub fn mark_translation_closed(&mut self) {
@@ -493,12 +498,19 @@ mod tests {
 
     #[test]
     fn the_translation_queue_waits_for_the_last_recognition_event() {
+        let (event_tx, event_rx) = bounded(4);
         let mut state = ShutdownState::new(false, false);
         state.worker_done(WorkerKind::Asr);
 
         // The last recognition result is still queued and not consumed.
-        assert!(!state.may_close_translation(true));
-        assert!(state.may_close_translation(false));
+        event_tx
+            .send(WorkerEvent::Done(WorkerKind::Asr))
+            .expect("the event queue accepts the event");
+        assert!(!state.may_close_translation(&event_rx));
+
+        // The queue may close once the session consumed the last event.
+        event_rx.recv().expect("the event is pending");
+        assert!(state.may_close_translation(&event_rx));
     }
 
     #[test]
@@ -520,11 +532,147 @@ mod tests {
 
     #[test]
     fn the_translation_queue_is_closed_only_once() {
+        let (_event_tx, event_rx) = bounded(4);
         let mut state = ShutdownState::new(false, false);
         state.worker_done(WorkerKind::Asr);
-        assert!(state.may_close_translation(false));
+        assert!(state.may_close_translation(&event_rx));
         state.mark_translation_closed();
         assert!(state.translation_closed());
-        assert!(!state.may_close_translation(false));
+        assert!(!state.may_close_translation(&event_rx));
+    }
+
+    /// A translation double that is slower than the test.
+    struct SlowTranslation {
+        delay: Duration,
+    }
+
+    impl TranslationEngine for SlowTranslation {
+        fn capabilities(&self) -> crate::translation::TranslationCapabilities {
+            crate::translation::TranslationCapabilities {
+                engine: "test".to_owned(),
+                runtime: "test".to_owned(),
+                model_family: "test".to_owned(),
+                mode: "text".to_owned(),
+                streaming: false,
+                reason: None,
+            }
+        }
+
+        fn translate(&mut self, text: &str) -> Result<String, String> {
+            std::thread::sleep(self.delay);
+            Ok(format!("translated {text}"))
+        }
+    }
+
+    #[test]
+    fn a_slow_translation_worker_reports_its_last_translation_before_it_exits() {
+        let queue = Arc::new(TranslationQueue::new());
+        let (event_tx, event_rx) = bounded(8);
+        let worker_queue = queue.clone();
+        let handle = thread::spawn(move || {
+            run_worker(
+                Box::new(SlowTranslation {
+                    delay: Duration::from_millis(30),
+                }),
+                &worker_queue,
+                |result| {
+                    let _ = event_tx.send(WorkerEvent::Translation(result));
+                },
+            );
+            let _ = event_tx.send(WorkerEvent::Done(WorkerKind::Translation));
+        });
+
+        // The session queues a translation and stops while the worker is
+        // still busy with it.
+        assert!(matches!(
+            queue.push(crate::translation::TranslationRequest {
+                session_id: "session".to_owned(),
+                segment_id: "segment".to_owned(),
+                text_revision: 1,
+                config_revision: 1,
+                text: "hello".to_owned(),
+                source_language: "en".to_owned(),
+                target_language: "zh-Hans".to_owned(),
+                model_id: "test".to_owned(),
+            }),
+            crate::translation::PushOutcome::Queued
+        ));
+        thread::sleep(Duration::from_millis(5));
+        queue.close();
+
+        let mut translated = 0;
+        let mut done = false;
+        while let Ok(event) = event_rx.recv_timeout(Duration::from_secs(2)) {
+            match event {
+                WorkerEvent::Translation(_) => translated += 1,
+                WorkerEvent::Done(WorkerKind::Translation) => done = true,
+                _ => {}
+            }
+        }
+        assert_eq!(translated, 1);
+        assert!(done);
+        handle.join().expect("the translation worker finishes");
+    }
+
+    #[test]
+    fn a_closed_translation_queue_releases_a_worker_without_pending_work() {
+        let queue = Arc::new(TranslationQueue::new());
+        let (event_tx, event_rx) = bounded(8);
+        let worker_queue = queue.clone();
+        let handle = thread::spawn(move || {
+            run_worker(
+                Box::new(SlowTranslation {
+                    delay: Duration::from_millis(0),
+                }),
+                &worker_queue,
+                |result| {
+                    let _ = event_tx.send(WorkerEvent::Translation(result));
+                },
+            );
+            let _ = event_tx.send(WorkerEvent::Done(WorkerKind::Translation));
+        });
+
+        // The session stopped before any request was queued. The worker must
+        // still leave the queue instead of waiting for work forever.
+        queue.close();
+        let mut done = false;
+        while let Ok(event) = event_rx.recv_timeout(Duration::from_secs(2)) {
+            if matches!(event, WorkerEvent::Done(WorkerKind::Translation)) {
+                done = true;
+            }
+        }
+        assert!(done);
+        handle.join().expect("the translation worker finishes");
+    }
+
+    #[test]
+    fn a_failing_initialization_releases_a_worker_that_is_blocked_on_the_event_queue() {
+        // A worker writes more events than the queue can hold. Without a
+        // reader it would block forever, and the cleanup of a failed session
+        // start could never join it.
+        let (event_tx, event_rx) = bounded(1);
+        let worker_tx = event_tx.clone();
+        let released = Arc::new(AtomicBool::new(false));
+        let worker_released = released.clone();
+        let handle = thread::spawn(move || {
+            for _ in 0..8 {
+                let _ = worker_tx.send(WorkerEvent::Done(WorkerKind::Asr));
+            }
+            worker_released.store(true, Ordering::SeqCst);
+        });
+        drop(event_tx);
+
+        let workers = WorkerRuntime {
+            events: event_rx,
+            asr_tx: None,
+            asr_control_tx: None,
+            speaker_tx: None,
+            diarization_tx: None,
+            queue: Arc::new(TranslationQueue::new()),
+            handles: vec![(WorkerKind::Asr, handle)],
+        };
+        workers.shutdown();
+
+        assert!(released.load(Ordering::SeqCst));
     }
 }
