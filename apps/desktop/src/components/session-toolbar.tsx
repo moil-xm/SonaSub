@@ -2,17 +2,18 @@ import { Icon } from '@iconify/react';
 import loaderCircleIcon from '@iconify-icons/lucide/loader-circle';
 import playIcon from '@iconify-icons/lucide/play';
 import rotateCwIcon from '@iconify-icons/lucide/rotate-cw';
+import settingsIcon from '@iconify-icons/lucide/settings';
 import squareIcon from '@iconify-icons/lucide/square';
 import triangleAlertIcon from '@iconify-icons/lucide/triangle-alert';
 import { useTranslation } from '@sonasub/i18n';
 import { Alert, AlertDescription, AlertTitle } from '@sonasub/ui/components/alert';
 import { Button } from '@sonasub/ui/components/button';
-import { Card, CardContent } from '@sonasub/ui/components/card';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 
 import { useNow } from '@/hooks/use-now';
 import { getErrorMessage } from '@/lib/error';
-import { formatDuration, formatPercent } from '@/lib/format';
+import { formatDuration } from '@/lib/format';
 import { assessModelReadiness } from '@/lib/model-readiness';
 import {
   sessionCapabilitiesOptions,
@@ -24,13 +25,11 @@ import type { SessionStatus } from '@/lib/session.type';
 
 import { ReadinessIssues } from './readiness-issues';
 
-type SessionToolbarProps = {
-  isConfigDirty: boolean;
-};
-
 function statusTone(status: SessionStatus): string {
   if (status.state === 'running') return 'bg-success';
-  if (status.state === 'starting' || status.state === 'stopping') return 'bg-warning animate-pulse';
+  if (status.state === 'starting' || status.state === 'stopping') {
+    return 'bg-warning animate-pulse';
+  }
   if (status.state === 'failed') return 'bg-destructive';
   return 'bg-muted-foreground';
 }
@@ -45,7 +44,67 @@ function ActionIcon({ icon, isLoading }: ActionIconProps) {
   return <Icon icon={icon} />;
 }
 
-export function SessionToolbar({ isConfigDirty }: SessionToolbarProps) {
+type SessionMetricProps = {
+  label: string;
+  value: string;
+};
+
+type SessionDataErrorsProps = {
+  capabilitiesError: Error | null;
+  configError: Error | null;
+  snapshotError: Error | null;
+};
+
+function SessionMetric({ label, value }: SessionMetricProps) {
+  return (
+    <div className="min-w-0 bg-card px-4 py-2.5">
+      <dt className="text-[10.5px] font-medium tracking-[0.06em] text-muted-foreground uppercase">
+        {label}
+      </dt>
+      <dd className="mt-0.5 truncate text-[12.5px] font-medium" title={value}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function SessionDataErrors({
+  capabilitiesError,
+  configError,
+  snapshotError,
+}: SessionDataErrorsProps) {
+  const { t } = useTranslation();
+
+  return (
+    <>
+      {capabilitiesError && (
+        <Alert variant="destructive">
+          <Icon icon={triangleAlertIcon} />
+          <AlertTitle>{t(($) => $.workbench.errors.capabilities)}</AlertTitle>
+          <AlertDescription>{getErrorMessage(capabilitiesError)}</AlertDescription>
+        </Alert>
+      )}
+
+      {configError && (
+        <Alert variant="destructive">
+          <Icon icon={triangleAlertIcon} />
+          <AlertTitle>{t(($) => $.workbench.errors.config)}</AlertTitle>
+          <AlertDescription>{getErrorMessage(configError)}</AlertDescription>
+        </Alert>
+      )}
+
+      {snapshotError && (
+        <Alert variant="destructive">
+          <Icon icon={triangleAlertIcon} />
+          <AlertTitle>{t(($) => $.workbench.errors.snapshot)}</AlertTitle>
+          <AlertDescription>{getErrorMessage(snapshotError)}</AlertDescription>
+        </Alert>
+      )}
+    </>
+  );
+}
+
+export function SessionToolbar() {
   const { t } = useTranslation();
   const now = useNow();
   const { data: capabilities, error: capabilitiesError } = useQuery(sessionCapabilitiesOptions);
@@ -53,13 +112,34 @@ export function SessionToolbar({ isConfigDirty }: SessionToolbarProps) {
   const { data: snapshot, error: snapshotError } = useQuery(sessionSnapshotOptions);
   const action = useSessionAction();
 
+  const isInitialLoading =
+    (!snapshot && !snapshotError) ||
+    (!configView && !configError) ||
+    (!capabilities && !capabilitiesError);
+
+  if (isInitialLoading) {
+    return (
+      <section className="flex min-h-[148px] items-center justify-center rounded-xl border bg-card px-5 py-4 text-sm text-muted-foreground">
+        {t(($) => $.workbench.status.loading)}
+      </section>
+    );
+  }
+
   if (!snapshot || !configView || !capabilities) {
     return (
-      <Card>
-        <CardContent className="flex min-h-36 items-center justify-center text-sm text-muted-foreground">
-          {t(($) => $.workbench.status.loading)}
-        </CardContent>
-      </Card>
+      <div className="shrink-0 space-y-2.5">
+        <section className="rounded-xl border bg-card px-5 py-5">
+          <h1 className="text-xl font-semibold tracking-tight">{t(($) => $.workbench.title)}</h1>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+            {t(($) => $.workbench.description)}
+          </p>
+        </section>
+        <SessionDataErrors
+          capabilitiesError={capabilitiesError}
+          configError={configError}
+          snapshotError={snapshotError}
+        />
+      </div>
     );
   }
 
@@ -120,104 +200,102 @@ export function SessionToolbar({ isConfigDirty }: SessionToolbarProps) {
     }
   }
 
+  let audioRoute: string = t(($) => $.config.systemDefault);
+  if (configView.config.audio.deviceId) {
+    const selectedDevice = capabilities.audio.devices.find(
+      (device) => device.id === configView.config.audio.deviceId,
+    );
+    audioRoute = selectedDevice?.name ?? configView.config.audio.deviceId;
+  }
+
   let startHint: string | undefined;
-  if (isConfigDirty) startHint = t(($) => $.workbench.dirty);
-  else if (!readiness.canStart) startHint = t(($) => $.workbench.readiness.title);
+  if (!readiness.canStart) startHint = t(($) => $.workbench.readiness.title);
+
+  let readinessLabel: string = t(($) => $.workbench.readiness.setupRequired);
+  if (readiness.canStart) readinessLabel = t(($) => $.workbench.readiness.ready);
+  let readinessTone = 'text-muted-foreground';
+  if (readiness.canStart) readinessTone = 'text-success';
+  else readinessTone = 'text-warning';
 
   return (
-    <div className="space-y-4">
-      <Card className="overflow-hidden">
-        <CardContent className="space-y-5 p-5 lg:p-6">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0 space-y-2">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                <span className="inline-flex items-center gap-2">
-                  <span className={`size-2 rounded-full ${statusTone(status)}`} />
-                  <span role="status">{statusLabel}</span>
-                </span>
-                <span className="h-3 w-px bg-border" />
-                <span>{t(($) => $.workbench.eyebrow)}</span>
-              </div>
-              <h1 className="max-w-3xl text-2xl font-semibold tracking-tight">
-                {t(($) => $.workbench.title)}
-              </h1>
-              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                {t(($) => $.workbench.description)}
-              </p>
-              <p className="max-w-3xl text-xs text-muted-foreground">{statusDetail}</p>
+    <div className="shrink-0 space-y-2.5">
+      <section className="overflow-hidden rounded-xl border bg-card">
+        <div className="flex flex-col gap-4 px-4 py-4 min-[1120px]:flex-row min-[1120px]:items-start min-[1120px]:justify-between md:px-5">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] font-medium tracking-[0.05em] text-muted-foreground uppercase">
+              <span className="inline-flex items-center gap-1.5">
+                <span className={`size-2 rounded-full ${statusTone(status)}`} />
+                <span role="status">{statusLabel}</span>
+              </span>
+              <span className="h-3 w-px bg-border" />
+              <span>{t(($) => $.workbench.eyebrow)}</span>
+              {!isRunning && (
+                <>
+                  <span className="h-3 w-px bg-border" />
+                  <span className={readinessTone}>{readinessLabel}</span>
+                </>
+              )}
             </div>
-
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <Button
-                disabled={isBusy || isRunning || isConfigDirty || !readiness.canStart}
-                title={startHint}
-                onClick={() => action.mutate('start')}
-              >
-                <ActionIcon
-                  icon={playIcon}
-                  isLoading={action.isPending && action.variables === 'start'}
-                />
-                {t(($) => $.workbench.actions.start)}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={isBusy || (!isRunning && !isStarting)}
-                onClick={() => action.mutate('stop')}
-              >
-                <ActionIcon
-                  icon={squareIcon}
-                  isLoading={action.isPending && action.variables === 'stop'}
-                />
-                {t(($) => $.workbench.actions.stop)}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={isBusy || isConfigDirty || !readiness.canStart}
-                title={startHint}
-                onClick={() => action.mutate('restart')}
-              >
-                <ActionIcon
-                  icon={rotateCwIcon}
-                  isLoading={action.isPending && action.variables === 'restart'}
-                />
-                {t(($) => $.workbench.actions.restart)}
-              </Button>
-            </div>
+            <h1 className="mt-1.5 text-xl font-semibold tracking-tight">
+              {t(($) => $.workbench.title)}
+            </h1>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">{statusDetail}</p>
           </div>
 
-          <div className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-2 xl:grid-cols-4">
-            <div className="bg-card p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t(($) => $.workbench.route.asr)}
-              </p>
-              <p className="mt-1 text-sm font-medium">{asrRoute}</p>
-            </div>
-            <div className="bg-card p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t(($) => $.workbench.route.translation)}
-              </p>
-              <p className="mt-1 text-sm font-medium">{translationRoute}</p>
-            </div>
-            <div className="bg-card p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t(($) => $.workbench.route.speakers)}
-              </p>
-              <p className="mt-1 text-sm font-medium">{speakerRoute}</p>
-            </div>
-            <div className="bg-card p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t(($) => $.workbench.route.resources)}
-              </p>
-              <p className="mt-1 text-sm font-medium">
-                {t(($) => $.workbench.route.resourceValue, {
-                  cpu: formatPercent(snapshot.stats.cpuPercent),
-                  memory: snapshot.stats.rssMb.toFixed(0),
-                })}
-              </p>
-            </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              disabled={isBusy || isRunning || !readiness.canStart}
+              title={startHint}
+              onClick={() => action.mutate('start')}
+            >
+              <ActionIcon
+                icon={playIcon}
+                isLoading={action.isPending && action.variables === 'start'}
+              />
+              {t(($) => $.workbench.actions.start)}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isBusy || (!isRunning && !isStarting)}
+              onClick={() => action.mutate('stop')}
+            >
+              <ActionIcon
+                icon={squareIcon}
+                isLoading={action.isPending && action.variables === 'stop'}
+              />
+              {t(($) => $.workbench.actions.stop)}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isBusy || !readiness.canStart}
+              title={startHint}
+              onClick={() => action.mutate('restart')}
+            >
+              <ActionIcon
+                icon={rotateCwIcon}
+                isLoading={action.isPending && action.variables === 'restart'}
+              />
+              {t(($) => $.workbench.actions.restart)}
+            </Button>
+            <Button variant="ghost" size="sm" className="text-muted-foreground" asChild>
+              <Link to="/session">
+                <Icon icon={settingsIcon} />
+                {t(($) => $.workbench.actions.settings)}
+              </Link>
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        <dl className="grid gap-px border-t bg-border/70 sm:grid-cols-2 min-[1120px]:grid-cols-4">
+          <SessionMetric label={t(($) => $.workbench.route.audio)} value={audioRoute} />
+          <SessionMetric label={t(($) => $.workbench.route.asr)} value={asrRoute} />
+          <SessionMetric label={t(($) => $.workbench.route.translation)} value={translationRoute} />
+          <SessionMetric label={t(($) => $.workbench.route.speakers)} value={speakerRoute} />
+        </dl>
+      </section>
 
       {status.state === 'failed' && (
         <Alert variant="destructive">
@@ -245,29 +323,11 @@ export function SessionToolbar({ isConfigDirty }: SessionToolbarProps) {
         </Alert>
       )}
 
-      {capabilitiesError && (
-        <Alert variant="destructive">
-          <Icon icon={triangleAlertIcon} />
-          <AlertTitle>{t(($) => $.workbench.errors.capabilities)}</AlertTitle>
-          <AlertDescription>{getErrorMessage(capabilitiesError)}</AlertDescription>
-        </Alert>
-      )}
-
-      {configError && (
-        <Alert variant="destructive">
-          <Icon icon={triangleAlertIcon} />
-          <AlertTitle>{t(($) => $.workbench.errors.config)}</AlertTitle>
-          <AlertDescription>{getErrorMessage(configError)}</AlertDescription>
-        </Alert>
-      )}
-
-      {snapshotError && (
-        <Alert variant="destructive">
-          <Icon icon={triangleAlertIcon} />
-          <AlertTitle>{t(($) => $.workbench.errors.snapshot)}</AlertTitle>
-          <AlertDescription>{getErrorMessage(snapshotError)}</AlertDescription>
-        </Alert>
-      )}
+      <SessionDataErrors
+        capabilitiesError={capabilitiesError}
+        configError={configError}
+        snapshotError={snapshotError}
+      />
     </div>
   );
 }

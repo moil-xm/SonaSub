@@ -5,6 +5,7 @@ export type ThemeState = {
 };
 
 export type ThemeActions = {
+  setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 };
 

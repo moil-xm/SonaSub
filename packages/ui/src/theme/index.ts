@@ -11,6 +11,7 @@ const themeStore = create<ThemeStore>()(
   persist(
     (set) => ({
       theme: 'light',
+      setTheme: (theme) => set({ theme }),
       toggleTheme: () =>
         set((state) => {
           if (state.theme === 'dark') return { theme: 'light' };
@@ -32,6 +33,10 @@ export function useTheme() {
 
 export function useToggleTheme() {
   return themeStore((state) => state.toggleTheme);
+}
+
+export function useSetTheme() {
+  return themeStore((state) => state.setTheme);
 }
 
 themeStore.subscribe((state) => applyTheme(state.theme));

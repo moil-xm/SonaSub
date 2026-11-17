@@ -82,7 +82,7 @@ describe('translation resources', () => {
   it('resolves selectors, interpolation and plurals synchronously in both locales', async () => {
     const instance = createI18n('en-US');
 
-    expect(instance.t(($) => $.navigation.live)).toBe('Live');
+    expect(instance.t(($) => $.navigation.live)).toBe('Live captions');
     expect(instance.t(($) => $.about.description, { time: '2026-11-16 12:00' })).toContain(
       '2026-11-16 12:00',
     );

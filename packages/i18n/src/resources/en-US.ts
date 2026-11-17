@@ -1,6 +1,15 @@
 export const enUs = {
   navigation: {
-    live: 'Live',
+    groups: {
+      workbench: 'Workspace',
+      configuration: 'Configuration',
+    },
+    primary: 'Primary navigation',
+    live: 'Live captions',
+    sessionSettings: 'Session settings',
+    diagnostics: 'Diagnostics',
+    settings: 'Settings',
+    general: 'General',
     about: 'About',
   },
   theme: {
@@ -26,7 +35,6 @@ export const enUs = {
     title: 'Turn the sound on this Mac into live subtitles',
     description:
       'Capture system output, recognize speech locally with sherpa-onnx, then fill in speakers and Bergamot translations asynchronously. Source text never waits for translation.',
-    dirty: 'Save or discard the settings changes before starting a session.',
     status: {
       loading: 'Loading native session state…',
       idle: 'Idle',
@@ -42,8 +50,10 @@ export const enUs = {
       start: 'Start listening',
       stop: 'Stop',
       restart: 'Restart',
+      settings: 'Session settings',
     },
     route: {
+      audio: 'Audio output',
       asr: 'Recognition',
       asrAuto: 'Auto',
       asrStreaming: 'Streaming Zipformer',
@@ -60,6 +70,8 @@ export const enUs = {
     },
     readiness: {
       title: 'The session cannot start yet',
+      ready: 'Models ready',
+      setupRequired: 'Setup required',
       unsupportedPlatform:
         'System-audio capture is implemented and verified only for macOS 14.4 or later on arm64.',
       unknownAsrModel: 'The selected speech-recognition model is not registered.',
@@ -95,6 +107,7 @@ export const enUs = {
     uncertain: 'Uncertain',
     overlap: 'Overlap',
     partial: 'Live',
+    jumpToLatest: 'Jump to latest',
     translation: {
       pending: 'Translating after recognition…',
       stale: 'Source changed; revising the translation…',
@@ -114,6 +127,10 @@ export const enUs = {
     saved: 'Configuration saved.',
     saveError: 'Could not save configuration',
     loadError: 'Configuration could not be loaded',
+    leaveTitle: 'Discard unsaved session settings?',
+    leaveDescription: 'Your configuration changes will not be saved.',
+    keepEditing: 'Keep editing',
+    discardChanges: 'Discard changes',
     readiness: 'Selected configuration requirements',
     audioSection: 'System audio',
     audioOutput: 'Output endpoint',
@@ -208,6 +225,11 @@ export const enUs = {
     title: 'Runtime notices',
     empty: 'No capture, recognition or translation notices in this session.',
   },
+  diagnostics: {
+    description:
+      'Resource use, inference latency and runtime notices for the current or most recent session.',
+    loading: 'Waiting for session diagnostics…',
+  },
   extension: {
     description: 'The Chrome extension entry point remains available.',
     roadmap:
@@ -225,6 +247,73 @@ export const enUs = {
       extension: 'Chrome extension entry point',
       ui: 'Shared components, theme, icons and styles',
       i18n: 'Shared interface translations and type-safe i18next setup',
+    },
+  },
+  settings: {
+    tabs: {
+      general: 'General',
+      about: 'About',
+    },
+    general: {
+      appearanceSection: 'Appearance',
+      appearanceDescription: 'Window appearance and caption readability.',
+      theme: 'Theme',
+      themeDescription: 'Choose the interface appearance for SonaSub.',
+      light: 'Light',
+      dark: 'Dark',
+      accentColor: 'Accent color',
+      accentDescription: 'Used for selected navigation, controls and primary actions.',
+      accents: {
+        graphite: 'Graphite',
+        indigo: 'Indigo',
+        blue: 'Blue',
+        teal: 'Teal',
+        green: 'Green',
+        amber: 'Amber',
+        rose: 'Rose',
+      },
+      captionSize: 'Caption text size',
+      captionSizeDescription: 'Changes only the source and translated caption text.',
+      captionSizes: {
+        compact: 'Compact',
+        standard: 'Standard',
+        large: 'Large',
+      },
+      colorblindMode: 'Colorblind-friendly status colors',
+      colorblindDescription: 'Uses distinguishable blue, amber and vermilion status colors.',
+      reduceMotion: 'Reduce motion',
+      reduceMotionDescription: 'Stops interface animations and transitions.',
+      languageSection: 'Language',
+      interfaceLanguage: 'Interface language',
+      interfaceLanguageDescription:
+        'Interface language is independent from speech recognition and translation.',
+      sessionSection: 'Application',
+      confirmQuit: 'Ask before closing during a session',
+      confirmQuitDescription: 'When captions are running, ask before closing the SonaSub window.',
+      quitConfirmTitle: 'Captions are still running',
+      quitConfirmPrompt: 'Closing the SonaSub window will stop the current caption session.',
+      keepRunning: 'Keep running',
+      quitAndStop: 'Close and stop',
+    },
+    about: {
+      appSection: 'Application',
+      description: 'Local, open-source real-time subtitles for system audio on macOS.',
+      version: 'Version',
+      versionDescription: 'Installed desktop application version',
+      versionUnavailable: 'Unavailable',
+      linksSection: 'Links',
+      repository: 'Source code',
+      repositoryDescription: 'SonaSub on GitHub',
+      releases: 'Release notes',
+      releasesDescription: 'Versions and changes published on GitHub',
+      license: 'Open-source license',
+      licenseDescription: 'Apache License 2.0',
+      issues: 'Report an issue',
+      issuesDescription: 'Ask a question or report a problem on GitHub',
+      open: 'Open',
+      runtimeSection: 'Runtime',
+      runtimeDescription:
+        'Audio capture, speech recognition, speaker analysis and translation all run locally in Rust. Model weights stay in the application-data directory and are never bundled in the installer.',
     },
   },
 } as const;

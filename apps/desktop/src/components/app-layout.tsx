@@ -1,68 +1,276 @@
-import type { ChangeEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
+import activityIcon from '@iconify-icons/lucide/activity';
 import captionsIcon from '@iconify-icons/lucide/captions';
+import moonIcon from '@iconify-icons/lucide/moon';
+import settingsIcon from '@iconify-icons/lucide/settings';
+import slidersHorizontalIcon from '@iconify-icons/lucide/sliders-horizontal';
 import sunIcon from '@iconify-icons/lucide/sun';
-import { isLanguagePreference, useTranslation } from '@sonasub/i18n';
-import { Link, Outlet } from '@tanstack/react-router';
-import { Button } from '@sonasub/ui/components/button';
+import { useTranslation } from '@sonasub/i18n';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@sonasub/ui/components/alert-dialog';
 import { useTheme, useToggleTheme } from '@sonasub/ui/theme';
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useQuery } from '@tanstack/react-query';
+import { Link, Outlet, useRouterState } from '@tanstack/react-router';
 
-import { setLanguagePreference, useLanguagePreference } from '@/i18n';
-import { useSessionEvents } from '@/lib/session';
+import { sessionSnapshotOptions, useSessionEvents } from '@/lib/session';
+import { useConfirmBeforeQuit } from '@/stores/app-preferences';
 
-function handleLanguageChange(event: ChangeEvent<HTMLSelectElement>) {
-  const preference = event.currentTarget.value;
-  if (isLanguagePreference(preference)) setLanguagePreference(preference);
+function navigationItemClass(isActive: boolean) {
+  if (isActive) {
+    return 'flex h-[30px] items-center gap-2.5 rounded-[7px] bg-card px-2.5 text-[13px] font-medium text-foreground shadow-sm';
+  }
+  return 'flex h-[30px] items-center gap-2.5 rounded-[7px] px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground';
+}
+
+function settingsSubItemClass(isActive: boolean) {
+  if (isActive) {
+    return 'flex h-[26px] items-center rounded-md px-2.5 text-xs font-medium text-foreground';
+  }
+  return 'flex h-[26px] items-center rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground';
+}
+
+function currentPage(isActive: boolean): 'page' | undefined {
+  if (isActive) return 'page';
+  return undefined;
 }
 
 export function AppLayout() {
   const { t } = useTranslation();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const { data: snapshot } = useQuery(sessionSnapshotOptions);
   const theme = useTheme();
   const toggleTheme = useToggleTheme();
-  const languagePreference = useLanguagePreference();
+  const confirmBeforeQuit = useConfirmBeforeQuit();
+  const [isQuitDialogOpen, setIsQuitDialogOpen] = useState(false);
+  const allowCloseRef = useRef(false);
   useSessionEvents();
-  let toggleLabel: string = t(($) => $.theme.switchToDark);
-  if (theme === 'dark') toggleLabel = t(($) => $.theme.switchToLight);
+
+  const isLivePage = pathname === '/';
+  const isSessionPage = pathname === '/session';
+  const isDiagnosticsPage = pathname === '/diagnostics';
+  const isSettingsPage = pathname === '/settings' || pathname === '/about';
+
+  let sectionLabel: string = t(($) => $.navigation.groups.workbench);
+  let pageLabel: string = t(($) => $.navigation.live);
+  if (isSessionPage) {
+    sectionLabel = t(($) => $.navigation.groups.configuration);
+    pageLabel = t(($) => $.navigation.sessionSettings);
+  }
+  if (isDiagnosticsPage) {
+    sectionLabel = t(($) => $.navigation.groups.configuration);
+    pageLabel = t(($) => $.navigation.diagnostics);
+  }
+  if (isSettingsPage) {
+    sectionLabel = t(($) => $.navigation.settings);
+    pageLabel = t(($) => $.navigation.general);
+    if (pathname === '/about') pageLabel = t(($) => $.navigation.about);
+  }
+
+  const statusState = snapshot?.status.state ?? 'idle';
+  let sessionStatusLabel: string = t(($) => $.workbench.status.idle);
+  let sessionStatusTone = 'bg-muted-foreground';
+  if (statusState === 'running') {
+    sessionStatusLabel = t(($) => $.workbench.status.running);
+    sessionStatusTone = 'bg-success';
+  }
+  if (statusState === 'starting') {
+    sessionStatusLabel = t(($) => $.workbench.status.starting);
+    sessionStatusTone = 'bg-warning animate-pulse';
+  }
+  if (statusState === 'stopping') {
+    sessionStatusLabel = t(($) => $.workbench.status.stopping);
+    sessionStatusTone = 'bg-warning animate-pulse';
+  }
+  if (statusState === 'failed') {
+    sessionStatusLabel = t(($) => $.workbench.status.failed);
+    sessionStatusTone = 'bg-destructive';
+  }
+
+  const isSessionActive =
+    statusState === 'running' || statusState === 'starting' || statusState === 'stopping';
+  let themeToggleLabel: string = t(($) => $.theme.switchToDark);
+  let themeToggleIcon = moonIcon;
+  if (theme === 'dark') {
+    themeToggleLabel = t(($) => $.theme.switchToLight);
+    themeToggleIcon = sunIcon;
+  }
+
+  useEffect(() => {
+    let isDisposed = false;
+    let unlisten: (() => void) | undefined;
+
+    if (confirmBeforeQuit && isSessionActive && isTauri()) {
+      void getCurrentWindow()
+        .onCloseRequested((event) => {
+          if (allowCloseRef.current) return;
+          event.preventDefault();
+          setIsQuitDialogOpen(true);
+        })
+        .then((dispose) => {
+          if (isDisposed) dispose();
+          else unlisten = dispose;
+        });
+    }
+
+    return () => {
+      isDisposed = true;
+      unlisten?.();
+    };
+  }, [confirmBeforeQuit, isSessionActive]);
+
+  function handleConfirmQuit() {
+    allowCloseRef.current = true;
+    setIsQuitDialogOpen(false);
+    void getCurrentWindow()
+      .close()
+      .catch(() => {
+        allowCloseRef.current = false;
+      });
+  }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-background/95 px-6 py-3 backdrop-blur">
-        <div className="flex items-center gap-6">
-          <span className="flex items-center gap-2 text-sm font-semibold tracking-wide">
-            <span className="grid size-7 place-items-center rounded-md bg-primary text-primary-foreground">
-              <Icon icon={captionsIcon} className="size-4" />
-            </span>
-            SonaSub
+    <div className="app-shell flex h-screen overflow-hidden bg-background text-[13px] text-foreground">
+      <aside className="flex w-[212px] shrink-0 flex-col border-r border-border bg-background max-[1100px]:w-[188px]">
+        <div
+          data-tauri-drag-region
+          className="flex h-[50px] shrink-0 items-center gap-2 pr-3 pl-[76px]"
+        >
+          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
+            <Icon icon={captionsIcon} className="size-3.5" />
           </span>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link to="/" activeProps={{ className: 'text-primary font-medium' }}>
-              {t(($) => $.navigation.live)}
-            </Link>
-            <Link to="/about" activeProps={{ className: 'text-primary font-medium' }}>
-              {t(($) => $.navigation.about)}
-            </Link>
-          </nav>
+          <span className="truncate text-[13.5px] font-semibold tracking-tight">SonaSub</span>
         </div>
-        <div className="flex items-center gap-2">
-          <select
-            aria-label={t(($) => $.language.label)}
-            className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-            value={languagePreference}
-            onChange={handleLanguageChange}
+
+        <nav aria-label={t(($) => $.navigation.primary)} className="min-h-0 flex-1 px-2.5 pb-3">
+          <p className="px-2.5 pt-1 pb-1 text-[11px] font-medium tracking-[0.04em] text-muted-foreground">
+            {t(($) => $.navigation.groups.workbench)}
+          </p>
+          <Link
+            to="/"
+            aria-current={currentPage(isLivePage)}
+            className={navigationItemClass(isLivePage)}
           >
-            <option value="system">{t(($) => $.language.followSystem)}</option>
-            <option value="en-US">{t(($) => $.language.english)}</option>
-            <option value="zh-CN">{t(($) => $.language.chinese)}</option>
-          </select>
-          <Button variant="outline" size="sm" onClick={toggleTheme}>
-            <Icon icon={sunIcon} className="size-4" />
-            {toggleLabel}
-          </Button>
+            <Icon icon={captionsIcon} className="size-4 shrink-0" />
+            <span className="truncate">{t(($) => $.navigation.live)}</span>
+          </Link>
+
+          <p className="px-2.5 pt-4 pb-1 text-[11px] font-medium tracking-[0.04em] text-muted-foreground">
+            {t(($) => $.navigation.groups.configuration)}
+          </p>
+          <Link
+            to="/session"
+            aria-current={currentPage(isSessionPage)}
+            className={navigationItemClass(isSessionPage)}
+          >
+            <Icon icon={slidersHorizontalIcon} className="size-4 shrink-0" />
+            <span className="truncate">{t(($) => $.navigation.sessionSettings)}</span>
+          </Link>
+          <Link
+            to="/diagnostics"
+            aria-current={currentPage(isDiagnosticsPage)}
+            className={navigationItemClass(isDiagnosticsPage)}
+          >
+            <Icon icon={activityIcon} className="size-4 shrink-0" />
+            <span className="truncate">{t(($) => $.navigation.diagnostics)}</span>
+          </Link>
+        </nav>
+
+        <div className="shrink-0 border-t border-border px-2.5 py-2">
+          {isSettingsPage && (
+            <div className="mb-1 ml-3 border-l border-border pl-2">
+              <p className="px-2.5 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground">
+                {t(($) => $.navigation.settings)}
+              </p>
+              <Link
+                to="/settings"
+                aria-current={currentPage(pathname === '/settings')}
+                className={settingsSubItemClass(pathname === '/settings')}
+              >
+                {t(($) => $.navigation.general)}
+              </Link>
+              <Link
+                to="/about"
+                aria-current={currentPage(pathname === '/about')}
+                className={settingsSubItemClass(pathname === '/about')}
+              >
+                {t(($) => $.navigation.about)}
+              </Link>
+            </div>
+          )}
+          <Link
+            to="/settings"
+            aria-current={currentPage(isSettingsPage)}
+            className={navigationItemClass(isSettingsPage)}
+          >
+            <Icon icon={settingsIcon} className="size-4 shrink-0" />
+            <span className="truncate">{t(($) => $.navigation.settings)}</span>
+          </Link>
+          <Link
+            to="/"
+            aria-label={`${sessionStatusLabel} · ${t(($) => $.navigation.live)}`}
+            className="mt-1 flex h-[26px] items-center gap-2 rounded-md px-2.5 text-[11.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <span className={`size-[7px] shrink-0 rounded-full ${sessionStatusTone}`} />
+            <span className="truncate">{sessionStatusLabel}</span>
+          </Link>
         </div>
-      </header>
-      <main className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6">
-        <Outlet />
-      </main>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header
+          data-tauri-drag-region
+          className="flex h-[50px] shrink-0 items-center justify-between gap-4 border-b border-border px-4 md:px-5"
+        >
+          <div className="flex min-w-0 items-baseline gap-1.5 text-[13.5px] whitespace-nowrap">
+            <span className="truncate text-muted-foreground max-[980px]:hidden">
+              {sectionLabel}
+            </span>
+            <span className="text-muted-foreground/70 max-[980px]:hidden">/</span>
+            <span className="truncate font-semibold text-foreground">{pageLabel}</span>
+          </div>
+          <button
+            type="button"
+            aria-label={themeToggleLabel}
+            title={themeToggleLabel}
+            className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={toggleTheme}
+          >
+            <Icon icon={themeToggleIcon} className="size-4" />
+          </button>
+        </header>
+
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <Outlet />
+        </main>
+      </div>
+
+      <AlertDialog open={isQuitDialogOpen} onOpenChange={(isOpen) => setIsQuitDialogOpen(isOpen)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t(($) => $.settings.general.quitConfirmTitle)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(($) => $.settings.general.quitConfirmPrompt)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t(($) => $.settings.general.keepRunning)}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleConfirmQuit}>
+              {t(($) => $.settings.general.quitAndStop)}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

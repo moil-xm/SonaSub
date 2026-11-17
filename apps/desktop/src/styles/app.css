@@ -1,3 +1,176 @@
 @import '@sonasub/ui/globals.css';
 
 @source '../**/*.{ts,tsx}';
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  background: var(--background);
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  overflow: hidden;
+}
+
+[data-tauri-drag-region] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+:root {
+  --swatch-graphite: oklch(0.32 0.008 285);
+  --swatch-indigo: oklch(0.585 0.233 277.117);
+  --swatch-blue: oklch(0.623 0.214 259.815);
+  --swatch-teal: oklch(0.6 0.118 184.704);
+  --swatch-green: oklch(0.627 0.194 149.214);
+  --swatch-amber: oklch(0.769 0.188 70.08);
+  --swatch-rose: oklch(0.645 0.246 16.439);
+}
+
+:root[data-accent='indigo'] {
+  --primary: oklch(0.511 0.262 276.966);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.673 0.182 276.935);
+}
+
+.dark[data-accent='indigo'] {
+  --primary: oklch(0.785 0.115 274.713);
+  --primary-foreground: oklch(0.21 0.034 264.665);
+}
+
+:root[data-accent='blue'] {
+  --primary: oklch(0.546 0.245 262.881);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.707 0.165 254.624);
+}
+
+.dark[data-accent='blue'] {
+  --primary: oklch(0.809 0.105 251.813);
+  --primary-foreground: oklch(0.21 0.034 264.665);
+}
+
+:root[data-accent='teal'] {
+  --primary: oklch(0.511 0.096 186.391);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.704 0.14 182.503);
+}
+
+.dark[data-accent='teal'] {
+  --primary: oklch(0.855 0.138 181.071);
+  --primary-foreground: oklch(0.21 0.024 196);
+}
+
+:root[data-accent='green'] {
+  --primary: oklch(0.527 0.154 150.069);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.723 0.192 149.579);
+}
+
+.dark[data-accent='green'] {
+  --primary: oklch(0.871 0.15 154.449);
+  --primary-foreground: oklch(0.2 0.03 155);
+}
+
+:root[data-accent='amber'] {
+  --primary: oklch(0.555 0.163 48.998);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.769 0.188 70.08);
+}
+
+.dark[data-accent='amber'] {
+  --primary: oklch(0.879 0.169 91.605);
+  --primary-foreground: oklch(0.22 0.03 55);
+}
+
+:root[data-accent='rose'] {
+  --primary: oklch(0.514 0.222 16.935);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.712 0.194 13.428);
+}
+
+.dark[data-accent='rose'] {
+  --primary: oklch(0.81 0.117 11.638);
+  --primary-foreground: oklch(0.22 0.03 12);
+}
+
+:root[data-colorblind='true'] {
+  --success: oklch(0.55 0.12 190);
+  --warning: oklch(0.65 0.15 65);
+  --destructive: oklch(0.57 0.19 32);
+}
+
+.dark[data-colorblind='true'] {
+  --success: oklch(0.78 0.12 190);
+  --warning: oklch(0.84 0.15 85);
+  --destructive: oklch(0.75 0.15 35);
+}
+
+:root {
+  --caption-source-size: 1.1875rem;
+  --caption-source-leading: 1.68;
+  --caption-translation-size: 0.9375rem;
+  --caption-translation-leading: 1.6;
+}
+
+:root[data-caption-size='compact'] {
+  --caption-source-size: 1rem;
+  --caption-source-leading: 1.6;
+  --caption-translation-size: 0.8125rem;
+  --caption-translation-leading: 1.55;
+}
+
+:root[data-caption-size='large'] {
+  --caption-source-size: 1.375rem;
+  --caption-source-leading: 1.6;
+  --caption-translation-size: 1.0625rem;
+  --caption-translation-leading: 1.55;
+}
+
+.caption-source {
+  font-size: var(--caption-source-size);
+  line-height: var(--caption-source-leading);
+}
+
+.caption-translation {
+  font-size: var(--caption-translation-size);
+  line-height: var(--caption-translation-leading);
+}
+
+:root[data-reduce-motion='true'] *,
+:root[data-reduce-motion='true'] *::before,
+:root[data-reduce-motion='true'] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

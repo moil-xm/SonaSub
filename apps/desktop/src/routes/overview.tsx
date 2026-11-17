@@ -1,21 +1,13 @@
-import { useState } from 'react';
-
 import { LiveSubtitles } from '@/components/live-subtitles';
-import { SessionConfigForm } from '@/components/session-config-form';
-import { SessionDiagnostics } from '@/components/session-diagnostics';
 import { SessionToolbar } from '@/components/session-toolbar';
 
 export function OverviewPage() {
-  const [isConfigDirty, setIsConfigDirty] = useState(false);
-
   return (
-    <div className="space-y-5">
-      <SessionToolbar isConfigDirty={isConfigDirty} />
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+    <div className="h-full overflow-hidden">
+      <div className="mx-auto flex h-full w-full max-w-[1280px] flex-col gap-3 p-4 md:p-5">
+        <SessionToolbar />
         <LiveSubtitles />
-        <SessionConfigForm onDirtyChange={setIsConfigDirty} />
       </div>
-      <SessionDiagnostics />
     </div>
   );
 }

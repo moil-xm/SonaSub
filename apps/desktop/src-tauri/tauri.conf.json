@@ -15,8 +15,14 @@
         "title": "SonaSub",
         "width": 1240,
         "height": 840,
-        "minWidth": 900,
-        "minHeight": 640
+        "minWidth": 920,
+        "minHeight": 640,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 19
+        }
       }
     ],
     "security": {
