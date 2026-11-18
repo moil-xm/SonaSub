@@ -35,6 +35,10 @@ ureq = { version = "2.12.1", default-features = false, features = [
 bzip2 = "0.4.4"
 tar = "0.4.46"
 zstd = "0.14.4"
+rusqlite = { version = "0.43.0", default-features = false, features = ["bundled"] }
 
 [dev-dependencies]
 hound = "3.5.1"
+
+[profile.release.build-override]
+strip = "none"

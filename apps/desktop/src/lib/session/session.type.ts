@@ -136,6 +136,7 @@ export type Capabilities = {
 
 export type AudioConfig = {
   deviceId: string | null;
+  deviceIds: string[];
 };
 
 export type RecognitionConfig = {
@@ -151,6 +152,7 @@ export type RecognitionConfig = {
 
 export type TranslationConfig = {
   engine: string;
+  modelId: string;
   mode: TranslationMode;
   trigger: TranslationTrigger;
   targetLanguage: string;
@@ -215,8 +217,15 @@ export type TranslationState = {
 export type SubtitleSegment = {
   id: string;
   sessionId: string;
+  recordId: string;
+  sourceRunId: string;
+  deviceId: string;
+  deviceName: string;
+  localId: number;
   startSecs: number;
   endSecs: number | null;
+  deviceTimeSecs: number;
+  occurrenceMs: number;
   text: string;
   revision: number;
   isFinal: boolean;

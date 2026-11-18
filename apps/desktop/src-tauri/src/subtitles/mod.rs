@@ -3,7 +3,7 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     asr::{AsrFinal, AsrPartial},
@@ -11,7 +11,7 @@ use crate::{
     translation::TranslationRequest,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TranslationStatus {
     Pending,
@@ -22,7 +22,7 @@ pub enum TranslationStatus {
     Unavailable,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranslationState {
     pub target_language: String,
@@ -41,8 +41,18 @@ pub struct TranslationState {
 pub struct SubtitleSegment {
     pub id: String,
     pub session_id: String,
+    pub record_id: String,
+    pub source_run_id: String,
+    pub device_id: String,
+    pub device_name: String,
+    pub local_id: u64,
     pub start_secs: f64,
     pub end_secs: Option<f64>,
+    /// Time accumulated by this device inside the record, including earlier
+    /// source runs and excluding offline time.
+    pub device_time_secs: f64,
+    /// Wall-clock occurrence time used to merge subtitles from every source.
+    pub occurrence_ms: u64,
     pub text: String,
     pub revision: u32,
     pub is_final: bool,
@@ -96,6 +106,12 @@ pub struct StableCandidate {
 
 pub struct SubtitleStore {
     session_id: String,
+    record_id: String,
+    source_run_id: String,
+    device_id: String,
+    device_name: String,
+    elapsed_base_ms: u64,
+    occurrence_base_ms: u64,
     segments: HashMap<String, SubtitleSegment>,
     order: VecDeque<String>,
     history_limit: usize,
@@ -105,6 +121,36 @@ impl SubtitleStore {
     pub fn new(session_id: String, history_limit: usize) -> Self {
         Self {
             session_id,
+            record_id: String::new(),
+            source_run_id: String::new(),
+            device_id: String::new(),
+            device_name: String::new(),
+            elapsed_base_ms: 0,
+            occurrence_base_ms: 0,
+            segments: HashMap::new(),
+            order: VecDeque::new(),
+            history_limit: history_limit.max(50),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn for_source(
+        record_id: String,
+        source_run_id: String,
+        device_id: String,
+        device_name: String,
+        elapsed_base_ms: u64,
+        occurrence_base_ms: u64,
+        history_limit: usize,
+    ) -> Self {
+        Self {
+            session_id: source_run_id.clone(),
+            record_id,
+            source_run_id,
+            device_id,
+            device_name,
+            elapsed_base_ms,
+            occurrence_base_ms,
             segments: HashMap::new(),
             order: VecDeque::new(),
             history_limit: history_limit.max(50),
@@ -139,8 +185,15 @@ impl SubtitleStore {
             let segment = SubtitleSegment {
                 id: id.clone(),
                 session_id: self.session_id.clone(),
+                record_id: self.record_id.clone(),
+                source_run_id: self.source_run_id.clone(),
+                device_id: self.device_id.clone(),
+                device_name: self.device_name.clone(),
+                local_id: partial.local_id,
                 start_secs: partial.start_secs,
                 end_secs: Some(partial.end_secs),
+                device_time_secs: self.device_time(partial.start_secs),
+                occurrence_ms: self.occurrence_ms(partial.start_secs),
                 text: partial.text,
                 revision: 1,
                 is_final: false,
@@ -188,8 +241,15 @@ impl SubtitleStore {
                 let segment = SubtitleSegment {
                     id: id.clone(),
                     session_id: self.session_id.clone(),
+                    record_id: self.record_id.clone(),
+                    source_run_id: self.source_run_id.clone(),
+                    device_id: self.device_id.clone(),
+                    device_name: self.device_name.clone(),
+                    local_id: final_event.local_id,
                     start_secs: final_event.start_secs,
                     end_secs: Some(final_event.end_secs),
+                    device_time_secs: self.device_time(final_event.start_secs),
+                    occurrence_ms: self.occurrence_ms(final_event.start_secs),
                     text: final_event.text,
                     revision: 1,
                     is_final: true,
@@ -475,7 +535,21 @@ impl SubtitleStore {
     }
 
     fn segment_id(&self, local_id: u64) -> String {
-        format!("{}:{local_id}", self.session_id)
+        let scope = if self.source_run_id.is_empty() {
+            &self.session_id
+        } else {
+            &self.source_run_id
+        };
+        format!("{scope}:{local_id}")
+    }
+
+    fn device_time(&self, start_secs: f64) -> f64 {
+        self.elapsed_base_ms as f64 / 1_000.0 + start_secs
+    }
+
+    fn occurrence_ms(&self, start_secs: f64) -> u64 {
+        self.occurrence_base_ms
+            .saturating_add((start_secs.max(0.0) * 1_000.0) as u64)
     }
 
     fn insert(&mut self, id: String, segment: SubtitleSegment) {

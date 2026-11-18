@@ -984,6 +984,9 @@ impl Runner {
             CaptureEvent::Warning(message) => {
                 add_notice(&self.inner, "warning", message);
             }
+            CaptureEvent::DeviceLost(message) => {
+                self.begin_shutdown(Some(message));
+            }
             CaptureEvent::Fatal(message) => {
                 self.begin_shutdown(Some(message));
             }

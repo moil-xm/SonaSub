@@ -4,6 +4,7 @@ import { AppLayout } from './components/app-layout';
 import { DiagnosticsPage } from './routes/diagnostics';
 import { ModelsPage } from './routes/models';
 import { OverviewPage } from './routes/overview';
+import { EditRecordPage, NewRecordPage } from './routes/record-editor';
 import { SessionSettingsPage } from './routes/session-settings';
 import { AboutSettingsPage, GeneralSettingsPage } from './routes/settings';
 
@@ -13,6 +14,26 @@ const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: OverviewPage,
+  validateSearch: (search: Record<string, unknown>): { record?: string } => {
+    let record: string | undefined;
+    if (typeof search.record === 'string' && search.record.length > 0) {
+      record = search.record;
+    }
+    if (!record) return {};
+    return { record };
+  },
+});
+
+const newRecordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/records/new',
+  component: NewRecordPage,
+});
+
+const editRecordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/records/$recordId/edit',
+  component: EditRecordPage,
 });
 
 const sessionSettingsRoute = createRoute({
@@ -47,6 +68,8 @@ const aboutRoute = createRoute({
 
 export const routeTree = rootRoute.addChildren([
   overviewRoute,
+  newRecordRoute,
+  editRecordRoute,
   sessionSettingsRoute,
   diagnosticsRoute,
   modelsRoute,

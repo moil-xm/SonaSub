@@ -24,6 +24,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
 
+import { RecordNav } from '@/components/record-nav';
+import { recordsOptions, useRecordEvents } from '@/lib/records';
 import { sessionSnapshotOptions, useSessionEvents } from '@/lib/session';
 import { useConfirmBeforeQuit } from '@/stores/app-preferences';
 
@@ -48,16 +50,25 @@ function currentPage(isActive: boolean): 'page' | undefined {
 
 export function AppLayout() {
   const { t } = useTranslation();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const location = useRouterState({ select: (state) => state.location });
+  const pathname = location.pathname;
+  const searchRecord = location.search.record;
+  let activeRecordId: string | null = null;
+  if (typeof searchRecord === 'string') activeRecordId = searchRecord;
   const { data: snapshot } = useQuery(sessionSnapshotOptions);
+  const { data: records } = useQuery(recordsOptions);
   const theme = useTheme();
   const toggleTheme = useToggleTheme();
   const confirmBeforeQuit = useConfirmBeforeQuit();
   const [isQuitDialogOpen, setIsQuitDialogOpen] = useState(false);
   const allowCloseRef = useRef(false);
   useSessionEvents();
+  useRecordEvents();
 
   const isLivePage = pathname === '/';
+  const isRecordsPage = pathname === '/' || pathname.startsWith('/records/');
+  const isNewRecordPage = pathname === '/records/new';
+  const isEditRecordPage = pathname.endsWith('/edit');
   const isSessionPage = pathname === '/session';
   const isDiagnosticsPage = pathname === '/diagnostics';
   const isModelsPage = pathname === '/models';
@@ -82,29 +93,20 @@ export function AppLayout() {
     pageLabel = t(($) => $.navigation.general);
     if (pathname === '/about') pageLabel = t(($) => $.navigation.about);
   }
+  if (isRecordsPage) {
+    sectionLabel = t(($) => $.navigation.groups.workbench);
+    pageLabel = t(($) => $.navigation.live);
+    if (isNewRecordPage) pageLabel = t(($) => $.records.editor.newTitle);
+    if (isEditRecordPage) pageLabel = t(($) => $.records.editor.editTitle);
+  }
 
   const statusState = snapshot?.status.state ?? 'idle';
-  let sessionStatusLabel: string = t(($) => $.workbench.status.idle);
-  let sessionStatusTone = 'bg-muted-foreground';
-  if (statusState === 'running') {
-    sessionStatusLabel = t(($) => $.workbench.status.running);
-    sessionStatusTone = 'bg-success';
-  }
-  if (statusState === 'starting') {
-    sessionStatusLabel = t(($) => $.workbench.status.starting);
-    sessionStatusTone = 'bg-warning animate-pulse';
-  }
-  if (statusState === 'stopping') {
-    sessionStatusLabel = t(($) => $.workbench.status.stopping);
-    sessionStatusTone = 'bg-warning animate-pulse';
-  }
-  if (statusState === 'failed') {
-    sessionStatusLabel = t(($) => $.workbench.status.failed);
-    sessionStatusTone = 'bg-destructive';
-  }
-
-  const isSessionActive =
+  const legacySessionActive =
     statusState === 'running' || statusState === 'starting' || statusState === 'stopping';
+  const activeRecords = records?.filter((record) => record.hasActiveSource) ?? [];
+  const isSessionActive = legacySessionActive || activeRecords.length > 0;
+  let liveDotClass = 'bg-muted-foreground/45';
+  if (activeRecords.length > 0) liveDotClass = 'bg-success';
   let themeToggleLabel: string = t(($) => $.theme.switchToDark);
   let themeToggleIcon = moonIcon;
   if (theme === 'dark') {
@@ -162,14 +164,7 @@ export function AppLayout() {
           <p className="px-2.5 pt-1 pb-1 text-[11px] font-medium tracking-[0.04em] text-muted-foreground">
             {t(($) => $.navigation.groups.workbench)}
           </p>
-          <Link
-            to="/"
-            aria-current={currentPage(isLivePage)}
-            className={navigationItemClass(isLivePage)}
-          >
-            <Icon icon={captionsIcon} className="size-4 shrink-0" />
-            <span className="truncate">{t(($) => $.navigation.live)}</span>
-          </Link>
+          <RecordNav activeRecordId={activeRecordId} isLiveActive={isLivePage} />
 
           <p className="px-2.5 pt-4 pb-1 text-[11px] font-medium tracking-[0.04em] text-muted-foreground">
             {t(($) => $.navigation.groups.configuration)}
@@ -232,11 +227,12 @@ export function AppLayout() {
           </Link>
           <Link
             to="/"
-            aria-label={`${sessionStatusLabel} · ${t(($) => $.navigation.live)}`}
             className="mt-1 flex h-[26px] items-center gap-2 rounded-md px-2.5 text-[11.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            <span className={`size-[7px] shrink-0 rounded-full ${sessionStatusTone}`} />
-            <span className="truncate">{sessionStatusLabel}</span>
+            <span className={`size-[7px] shrink-0 rounded-full ${liveDotClass}`} />
+            <span className="truncate">
+              {t(($) => $.records.nav.liveCount, { count: activeRecords.length })}
+            </span>
           </Link>
         </div>
       </aside>

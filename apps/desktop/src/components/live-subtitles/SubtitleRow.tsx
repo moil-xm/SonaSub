@@ -1,4 +1,5 @@
 import { Icon } from '@iconify/react';
+import speakerIcon from '@iconify-icons/lucide/speaker';
 import userRoundIcon from '@iconify-icons/lucide/user-round';
 import { useTranslation } from '@sonasub/i18n';
 import { Badge } from '@sonasub/ui/components/badge';
@@ -10,9 +11,10 @@ import { TranslationBody } from './TranslationBody';
 
 type SubtitleRowProps = {
   segment: SubtitleSegment;
+  showSpeaker?: boolean;
 };
 
-export function SubtitleRow({ segment }: SubtitleRowProps) {
+export function SubtitleRow({ segment, showSpeaker = true }: SubtitleRowProps) {
   const { t } = useTranslation();
   const speaker = segment.speaker;
   let speakerLabel: string = t(($) => $.captions.speakerPending);
@@ -26,13 +28,24 @@ export function SubtitleRow({ segment }: SubtitleRowProps) {
   return (
     <li className={rowClass}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-        <time dateTime={`PT${segment.startSecs.toFixed(1)}S`} className="font-mono tabular-nums">
-          {formatAudioTime(segment.startSecs)}
+        <time
+          dateTime={`PT${segment.deviceTimeSecs.toFixed(1)}S`}
+          className="font-mono tabular-nums"
+        >
+          {formatAudioTime(segment.deviceTimeSecs)}
         </time>
-        <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5">
-          <Icon icon={userRoundIcon} className="size-3" />
-          {speakerLabel}
-        </span>
+        {segment.deviceName && (
+          <span className="inline-flex min-w-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5">
+            <Icon icon={speakerIcon} className="size-3 shrink-0" />
+            <span className="max-w-[220px] truncate">{segment.deviceName}</span>
+          </span>
+        )}
+        {showSpeaker && (
+          <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5">
+            <Icon icon={userRoundIcon} className="size-3" />
+            {speakerLabel}
+          </span>
+        )}
         {speaker?.uncertain && <Badge variant="outline">{t(($) => $.captions.uncertain)}</Badge>}
         {speaker?.overlap && <Badge variant="outline">{t(($) => $.captions.overlap)}</Badge>}
         {!segment.isFinal && (

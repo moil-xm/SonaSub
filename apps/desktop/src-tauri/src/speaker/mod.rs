@@ -5,7 +5,7 @@ use std::{
     time::Instant,
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sherpa_onnx::{
     FastClusteringConfig, OfflineSpeakerDiarization, OfflineSpeakerDiarizationConfig,
     SpeakerEmbeddingExtractor, SpeakerEmbeddingExtractorConfig,
@@ -16,7 +16,7 @@ use sherpa_onnx::{
 pub const SPEAKER_SOURCE_EMBEDDING: &str = "embedding";
 pub const SPEAKER_SOURCE_DIARIZATION: &str = "diarization";
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpeakerInfo {
     pub id: String,

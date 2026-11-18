@@ -1,0 +1,1 @@
+export { RecordDevicePicker } from './RecordDevicePicker';

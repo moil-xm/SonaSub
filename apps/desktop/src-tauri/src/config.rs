@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_ASR_MODEL: &str = "zipformer-bilingual-streaming";
 pub const DEFAULT_TRANSLATION_ENGINE: &str = "bergamot";
+pub const DEFAULT_TRANSLATION_MODEL: &str = "bergamot-en-zh-Hans";
 pub const DEFAULT_TARGET_LANGUAGE: &str = "zh-Hans";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +41,9 @@ pub enum TranslationTrigger {
 pub struct AudioConfig {
     /// Output endpoint id. Empty selects the current macOS default output.
     pub device_id: Option<String>,
+    /// Capture endpoints used by a record. A record may capture several
+    /// outputs at once, with one source run per endpoint.
+    pub device_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +81,8 @@ impl Default for RecognitionConfig {
 #[serde(default, rename_all = "camelCase")]
 pub struct TranslationConfig {
     pub engine: String,
+    /// The explicit local translation model selected for the record.
+    pub model_id: String,
     pub mode: TranslationMode,
     pub trigger: TranslationTrigger,
     /// Empty asks the backend to use the first available Bergamot target.
@@ -87,6 +93,7 @@ impl Default for TranslationConfig {
     fn default() -> Self {
         Self {
             engine: DEFAULT_TRANSLATION_ENGINE.to_owned(),
+            model_id: DEFAULT_TRANSLATION_MODEL.to_owned(),
             mode: TranslationMode::Auto,
             trigger: TranslationTrigger::FinalOnly,
             target_language: DEFAULT_TARGET_LANGUAGE.to_owned(),
@@ -107,7 +114,7 @@ pub struct SpeakerConfig {
 impl Default for SpeakerConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             diarization_enabled: true,
             window_secs: 20.0,
             max_speakers: 8,

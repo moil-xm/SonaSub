@@ -13,6 +13,18 @@ fn main() {
             "start_session",
             "stop_session",
             "restart_session",
+            "list_records",
+            "list_record_devices",
+            "get_record",
+            "create_record",
+            "update_record",
+            "start_record",
+            "pause_record",
+            "resume_record",
+            "stop_record",
+            "add_record_device",
+            "remove_record_device",
+            "list_record_subtitles",
         ]),
     ))
     .expect("build Tauri application permissions");

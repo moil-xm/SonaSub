@@ -1,0 +1,73 @@
+import { useTranslation } from '@sonasub/i18n';
+
+import type { AppConfig, Capabilities } from '@/lib/session';
+import type { RecordDevice } from '@/lib/records';
+
+import { RecordCheckRow } from './RecordCheckRow';
+
+type RecordEditorChecksProps = {
+  capabilities: Capabilities;
+  config: AppConfig;
+  devices: RecordDevice[];
+};
+
+export function RecordEditorChecks({ capabilities, config, devices }: RecordEditorChecksProps) {
+  const { t } = useTranslation();
+  const asr = capabilities.asrModels.find((model) => model.id === config.recognition.modelId);
+  const translation = capabilities.translationModels.find(
+    (model) => model.id === config.translation.modelId,
+  );
+  const selectedDevices = new Set(config.audio.deviceIds);
+  const availableDevices = devices.filter((device) => selectedDevices.has(device.id));
+  const deviceReady = capabilities.audio.systemCapture && availableDevices.length > 0;
+  const speakerReady =
+    !config.speakers.enabled ||
+    (capabilities.speakerEmbedding.available &&
+      (!config.speakers.diarizationEnabled || capabilities.diarization.available));
+  let deviceDetail: string = t(($) => $.records.editor.checksDevicesReady, {
+    count: availableDevices.length,
+  });
+  if (!capabilities.audio.systemCapture) {
+    deviceDetail = t(($) => $.records.editor.checksPlatformMissing);
+  }
+  if (availableDevices.length === 0) {
+    deviceDetail = t(($) => $.records.editor.checksDevicesMissing);
+  }
+  let recognitionDetail: string = t(($) => $.records.editor.checksRecognitionReady);
+  if (!asr?.available) {
+    recognitionDetail = t(($) => $.records.editor.checksRecognitionMissing);
+  }
+  let translationDetail: string = t(($) => $.records.editor.checksTranslationReady);
+  if (!translation?.available) {
+    translationDetail = t(($) => $.records.editor.checksTranslationMissing);
+  }
+  let speakerDetail: string = t(($) => $.records.editor.checksSpeakerReady);
+  if (!speakerReady) {
+    speakerDetail = t(($) => $.records.editor.checksSpeakerMissing);
+  }
+
+  return (
+    <div className="grid overflow-hidden rounded-lg border bg-card sm:grid-cols-2 xl:grid-cols-4">
+      <RecordCheckRow
+        label={t(($) => $.records.editor.checksDevices)}
+        detail={deviceDetail}
+        isReady={deviceReady}
+      />
+      <RecordCheckRow
+        label={t(($) => $.records.editor.recognitionModel)}
+        detail={recognitionDetail}
+        isReady={Boolean(asr?.available)}
+      />
+      <RecordCheckRow
+        label={t(($) => $.records.editor.translationModel)}
+        detail={translationDetail}
+        isReady={Boolean(translation?.available)}
+      />
+      <RecordCheckRow
+        label={t(($) => $.records.editor.identifySpeakers)}
+        detail={speakerDetail}
+        isReady={speakerReady}
+      />
+    </div>
+  );
+}

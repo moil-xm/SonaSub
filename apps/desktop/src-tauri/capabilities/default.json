@@ -18,6 +18,18 @@
     "allow-session-snapshot",
     "allow-start-session",
     "allow-stop-session",
-    "allow-restart-session"
+    "allow-restart-session",
+    "allow-list-records",
+    "allow-list-record-devices",
+    "allow-get-record",
+    "allow-create-record",
+    "allow-update-record",
+    "allow-start-record",
+    "allow-pause-record",
+    "allow-resume-record",
+    "allow-stop-record",
+    "allow-add-record-device",
+    "allow-remove-record-device",
+    "allow-list-record-subtitles"
   ]
 }

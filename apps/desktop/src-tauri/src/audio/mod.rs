@@ -43,6 +43,7 @@ pub struct AudioChunk {
 pub enum CaptureEvent {
     Chunk(AudioChunk),
     Warning(String),
+    DeviceLost(String),
     Fatal(String),
 }
 
@@ -171,10 +172,12 @@ fn run_capture(
                     ));
                 }
                 flexaudio::Event::DeviceLost => {
-                    let _ = events.try_send(CaptureEvent::Warning(
-                        "The selected system audio device was lost. Capture will recover on the current default output."
+                    let _ = events.try_send(CaptureEvent::DeviceLost(
+                        "The selected system audio device was lost. This source has stopped; choose another device or re-add it."
                             .to_owned(),
                     ));
+                    stream.stop();
+                    return;
                 }
                 flexaudio::Event::TerminalError { error } => {
                     let _ = events.try_send(CaptureEvent::Fatal(format!(
