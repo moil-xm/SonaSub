@@ -6,9 +6,9 @@ use std::{
 };
 
 use serde::Serialize;
-use sherpa_rs::{
-    diarize::{Diarize, DiarizeConfig},
-    speaker_id::{EmbeddingExtractor, ExtractorConfig},
+use sherpa_onnx::{
+    FastClusteringConfig, OfflineSpeakerDiarization, OfflineSpeakerDiarizationConfig,
+    SpeakerEmbeddingExtractor, SpeakerEmbeddingExtractorConfig,
 };
 
 /// Speaker labels come from two independent paths. The per-utterance
@@ -138,18 +138,17 @@ impl SpeakerRegistry {
 }
 
 pub struct SpeakerEngine {
-    extractor: EmbeddingExtractor,
+    extractor: SpeakerEmbeddingExtractor,
 }
 
 impl SpeakerEngine {
     pub fn new(model: &Path) -> Result<Self, String> {
-        let extractor = EmbeddingExtractor::new(ExtractorConfig {
-            model: model.display().to_string(),
-            provider: Some("cpu".to_owned()),
-            num_threads: Some(2),
-            debug: false,
+        let extractor = SpeakerEmbeddingExtractor::create(&SpeakerEmbeddingExtractorConfig {
+            model: Some(model.display().to_string()),
+            num_threads: 2,
+            ..SpeakerEmbeddingExtractorConfig::default()
         })
-        .map_err(|error| format!("Failed to load the speaker embedding model: {error}"))?;
+        .ok_or_else(|| "Failed to load the speaker embedding model".to_owned())?;
         Ok(Self { extractor })
     }
 
@@ -157,9 +156,17 @@ impl SpeakerEngine {
         if samples.len() < (0.25 * 16_000.0) as usize {
             return Err("The speech segment is too short for speaker analysis.".to_owned());
         }
+        let stream = self
+            .extractor
+            .create_stream()
+            .ok_or_else(|| "Failed to create the speaker embedding stream".to_owned())?;
+        stream.accept_waveform(16_000, samples);
+        if !self.extractor.is_ready(&stream) {
+            return Err("The speech segment is too short for speaker analysis.".to_owned());
+        }
         self.extractor
-            .compute_speaker_embedding(samples.to_vec(), 16_000)
-            .map_err(|error| format!("Speaker embedding failed: {error}"))
+            .compute(&stream)
+            .ok_or_else(|| "Speaker embedding failed".to_owned())
     }
 }
 
@@ -183,32 +190,32 @@ pub struct DiarizationWindow {
 }
 
 pub struct DiarizationEngine {
-    diarize: Diarize,
-    extractor: EmbeddingExtractor,
+    diarize: OfflineSpeakerDiarization,
+    extractor: SpeakerEmbeddingExtractor,
 }
 
 impl DiarizationEngine {
     pub fn new(segmentation_model: &Path, embedding_model: &Path) -> Result<Self, String> {
-        let diarize = Diarize::new(
-            segmentation_model,
-            embedding_model,
-            DiarizeConfig {
-                num_clusters: Some(-1),
-                threshold: Some(0.5),
-                min_duration_on: Some(0.25),
-                min_duration_off: Some(0.25),
-                provider: Some("cpu".to_owned()),
-                debug: false,
+        let mut config = OfflineSpeakerDiarizationConfig {
+            clustering: FastClusteringConfig {
+                num_clusters: -1,
+                threshold: 0.5,
+                compute_confidence: true,
             },
-        )
-        .map_err(|error| format!("Failed to load the diarization models: {error}"))?;
-        let extractor = EmbeddingExtractor::new(ExtractorConfig {
-            model: embedding_model.display().to_string(),
-            provider: Some("cpu".to_owned()),
-            num_threads: Some(1),
-            debug: false,
+            min_duration_on: 0.25,
+            min_duration_off: 0.25,
+            ..OfflineSpeakerDiarizationConfig::default()
+        };
+        config.segmentation.pyannote.model = Some(segmentation_model.display().to_string());
+        config.embedding.model = Some(embedding_model.display().to_string());
+        let diarize = OfflineSpeakerDiarization::create(&config)
+            .ok_or_else(|| "Failed to load the diarization models".to_owned())?;
+        let extractor = SpeakerEmbeddingExtractor::create(&SpeakerEmbeddingExtractorConfig {
+            model: Some(embedding_model.display().to_string()),
+            num_threads: 1,
+            ..SpeakerEmbeddingExtractorConfig::default()
         })
-        .map_err(|error| format!("Failed to load the diarization embedding model: {error}"))?;
+        .ok_or_else(|| "Failed to load the diarization embedding model".to_owned())?;
         Ok(Self { diarize, extractor })
     }
 
@@ -219,37 +226,34 @@ impl DiarizationEngine {
         registry: &Arc<Mutex<SpeakerRegistry>>,
     ) -> Result<DiarizationWindow, String> {
         let started = Instant::now();
-        let segments = match self.diarize.compute((*samples).clone(), None) {
-            Ok(segments) => segments,
-            Err(error) if error.to_string().contains("No segments") => Vec::new(),
-            Err(error) => return Err(format!("Speaker diarization failed: {error}")),
-        };
+        let result = self
+            .diarize
+            .process(&samples)
+            .ok_or_else(|| "Speaker diarization failed".to_owned())?;
+        let segments = result.sort_by_start_time();
         let mut intervals = Vec::with_capacity(segments.len());
         let mut clusters: BTreeMap<i32, (Vec<f32>, usize)> = BTreeMap::new();
         for segment in segments {
             let start_offset = (segment.start as f64 * 16_000.0).max(0.0) as usize;
             let end_offset = (segment.end as f64 * 16_000.0).max(0.0) as usize;
             let end_offset = end_offset.min(samples.len());
-            if end_offset <= start_offset {
-                continue;
+            if end_offset > start_offset {
+                if let Some(embedding) = self.embedding(&samples[start_offset..end_offset]) {
+                    let cluster = clusters
+                        .entry(segment.speaker)
+                        .or_insert_with(|| (vec![0.0; embedding.len()], 0));
+                    for (sum, value) in cluster.0.iter_mut().zip(embedding.iter()) {
+                        *sum += value;
+                    }
+                    cluster.1 += 1;
+                }
             }
-            let embedding = self
-                .extractor
-                .compute_speaker_embedding(samples[start_offset..end_offset].to_vec(), 16_000)
-                .map_err(|error| format!("Diarization embedding failed: {error}"))?;
-            let cluster = clusters
-                .entry(segment.speaker)
-                .or_insert_with(|| (vec![0.0; embedding.len()], 0));
-            for (sum, value) in cluster.0.iter_mut().zip(embedding.iter()) {
-                *sum += value;
-            }
-            cluster.1 += 1;
             intervals.push(DiarizationInterval {
                 start_secs: window_start + segment.start as f64,
                 end_secs: window_start + segment.end as f64,
                 local_speaker: segment.speaker,
                 speaker_id: None,
-                confidence: None,
+                confidence: Some(segment.confidence),
                 uncertain: true,
             });
         }
@@ -259,21 +263,23 @@ impl DiarizationEngine {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             clusters
                 .into_iter()
-                .map(|(local_speaker, (sum, count))| {
-                    let centroid = if count == 0 {
-                        sum
-                    } else {
-                        sum.into_iter().map(|value| value / count as f32).collect()
-                    };
+                .filter_map(|(local_speaker, (sum, count))| {
+                    if count == 0 {
+                        return None;
+                    }
+                    let centroid = sum
+                        .into_iter()
+                        .map(|value| value / count as f32)
+                        .collect::<Vec<_>>();
                     let (speaker, _) = registry.identify(&centroid, true);
-                    (local_speaker, speaker)
+                    speaker.map(|speaker| (local_speaker, speaker))
                 })
                 .collect::<BTreeMap<_, _>>()
         };
         for interval in &mut intervals {
-            if let Some(Some(speaker)) = mappings.get(&interval.local_speaker) {
+            if let Some(speaker) = mappings.get(&interval.local_speaker) {
                 interval.speaker_id = Some(speaker.id.clone());
-                interval.confidence = speaker.confidence;
+                interval.confidence = speaker.confidence.or(interval.confidence);
                 interval.uncertain = speaker.uncertain;
             }
         }
@@ -286,6 +292,15 @@ impl DiarizationEngine {
             overlap_regions,
             latency_ms: started.elapsed().as_millis() as u64,
         })
+    }
+
+    fn embedding(&self, samples: &[f32]) -> Option<Vec<f32>> {
+        let stream = self.extractor.create_stream()?;
+        stream.accept_waveform(16_000, samples);
+        if !self.extractor.is_ready(&stream) {
+            return None;
+        }
+        self.extractor.compute(&stream)
     }
 }
 

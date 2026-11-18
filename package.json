@@ -9,7 +9,6 @@
     "dev:extension": "pnpm --filter @sonasub/extension dev",
     "build": "vp run -r build",
     "build:extension:zip": "pnpm --filter @sonasub/extension zip",
-    "prepare:native": "bash scripts/build-sherpa-onnx.sh",
     "prepare:models": "node scripts/prepare-models.mjs",
     "test": "vp test run",
     "check": "vp check",

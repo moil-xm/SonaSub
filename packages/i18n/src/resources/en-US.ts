@@ -8,6 +8,7 @@ export const enUs = {
     live: 'Live captions',
     sessionSettings: 'Session settings',
     diagnostics: 'Diagnostics',
+    models: 'Models',
     settings: 'Settings',
     general: 'General',
     about: 'About',
@@ -210,6 +211,87 @@ export const enUs = {
     historyLimitHint:
       'Older finalized and partial captions are removed from memory after this limit.',
     modelsDirectory: 'Model directory: {{path}}',
+  },
+  models: {
+    title: 'Models',
+    description:
+      'Choose the models SonaSub may use. Download and install a whole model with one click, or import files you already have.',
+    loading: 'Loading model catalog…',
+    loadError: 'Model catalog could not be loaded',
+    directory: 'Install directory',
+    downloadDirectory: 'Download directory',
+    chooseDownloadDirectory: 'Choose download directory',
+    resetDownloadDirectory: 'Use default directory',
+    downloadDirectoryHint:
+      'Archives are saved here. Leave it on the default to keep downloads inside the model directory.',
+    source: 'Official source',
+    openSource: 'Open source page',
+    downloadAndInstall: 'Download and install',
+    reinstall: 'Reinstall',
+    downloading: 'Downloading…',
+    importFiles: 'Import selected files',
+    importing: 'Importing…',
+    importHint:
+      'Select the official archive or all extracted files for this model. SonaSub checks every pinned SHA-256 before installing.',
+    installed: 'Installed',
+    missing: 'Missing',
+    downloadError: 'Download or installation failed',
+    importError: 'Model files could not be imported',
+    directoryError: 'Download directory could not be changed',
+    downloadSize: 'Download about {{size}}',
+    requiredFiles: 'Required files',
+    resourceNeeds: 'Resources',
+    effect: 'Recognition effect',
+    installDirectoryHint: 'Model files are installed here and read directly when a session starts.',
+    installedSummary: '{{installed}} of {{total}} models installed',
+    filesReady: '{{present}} / {{total}} files',
+    recognitionSection: 'Speech recognition',
+    recognitionSectionHint:
+      'Choose the engine that turns captured system audio into source subtitles.',
+    translationSection: 'Translation',
+    translationSectionHint:
+      'Optional local Bergamot directions. Install only the directions you need.',
+    supportingSection: 'Supporting models',
+    supportingSectionHint:
+      'Voice detection and speaker analysis used by the recognition and caption pipeline.',
+    streamingZipformer: {
+      resource:
+        'Archive about 488 MiB; installed model about 196 MB. 16 kHz mono audio; low CPU use and low-latency partial captions.',
+      effect:
+        'Bilingual Chinese and English recognition with per-utterance language detection. English accuracy is usually lower than SenseVoice; forced source language has no effect.',
+    },
+    senseVoice: {
+      resource:
+        'Archive about 155 MiB; installed model about 228 MB, plus a small VAD model. Higher CPU use than streaming recognition; segmented output waits for a voice boundary.',
+      effect:
+        'Multilingual recognition for Chinese, English, Japanese, Korean and Cantonese. Generally better accuracy than streaming Zipformer, with no live partial captions.',
+    },
+    sileroVad: {
+      resource: 'About 0.6 MB. Very low CPU use.',
+      effect:
+        'Finds speech regions for segmented recognition. Required whenever SenseVoice is selected.',
+    },
+    campplus: {
+      resource: 'About 27 MB. Low CPU use per subtitle segment.',
+      effect:
+        'Speaker embeddings keep speaker labels stable within a session. It does not separate overlapping voices.',
+    },
+    pyannote: {
+      resource:
+        'Archive about 6.6 MB; installed model a few MB. Moderate CPU use per bounded window.',
+      effect:
+        'Windowed speaker segmentation and clustering for speaker labels. It marks uncertain overlap regions but is not audio source separation.',
+    },
+    bergamotEnZh: {
+      resource: 'About 50 MB installed. Moderate CPU use after each finalized caption.',
+      effect:
+        'Local English to Simplified Chinese translation. Runs on complete text only and returns after recognition finalizes the caption.',
+    },
+    bergamotZhEn: {
+      resource: 'About 52 MB installed. Moderate CPU use after each finalized caption.',
+      effect:
+        'Local Simplified Chinese to English translation. Runs on complete text only and returns after recognition finalizes the caption.',
+    },
   },
   stats: {
     title: 'Session telemetry',

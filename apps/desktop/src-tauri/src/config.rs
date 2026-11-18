@@ -199,6 +199,29 @@ impl ConfigStore {
         &self.path
     }
 
+    pub fn load_raw(&self) -> Option<String> {
+        fs::read_to_string(&self.path).ok()
+    }
+
+    pub fn save_raw(&self, value: &str) -> Result<(), String> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| "The configuration path has no parent directory.".to_owned())?;
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Failed to create the configuration directory {}: {error}",
+                parent.display()
+            )
+        })?;
+        let temporary = self.path.with_extension("json.tmp");
+        fs::write(&temporary, value)
+            .map_err(|error| format!("Failed to write {}: {error}", temporary.display()))?;
+        fs::rename(&temporary, &self.path)
+            .map_err(|error| format!("Failed to replace {}: {error}", self.path.display()))?;
+        Ok(())
+    }
+
     /// Loads the configuration. Corrupt files are reported instead of being
     /// silently treated as a first run; the caller can keep the default values
     /// and show the error until the next successful save.

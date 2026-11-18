@@ -31,7 +31,7 @@ Chrome 扩展仍是独立的 Manifest V3 工程，目前只有 popup。标签页
 - 桌面：Tauri 2 + Rust、React + TypeScript
 - UI：Tailwind CSS 4 + CSS Variables、shadcn/ui、Iconify 静态图标
 - 路由与状态：TanStack Router / Query / Form、Zustand、Day.js
-- 原生语音：`sherpa-rs 0.6.8`，底层 sherpa-onnx v1.12.9
+- 原生语音：官方 `sherpa-onnx` Rust API v2.0.1
 - 原生系统音频：`flexaudio 0.8.1` / `flexaudio-os-macos 0.8.1`
 - 原生翻译：`fxtranslate 0.5.0` + 固定版本 Bergamot 模型
 - 扩展：WXT + React + TypeScript（Manifest V3）
@@ -42,7 +42,6 @@ Chrome 扩展仍是独立的 Manifest V3 工程，目前只有 popup。标签页
   桌面应用不依赖 Node.js。
 - Rust 稳定版 >= 1.90，含 `rustfmt` 与 `clippy`。
 - macOS 14.4 或更高版本（Apple Silicon / arm64）；Xcode Command Line Tools。
-- CMake 3.20 或更高版本，用于构建固定的 sherpa-onnx 运行时（`brew install cmake`）。
 - 模型准备需要 `curl`、`tar` 与 `zstd`（可用 `brew install zstd` 安装）。
 
 系统音频采集已在 macOS arm64 实际验证。Windows、Linux 与 macOS x64 尚未
@@ -52,15 +51,14 @@ Chrome 扩展仍是独立的 Manifest V3 工程，目前只有 popup。标签页
 
 ```bash
 pnpm install
-pnpm prepare:native
 pnpm prepare:models
 pnpm dev:desktop:app
 ```
 
 首次采集时，macOS 会请求“系统音频录制”权限。SonaSub 不会改用麦克风输入。
 
-`prepare:native` 会用上游修复补丁构建固定的 sherpa-onnx v1.12.9 静态运行时。
-该运行时直接链接进桌面二进制，不是独立服务，也不包含 Node.js 进程。
+官方 `sherpa-onnx` crate 会在 Rust 编译阶段下载并静态链接与 v2.0.1 匹配的
+原生运行时。它不是独立服务，也不包含 Node.js 进程。
 
 模型文件不进入安装包，默认目录为：
 
@@ -70,6 +68,10 @@ pnpm dev:desktop:app
 
 模型来源、版本、校验值与断点续传流程见 [docs/models.md](docs/models.md)。
 
+在打包后的应用中，打开“模型管理”即可按模型组选择要安装的模型。每张卡片都显示大致下载量、
+磁盘与计算资源需求，以及效果说明。点击“下载并安装”即可一键获取固定的官方安装包或模型
+文件，也可以导入本地已有文件；还可以单独选择下载目录。只有你主动操作时才会开始下载。
+
 ## 常用命令
 
 ```bash
@@ -77,7 +79,6 @@ pnpm dev:desktop        # 桌面前端开发服务器 http://localhost:5173
 pnpm dev:desktop:app    # Tauri 桌面应用（编译 Rust）
 pnpm dev:extension      # WXT 扩展开发
 
-pnpm prepare:native     # 构建带补丁的 sherpa-onnx 静态运行时
 pnpm prepare:models     # 下载并校验全部固定模型
 pnpm check              # 格式 + 代码检查 + 类型检查
 pnpm check:fix          # 自动修复格式与可修复的检查问题

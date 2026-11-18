@@ -3,7 +3,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use sherpa_rs::diarize::{Diarize, DiarizeConfig};
+use sherpa_onnx::{
+    FastClusteringConfig, OfflineSpeakerDiarization, OfflineSpeakerDiarizationConfig,
+};
 use sonasub_desktop_lib::{
     asr::{AsrEngine, AsrEvent, Recognition},
     config::{AsrMode, RecognitionConfig},
@@ -212,23 +214,23 @@ fn diarization_handles_more_active_speakers_than_clusters() {
     let samples = read_16k_mono(&audio_path("2-two-speakers-en.wav"));
     let segmentation = paths.path("sherpa/diarization/pyannote-segmentation-3.0.onnx");
     let embedding = paths.path("sherpa/speaker/campplus-zh-en.onnx");
-    let mut engine = Diarize::new(
-        &segmentation,
-        &embedding,
-        DiarizeConfig {
-            num_clusters: Some(1),
-            threshold: None,
-            min_duration_on: Some(0.25),
-            min_duration_off: Some(0.25),
-            provider: Some("cpu".to_owned()),
-            debug: false,
+    let mut config = OfflineSpeakerDiarizationConfig {
+        clustering: FastClusteringConfig {
+            num_clusters: 1,
+            threshold: 0.5,
+            compute_confidence: false,
         },
-    )
-    .expect("load diarization models");
-    let segments = engine
-        .compute(samples, None)
-        .expect("diarization must clamp the top-k request");
-    assert!(!segments.is_empty());
+        min_duration_on: 0.25,
+        min_duration_off: 0.25,
+        ..OfflineSpeakerDiarizationConfig::default()
+    };
+    config.segmentation.pyannote.model = Some(segmentation.display().to_string());
+    config.embedding.model = Some(embedding.display().to_string());
+    let engine = OfflineSpeakerDiarization::create(&config).expect("load diarization models");
+    let result = engine
+        .process(&samples)
+        .expect("diarization must handle more active speakers than clusters");
+    assert!(!result.sort_by_start_time().is_empty());
 }
 
 fn is_han(character: char) -> bool {

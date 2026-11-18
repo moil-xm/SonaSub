@@ -14,6 +14,7 @@ use tauri::{Manager, RunEvent};
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let manager = SessionManager::new(app.handle().clone())?;
             app.manage(manager);
@@ -21,6 +22,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             session::get_capabilities,
+            models::list_model_installs,
+            models::get_model_download_settings,
+            models::set_model_download_directory,
+            models::download_model,
+            models::import_model_files,
             session::get_config,
             session::save_config,
             session::session_snapshot,

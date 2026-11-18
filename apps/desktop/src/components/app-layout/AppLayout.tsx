@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react';
 import activityIcon from '@iconify-icons/lucide/activity';
 import captionsIcon from '@iconify-icons/lucide/captions';
 import moonIcon from '@iconify-icons/lucide/moon';
+import packageIcon from '@iconify-icons/lucide/package';
 import settingsIcon from '@iconify-icons/lucide/settings';
 import slidersHorizontalIcon from '@iconify-icons/lucide/sliders-horizontal';
 import sunIcon from '@iconify-icons/lucide/sun';
@@ -59,6 +60,7 @@ export function AppLayout() {
   const isLivePage = pathname === '/';
   const isSessionPage = pathname === '/session';
   const isDiagnosticsPage = pathname === '/diagnostics';
+  const isModelsPage = pathname === '/models';
   const isSettingsPage = pathname === '/settings' || pathname === '/about';
 
   let sectionLabel: string = t(($) => $.navigation.groups.workbench);
@@ -70,6 +72,10 @@ export function AppLayout() {
   if (isDiagnosticsPage) {
     sectionLabel = t(($) => $.navigation.groups.configuration);
     pageLabel = t(($) => $.navigation.diagnostics);
+  }
+  if (isModelsPage) {
+    sectionLabel = t(($) => $.navigation.groups.configuration);
+    pageLabel = t(($) => $.navigation.models);
   }
   if (isSettingsPage) {
     sectionLabel = t(($) => $.navigation.settings);
@@ -183,6 +189,14 @@ export function AppLayout() {
           >
             <Icon icon={activityIcon} className="size-4 shrink-0" />
             <span className="truncate">{t(($) => $.navigation.diagnostics)}</span>
+          </Link>
+          <Link
+            to="/models"
+            aria-current={currentPage(isModelsPage)}
+            className={navigationItemClass(isModelsPage)}
+          >
+            <Icon icon={packageIcon} className="size-4 shrink-0" />
+            <span className="truncate">{t(($) => $.navigation.models)}</span>
           </Link>
         </nav>
 

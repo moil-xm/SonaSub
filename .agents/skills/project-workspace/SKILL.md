@@ -21,7 +21,7 @@ description: Use when adding or changing a pnpm workspace, installing or upgradi
    Root `pnpm test` discovers test projects under `apps/*` and `packages/*`; workspace-specific test environments stay in that workspace's Vite config.
 6. Scripts: each package keeps its own `dev` / `build`, and the root aggregates with `vp run -r <script>` or `pnpm --filter <name> <script>`; Tauri and WXT keep their own build entries.
 7. Run `pnpm install` to update `pnpm-lock.yaml`; after a Rust dependency change run `cargo generate-lockfile` or any cargo command inside `apps/desktop/src-tauri` to update `Cargo.lock`. Lock files must be committed.
-8. The Rust build links the patched sherpa-onnx runtime prepared by `pnpm prepare:native`; the generated `apps/desktop/src-tauri/vendor/` tree is gitignored and `.cargo/config.toml` exports `SHERPA_LIB_PATH`. Do not replace it with `download-binaries` or an unpatched prebuilt release.
+8. The official `sherpa-onnx` crate downloads and links its version-matched static runtime during the Rust build. Do not reintroduce a custom CMake build, source patch or legacy runtime path override.
 
 ## Constraints
 
@@ -32,7 +32,7 @@ description: Use when adding or changing a pnpm workspace, installing or upgradi
 
 - Dependency/export/script changes: `pnpm install`, then `pnpm check`; run `pnpm build` for affected apps.
 - Root script or config changes only: `pnpm check` plus the changed script itself (for example `pnpm prepare:models` when model tooling changes).
-- Rust dependency changes: `pnpm prepare:native` once per checkout, then `pnpm check:rust`.
+- Rust dependency changes: `pnpm check:rust`.
 
 ## Delivery
 

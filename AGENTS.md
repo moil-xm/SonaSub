@@ -77,7 +77,6 @@ pnpm test                    # Desktop UI/state and shared i18n tests
 pnpm dev:desktop             # Desktop frontend dev server (http://localhost:5173)
 pnpm dev:desktop:app         # Tauri desktop app (compiles Rust)
 pnpm dev:extension           # WXT extension development (Chrome)
-pnpm prepare:native          # Build the pinned patched sherpa-onnx static runtime
 pnpm prepare:models          # Download and checksum the pinned local models
 pnpm --filter @sonasub/desktop tauri:build    # Build the installer for the current platform
 ```
@@ -102,7 +101,7 @@ Add a Skill only when a stable, repeated, project-specific judgment rule exists;
 ## Delivery Requirements
 
 - State the change scope and owning module; list the verification commands actually run with their results, plus anything unverified in this environment.
-- Run `pnpm prepare:native` once per checkout before Rust checks; `build.rs` fails with that instruction when the pinned runtime is absent.
+- The official `sherpa-onnx` crate downloads and links its matching static runtime during compilation; no separate native preparation step is required.
 - Check `git status` before and after changes, preserve existing staged, unstaged and untracked work, and never restore, delete or reformat unrelated files.
 - Docs-only or Skills-only changes: check frontmatter, reference paths and `git diff --check`; no compilation required.
 

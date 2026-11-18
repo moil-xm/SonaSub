@@ -18,7 +18,7 @@ description: Use when finishing a SonaSub change and deciding which checks to ru
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | Any TS/TSX/config            | `pnpm check`                                                                                                                                |
 | Desktop frontend             | `pnpm test` + `pnpm --filter @sonasub/desktop build`; for UI changes also open `pnpm dev:desktop` or the real `.app`                        |
-| Tauri/Rust                   | `pnpm prepare:native` once, then `pnpm check:rust` + `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`     |
+| Tauri/Rust                   | `pnpm check:rust` + `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`                                      |
 | Native models/pipeline       | `pnpm prepare:models`; ignored tests with `--ignored`; then real `.app` verification with system-output playback                            |
 | Session lifecycle            | Real `.app`: start, concurrent start, stop, restart, failure, config lock, app-exit cleanup and stale-event isolation                       |
 | Extension                    | `pnpm --filter @sonasub/extension build` (output `.output/chrome-mv3`, `manifest_version` 3); interaction changes also `pnpm dev:extension` |
@@ -42,9 +42,9 @@ description: Use when finishing a SonaSub change and deciding which checks to ru
    - run with models present and network denied to confirm offline operation;
    - record subtitle/translation/speaker latency, CPU and RSS.
 6. Packaging: after changing native dependencies or resources, rebuild the macOS `.app` and inspect the bundle for Node.js, engine/protocol artifacts, non-system dynamic libraries and bundled model weights.
-7. Native runtime: `pnpm prepare:native` builds the pinned patched sherpa-onnx static runtime. Rust compilation fails fast when it is missing; rerun it after changing the patch or the pinned version.
+7. Native runtime: the official `sherpa-onnx` crate downloads its version-matched static runtime during compilation. Keep the crate version pinned and avoid overriding the native library directory with a stale local build.
 8. Model checks: `pnpm prepare:models` verifies every pinned SHA-256. Normal CI must not download large models; the model tests stay `#[ignore]` and are run explicitly.
-9. CI gates include frozen installs, `pnpm check`, `pnpm test`, builds, `pnpm prepare:native`, `pnpm check:rust` and serial Rust tests. The Rust job runs on macOS because system capture is macOS-only.
+9. CI gates include frozen installs, `pnpm check`, `pnpm test`, builds, `pnpm check:rust` and serial Rust tests. The Rust job runs on macOS because system capture is macOS-only.
 10. Rerun the checks covering the final change before finishing so results match current files.
 
 ## Constraints

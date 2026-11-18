@@ -4,6 +4,7 @@ pub mod workers;
 use std::{
     collections::VecDeque,
     mem,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
@@ -103,6 +104,22 @@ pub struct ConfigView {
 }
 
 impl SessionManager {
+    pub fn model_root(&self) -> PathBuf {
+        self.inner.models.root.clone()
+    }
+
+    pub fn model_paths(&self) -> &crate::models::ModelPaths {
+        &self.inner.models
+    }
+
+    pub fn config_dir(&self) -> PathBuf {
+        self.inner
+            .app
+            .path()
+            .app_config_dir()
+            .unwrap_or_else(|_| self.inner.models.root.clone())
+    }
+
     pub fn new(app: AppHandle) -> Result<Self, String> {
         let config_dir = app.path().app_config_dir().map_err(|error| {
             format!("Failed to resolve the application config directory: {error}")
@@ -110,6 +127,18 @@ impl SessionManager {
         let data_dir = app.path().app_data_dir().map_err(|error| {
             format!("Failed to resolve the application data directory: {error}")
         })?;
+        let model_root = match std::env::var_os("SONASUB_MODELS_DIR") {
+            Some(value) => {
+                let path = PathBuf::from(value);
+                if !path.is_absolute() {
+                    return Err("SONASUB_MODELS_DIR must be an absolute path.".to_owned());
+                }
+                path
+            }
+            None => data_dir.join("models"),
+        };
+        std::fs::create_dir_all(&model_root)
+            .map_err(|error| format!("failed to create {}: {error}", model_root.display()))?;
         let config_store = ConfigStore::new(config_dir.join("config.json"));
         let (config, config_error) = config_store.load();
         let history_limit = config.ui.history_limit;
@@ -121,7 +150,7 @@ impl SessionManager {
             inner: Arc::new(ManagerInner {
                 app,
                 config_store,
-                models: ModelPaths::new(data_dir.join("models")),
+                models: ModelPaths::new(model_root),
                 runtime: Mutex::new(RuntimeState {
                     status: SessionStatus::Idle,
                     session_id: None,

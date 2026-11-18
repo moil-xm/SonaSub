@@ -36,7 +36,7 @@ Tab capture is future work and is not used as a hidden audio fallback.
 - Desktop: Tauri 2 + Rust; React + TypeScript
 - UI: Tailwind CSS 4 + CSS Variables, shadcn/ui, static Iconify icons
 - Routing/state: TanStack Router / Query / Form, Zustand, Day.js
-- Native speech: `sherpa-rs 0.6.8` with sherpa-onnx v1.12.9
+- Native speech: official `sherpa-onnx` Rust API v2.0.1
 - Native system audio: `flexaudio 0.8.1` / `flexaudio-os-macos 0.8.1`
 - Native translation: `fxtranslate 0.5.0` with pinned Bergamot models
 - Extension: WXT + React + TypeScript (Manifest V3)
@@ -47,7 +47,6 @@ Tab capture is future work and is not used as a hidden audio fallback.
   Node.js is not used by the packaged desktop app.
 - Rust stable >= 1.90 with `rustfmt` and `clippy`.
 - macOS 14.4 or later on Apple Silicon (arm64); Xcode Command Line Tools.
-- CMake 3.20 or newer for the pinned sherpa-onnx runtime (`brew install cmake`).
 - `curl`, `tar` and `zstd` for model preparation (`brew install zstd` if needed).
 
 System capture is implemented and verified on macOS arm64. Windows, Linux and
@@ -58,7 +57,6 @@ unsupported-platform error.
 
 ```bash
 pnpm install
-pnpm prepare:native
 pnpm prepare:models
 pnpm dev:desktop:app
 ```
@@ -66,9 +64,9 @@ pnpm dev:desktop:app
 The first capture asks for macOS System Audio Recording permission. SonaSub
 does not request microphone input as a substitute.
 
-`prepare:native` builds the pinned sherpa-onnx v1.12.9 static runtime with the
-upstream diarization clamp fix. The runtime is linked into the desktop binary;
-it is not a separate service or bundled Node.js process.
+The official `sherpa-onnx` crate downloads and statically links a runtime that
+matches v2.0.1 during the Rust build. It is not a separate service or bundled
+Node.js process.
 
 Model files live outside the installer:
 
@@ -79,6 +77,13 @@ Model files live outside the installer:
 Sources, versions, checksums and the resume/cache workflow are documented in
 [docs/models.md](docs/models.md).
 
+In the packaged app, open **Models** to choose which models to install. Each
+bundle card shows approximate download size, disk and compute requirements,
+and a short quality summary. Use **Download and install** to fetch the pinned
+official archive or files with one click, or import files you already
+downloaded. You can also choose a separate download directory. Nothing
+downloads unless you start it from the model page.
+
 ## Commands
 
 ```bash
@@ -86,7 +91,6 @@ pnpm dev:desktop        # Desktop frontend dev server at http://localhost:5173
 pnpm dev:desktop:app    # Tauri desktop app (compiles Rust)
 pnpm dev:extension      # WXT extension development
 
-pnpm prepare:native     # Build the patched sherpa-onnx static runtime
 pnpm prepare:models     # Download and checksum every pinned model
 pnpm check              # Formatting + linting + type checking
 pnpm check:fix          # Auto-fix formatting and fixable lint issues

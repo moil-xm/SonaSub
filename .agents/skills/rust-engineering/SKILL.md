@@ -25,9 +25,9 @@ description: Use when implementing, refactoring, debugging or reviewing Rust in 
 ## Project-specific native constraints
 
 - The desktop uses in-process native workers; do not introduce a separate engine process, network service or Node runtime without an explicit architecture change.
-- Preserve the pinned sherpa-onnx runtime and ABI/patch relationship described in [architecture](../../../docs/architecture.md) and [models](../../../docs/models.md). Check those sources before changing bindings, native dependencies or build scripts.
+- Keep the official `sherpa-onnx` crate and its native runtime at the same pinned version. Check [architecture](../../../docs/architecture.md) and [models](../../../docs/models.md) before changing dependencies or build scripts.
 - Tauri commands and serialized events are public frontend contracts: update their consumers and tests when changing their shape, and update capabilities when a new permission is needed.
 
 ## Verification and delivery
 
-For Rust changes, follow [project-verification](../project-verification/SKILL.md): prepare the pinned native runtime once per checkout, run `pnpm check:rust` and the documented serial Rust tests. Model and real-audio changes need the additional native checks described there. State the commands actually run and any unavailable platform, model, permission or real-device checks; never treat mock results as native verification.
+For Rust changes, follow [project-verification](../project-verification/SKILL.md): run `pnpm check:rust` and the documented serial Rust tests. Model and real-audio changes need the additional native checks described there. State the commands actually run and any unavailable platform, model, permission or real-device checks; never treat mock results as native verification.

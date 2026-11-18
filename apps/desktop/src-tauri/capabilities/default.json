@@ -6,7 +6,13 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "dialog:default",
     "allow-get-capabilities",
+    "allow-list-model-installs",
+    "allow-get-model-download-settings",
+    "allow-set-model-download-directory",
+    "allow-download-model",
+    "allow-import-model-files",
     "allow-get-config",
     "allow-save-config",
     "allow-session-snapshot",

@@ -11,7 +11,7 @@ authentication handshake or browser-side inference.
 | Path                     | Responsibility                                                                                                                       | Technology                                                       |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | `apps/desktop`           | React control UI; Tauri commands, events and native desktop shell                                                                    | React + TypeScript, TanStack Router/Query/Form, Zustand, Tauri 2 |
-| `apps/desktop/src-tauri` | Audio capture, DSP, sherpa-onnx workers, speaker analysis, Bergamot worker, subtitle scheduling, configuration and session lifecycle | Rust, flexaudio, sherpa-rs, fxtranslate                          |
+| `apps/desktop/src-tauri` | Audio capture, DSP, sherpa-onnx workers, speaker analysis, Bergamot worker, subtitle scheduling, configuration and session lifecycle | Rust, flexaudio, sherpa-onnx, fxtranslate                        |
 | `apps/extension`         | Chrome extension (Manifest V3), popup only; no capture implementation yet                                                            | WXT + React + TypeScript                                         |
 | `packages/ui`            | Shared shadcn/ui components, theme variables, styles and hooks                                                                       | Tailwind CSS 4, CSS Variables, Radix primitives                  |
 | `packages/i18n`          | Shared `en-US` / `zh-CN` resources, i18next setup and typed selectors                                                                | i18next + react-i18next                                          |
@@ -34,19 +34,14 @@ The desktop's Rust modules are deliberately separated:
 
 ## Native Runtime
 
-`sherpa-rs 0.6.8` binds the sherpa-onnx v1.12.9 C ABI. SonaSub builds that
-runtime from pinned source with
-[`scripts/patches/sherpa-onnx-1.12.9-topk-clamp.patch`](../scripts/patches/sherpa-onnx-1.12.9-topk-clamp.patch),
-which contains the upstream diarization `TopkIndex` clamp first released in
-v1.13.3. The static libraries are installed under the gitignored
-`apps/desktop/src-tauri/vendor/sherpa-onnx/` directory and linked through
-`SHERPA_LIB_PATH` from `.cargo/config.toml`; they run inside the desktop
-binary, not in a separate process.
+The desktop app uses the official `sherpa-onnx` Rust API pinned to v2.0.1. The
+crate downloads a version-matched native archive and statically links it into
+the desktop binary; no source patch, custom CMake build or legacy runtime path
+override is involved. Inference runs inside the desktop process.
 
-The patch keeps the v1.12.9 C struct layout that the `sherpa-rs-sys 0.6.8`
-bindings expect. The pinned prebuilt v1.12.9 binary can crash with SIGBUS when
-a diarization frame has more active speakers than clusters; the regression test
-is in `apps/desktop/src-tauri/tests/native_pipeline.rs`.
+The diarization top-k regression test in
+`apps/desktop/src-tauri/tests/native_pipeline.rs` still exercises the case
+where active speakers exceed the requested cluster count.
 
 - `config.rs` / `models.rs`: validated persisted configuration, the pinned model
   registry and capability resolution.

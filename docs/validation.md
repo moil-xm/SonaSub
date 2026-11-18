@@ -17,9 +17,8 @@ simulated result.
 | Models    | `~/Library/Application Support/dev.sonasub.desktop/models` |
 | Audio     | 16 kHz mono test clips in `/tmp/sonasub-research/audio`    |
 
-The pinned sherpa-onnx runtime was already built in this checkout at
-`apps/desktop/src-tauri/vendor/sherpa-onnx/current`, so `pnpm prepare:native`
-was not re-run.
+The official `sherpa-onnx` crate downloads and links its version-matched
+static runtime during compilation; no separate native preparation step exists.
 
 ## Automated Checks
 
@@ -264,10 +263,37 @@ inverted again.
 
 ## Deferred Work
 
-- The migration to the official sherpa-onnx Rust bindings is a separate
-  change and was not started in this round. The pinned, patched v1.12.9
-  runtime with the top-k clamp stays in place, and the clamp regression test
-  still passes against it.
+### Official sherpa-onnx Rust API Migration
+
+The native speech modules now use the official `sherpa-onnx` crate pinned to
+v2.0.1. The following checks were run after the migration:
+
+| Command                                                                                                                                  | Result                                       |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check`                                                                    | pass                                         |
+| `cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings`                                   | pass                                         |
+| `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1`                                              | pass — 37 passed, 6 ignored                  |
+| `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --test native_pipeline -- --ignored --test-threads=1 --nocapture` | pass — 6 passed in 43.75 s                   |
+| `pnpm check`                                                                                                                             | pass — 137 files formatted, 100 files linted |
+| `pnpm test`                                                                                                                              | pass — 24 tests                              |
+| `pnpm build`                                                                                                                             | pass                                         |
+| `pnpm --filter @sonasub/desktop tauri build --debug --bundles app --no-sign`                                                             | pass — `SonaSub.app`, 73.23 MiB              |
+| `otool -L` on the packaged executable                                                                                                    | only system frameworks and libraries         |
+| `git diff --check`                                                                                                                       | pass                                         |
+
+The ignored real-model tests covered the recorded checksums, streaming
+Zipformer, VAD + SenseVoice, Bergamot in both directions, windowed Pyannote
+diarization and the top-k regression with one requested cluster. No mock
+recognition result was used.
+
+The packaged `.app` was not launched with a live macOS system-output capture,
+and the 30-minute performance run was not repeated after the migration. Those
+two checks remain unverified for this change.
+
+- The historical results above were recorded against the earlier native
+  pipeline. The migration to the official sherpa-onnx v2.0.1 Rust API is a
+  separate change; the subsection above records its automated and real-model
+  verification.
 - The in-app model import, validation and preparation interface is planned
   in [models.md](models.md#planned-in-app-model-preparation) and was not
   implemented in this round.

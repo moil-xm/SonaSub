@@ -1,6 +1,6 @@
-use sherpa_rs::{
-    sense_voice::{SenseVoiceConfig, SenseVoiceRecognizer},
-    silero_vad::{SileroVad, SileroVadConfig},
+use sherpa_onnx::{
+    OfflineRecognizer, OfflineRecognizerConfig, OfflineSenseVoiceModelConfig, SileroVadModelConfig,
+    VadModelConfig, VoiceActivityDetector,
 };
 
 use crate::asr::{AsrEvent, AsrFinal};
@@ -45,40 +45,29 @@ pub trait RecognizerBackend {
 }
 
 struct SherpaVad {
-    inner: SileroVad,
-    model: String,
-    min_silence_secs: f32,
-    min_speech_secs: f32,
-    max_segment_secs: f32,
-    threshold: f32,
+    inner: VoiceActivityDetector,
+    config: VadModelConfig,
     buffer_size_secs: f32,
 }
 
 impl SherpaVad {
     fn new(config: &SegmentedConfig) -> Result<Self, String> {
-        let inner = SileroVad::new(
-            SileroVadConfig {
-                model: config.vad_model.clone(),
+        let config = VadModelConfig {
+            silero_vad: SileroVadModelConfig {
+                model: Some(config.vad_model.clone()),
+                threshold: config.vad_threshold,
                 min_silence_duration: config.min_silence_secs,
                 min_speech_duration: config.min_speech_secs,
-                max_speech_duration: config.max_segment_secs,
-                threshold: config.vad_threshold,
-                sample_rate: 16_000,
                 window_size: 512,
-                provider: Some("cpu".to_owned()),
-                num_threads: Some(1),
-                debug: false,
+                max_speech_duration: config.max_segment_secs,
             },
-            90.0,
-        )
-        .map_err(|error| format!("Failed to initialize Silero VAD: {error}"))?;
+            ..VadModelConfig::default()
+        };
+        let inner = VoiceActivityDetector::create(&config, 90.0)
+            .ok_or_else(|| "Failed to initialize Silero VAD".to_owned())?;
         Ok(Self {
             inner,
-            model: config.vad_model.clone(),
-            min_silence_secs: config.min_silence_secs,
-            min_speech_secs: config.min_speech_secs,
-            max_segment_secs: config.max_segment_secs,
-            threshold: config.vad_threshold,
+            config,
             buffer_size_secs: 90.0,
         })
     }
@@ -86,7 +75,7 @@ impl SherpaVad {
 
 impl VadBackend for SherpaVad {
     fn accept_waveform(&mut self, samples: &[f32]) {
-        self.inner.accept_waveform(samples.to_vec());
+        self.inner.accept_waveform(samples);
     }
 
     fn flush(&mut self) {
@@ -95,72 +84,60 @@ impl VadBackend for SherpaVad {
 
     fn drain(&mut self) -> Vec<VadSegment> {
         let mut segments = Vec::new();
-        while !self.inner.is_empty() {
-            let segment = self.inner.front();
+        while let Some(segment) = self.inner.front() {
             self.inner.pop();
             segments.push(VadSegment {
-                start: segment.start,
-                samples: segment.samples,
+                start: segment.start() as i32,
+                samples: segment.samples().to_vec(),
             });
         }
         segments
     }
 
     fn reset(&mut self) -> Result<(), String> {
-        // `SileroVad::clear` only drops the finished segments; the sample
-        // counter inside the detector keeps running. Recreating the detector
-        // restarts that counter so the next segment offset is relative to the
-        // audio that follows the gap.
-        self.inner = SileroVad::new(
-            SileroVadConfig {
-                model: self.model.clone(),
-                min_silence_duration: self.min_silence_secs,
-                min_speech_duration: self.min_speech_secs,
-                max_speech_duration: self.max_segment_secs,
-                threshold: self.threshold,
-                sample_rate: 16_000,
-                window_size: 512,
-                provider: Some("cpu".to_owned()),
-                num_threads: Some(1),
-                debug: false,
-            },
-            self.buffer_size_secs,
-        )
-        .map_err(|error| format!("Failed to reset the Silero VAD: {error}"))?;
+        // `reset` drops finished segments but keeps the sample counter.
+        // Recreate the detector so offsets are relative to the audio after the gap.
+        self.inner = VoiceActivityDetector::create(&self.config, self.buffer_size_secs)
+            .ok_or_else(|| "Failed to reset the Silero VAD".to_owned())?;
         Ok(())
     }
 }
 
 struct SenseVoiceBackend {
-    recognizer: SenseVoiceRecognizer,
+    recognizer: OfflineRecognizer,
 }
 
 impl SenseVoiceBackend {
-    fn new(config: &SegmentedConfig) -> Result<Self, String> {
-        let recognizer = SenseVoiceRecognizer::new(SenseVoiceConfig {
-            model: config.asr_model.clone(),
-            language: config.language.clone(),
+    fn new(source: &SegmentedConfig) -> Result<Self, String> {
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.sense_voice = OfflineSenseVoiceModelConfig {
+            model: Some(source.asr_model.clone()),
+            language: Some(source.language.clone()),
             use_itn: true,
-            provider: Some("cpu".to_owned()),
-            num_threads: Some(2),
-            debug: false,
-            tokens: config.tokens.clone(),
-        })
-        .map_err(|error| format!("Failed to initialize SenseVoice: {error}"))?;
+        };
+        config.model_config.tokens = Some(source.tokens.clone());
+        config.model_config.num_threads = 2;
+        let recognizer = OfflineRecognizer::create(&config)
+            .ok_or_else(|| "Failed to initialize SenseVoice".to_owned())?;
         Ok(Self { recognizer })
     }
 }
 
 impl RecognizerBackend for SenseVoiceBackend {
     fn transcribe(&mut self, samples: &[f32]) -> (String, Option<String>) {
-        let result = self.recognizer.transcribe(16_000, samples);
+        let stream = self.recognizer.create_stream();
+        stream.accept_waveform(16_000, samples);
+        self.recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .unwrap_or_else(|| sherpa_onnx::OfflineRecognizerResult {
+                text: String::new(),
+                tokens: Vec::new(),
+                timestamps: None,
+                durations: None,
+            });
+        let language = sense_voice_language(&result.text);
         let text = sanitize_sense_voice_text(&result.text);
-        let language = sanitize_language(&result.lang);
-        let language = if language.is_empty() {
-            None
-        } else {
-            Some(language)
-        };
         (text, language)
     }
 }
@@ -276,13 +253,13 @@ fn sanitize_sense_voice_text(text: &str) -> String {
     output.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn sanitize_language(language: &str) -> String {
-    language
-        .trim()
-        .trim_start_matches("<|")
-        .trim_end_matches("|>")
-        .trim()
-        .to_owned()
+fn sense_voice_language(text: &str) -> Option<String> {
+    for token in text.split(['<', '>', '|']) {
+        if matches!(token, "zh" | "en" | "ja" | "ko" | "yue") {
+            return Some(token.to_owned());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -371,8 +348,12 @@ mod tests {
     }
 
     #[test]
-    fn strips_angle_brackets_from_language_metadata() {
-        assert_eq!(sanitize_language("<|zh|>"), "zh");
+    fn reads_the_sense_voice_language_tag() {
+        assert_eq!(
+            sense_voice_language("<|zh|><|NEUTRAL|> 你好"),
+            Some("zh".to_owned())
+        );
+        assert_eq!(sense_voice_language("plain text"), None);
     }
 
     #[test]

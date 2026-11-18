@@ -1,15 +1,9 @@
-use std::{ffi::CString, ptr, slice};
-
-use sherpa_rs::sherpa_rs_sys as sys;
+use sherpa_onnx::{OnlineRecognizer as OfficialOnlineRecognizer, OnlineRecognizerConfig};
 
 use crate::asr::{AsrEvent, AsrFinal, AsrPartial};
 
 pub struct OnlineRecognizer {
-    recognizer: *const sys::SherpaOnnxOnlineRecognizer,
-}
-
-pub struct OnlineStream {
-    stream: *const sys::SherpaOnnxOnlineStream,
+    inner: OfficialOnlineRecognizer,
 }
 
 pub struct StreamingConfig {
@@ -22,130 +16,38 @@ pub struct StreamingConfig {
 }
 
 impl OnlineRecognizer {
-    pub fn new(config: &StreamingConfig) -> Result<Self, String> {
-        let encoder = cstring(&config.encoder)?;
-        let decoder = cstring(&config.decoder)?;
-        let joiner = cstring(&config.joiner)?;
-        let tokens = cstring(&config.tokens)?;
-        let provider = cstring("cpu")?;
-        let decoding = cstring("modified_beam_search")?;
-
-        let mut model_config: sys::SherpaOnnxOnlineModelConfig = unsafe { std::mem::zeroed() };
-        model_config.transducer = sys::SherpaOnnxOnlineTransducerModelConfig {
-            encoder: encoder.as_ptr(),
-            decoder: decoder.as_ptr(),
-            joiner: joiner.as_ptr(),
+    pub fn new(source: &StreamingConfig) -> Result<Self, String> {
+        let mut config = OnlineRecognizerConfig {
+            decoding_method: Some("modified_beam_search".to_owned()),
+            max_active_paths: 4,
+            enable_endpoint: true,
+            rule1_min_trailing_silence: 0.4,
+            rule2_min_trailing_silence: 0.6,
+            rule3_min_utterance_length: source.max_segment_secs.max(2.0),
+            ..OnlineRecognizerConfig::default()
         };
-        model_config.tokens = tokens.as_ptr();
-        model_config.num_threads = config.num_threads.max(1);
-        model_config.provider = provider.as_ptr();
-        model_config.debug = 0;
-
-        let mut recognizer_config: sys::SherpaOnnxOnlineRecognizerConfig =
-            unsafe { std::mem::zeroed() };
-        recognizer_config.feat_config = sys::SherpaOnnxFeatureConfig {
-            sample_rate: 16_000,
-            feature_dim: 80,
-        };
-        recognizer_config.model_config = model_config;
-        recognizer_config.decoding_method = decoding.as_ptr();
-        recognizer_config.max_active_paths = 4;
-        recognizer_config.enable_endpoint = 1;
-        recognizer_config.rule1_min_trailing_silence = 0.4;
-        recognizer_config.rule2_min_trailing_silence = 0.6;
-        recognizer_config.rule3_min_utterance_length = config.max_segment_secs.max(2.0);
-
-        let recognizer = unsafe { sys::SherpaOnnxCreateOnlineRecognizer(&recognizer_config) };
-        if recognizer.is_null() {
-            return Err(
-                "sherpa-onnx could not create the streaming recognizer. Check the model files and architecture."
-                    .to_owned(),
-            );
-        }
-        Ok(Self { recognizer })
+        config.model_config.transducer.encoder = Some(source.encoder.clone());
+        config.model_config.transducer.decoder = Some(source.decoder.clone());
+        config.model_config.transducer.joiner = Some(source.joiner.clone());
+        config.model_config.tokens = Some(source.tokens.clone());
+        config.model_config.num_threads = source.num_threads.max(1);
+        config.model_config.provider = Some("cpu".to_owned());
+        let inner = OfficialOnlineRecognizer::create(&config).ok_or_else(|| {
+            "sherpa-onnx could not create the streaming recognizer. Check the model files and architecture.".to_owned()
+        })?;
+        Ok(Self { inner })
     }
 
     pub fn create_stream(&self) -> Result<OnlineStream, String> {
-        let stream = unsafe { sys::SherpaOnnxCreateOnlineStream(self.recognizer) };
-        if stream.is_null() {
-            return Err("sherpa-onnx could not create a streaming input stream.".to_owned());
-        }
-        Ok(OnlineStream { stream })
+        Ok(OnlineStream {
+            inner: self.inner.create_stream(),
+        })
     }
 }
 
-unsafe impl Send for OnlineRecognizer {}
-
-impl Drop for OnlineRecognizer {
-    fn drop(&mut self) {
-        unsafe { sys::SherpaOnnxDestroyOnlineRecognizer(self.recognizer) };
-    }
+pub struct OnlineStream {
+    inner: sherpa_onnx::OnlineStream,
 }
-
-impl OnlineStream {
-    pub fn accept(&mut self, samples: &[f32]) {
-        unsafe {
-            sys::SherpaOnnxOnlineStreamAcceptWaveform(
-                self.stream,
-                16_000,
-                samples.as_ptr(),
-                samples.len() as i32,
-            );
-        }
-    }
-
-    pub fn decode(&mut self, recognizer: &OnlineRecognizer) {
-        while unsafe { sys::SherpaOnnxIsOnlineStreamReady(recognizer.recognizer, self.stream) } != 0
-        {
-            unsafe { sys::SherpaOnnxDecodeOnlineStream(recognizer.recognizer, self.stream) };
-        }
-    }
-
-    pub fn result(&mut self, recognizer: &OnlineRecognizer) -> Option<StreamingResult> {
-        unsafe {
-            let pointer = sys::SherpaOnnxGetOnlineStreamResult(recognizer.recognizer, self.stream);
-            if pointer.is_null() {
-                return None;
-            }
-            let raw = &*pointer;
-            let text = if raw.text.is_null() {
-                String::new()
-            } else {
-                std::ffi::CStr::from_ptr(raw.text)
-                    .to_string_lossy()
-                    .trim()
-                    .to_owned()
-            };
-            let timestamps = if raw.timestamps.is_null() || raw.count <= 0 {
-                Vec::new()
-            } else {
-                slice::from_raw_parts(raw.timestamps, raw.count as usize).to_vec()
-            };
-            sys::SherpaOnnxDestroyOnlineRecognizerResult(pointer);
-            Some(StreamingResult { text, timestamps })
-        }
-    }
-
-    pub fn is_endpoint(&self, recognizer: &OnlineRecognizer) -> bool {
-        unsafe { sys::SherpaOnnxOnlineStreamIsEndpoint(recognizer.recognizer, self.stream) != 0 }
-    }
-
-    pub fn reset(&mut self, recognizer: &OnlineRecognizer) {
-        unsafe { sys::SherpaOnnxOnlineStreamReset(recognizer.recognizer, self.stream) };
-    }
-
-    pub fn finish(&mut self) {
-        unsafe { sys::SherpaOnnxOnlineStreamInputFinished(self.stream) };
-    }
-}
-
-impl Drop for OnlineStream {
-    fn drop(&mut self) {
-        unsafe { sys::SherpaOnnxDestroyOnlineStream(self.stream) };
-    }
-}
-
-unsafe impl Send for OnlineStream {}
 
 #[derive(Debug, Clone)]
 pub struct StreamingResult {
@@ -182,27 +84,33 @@ impl OnlineBackend {
 
 impl StreamingBackend for OnlineBackend {
     fn accept(&mut self, samples: &[f32]) {
-        self.stream.accept(samples);
+        self.stream.inner.accept_waveform(16_000, samples);
     }
 
     fn decode(&mut self) {
-        self.stream.decode(&self.recognizer);
+        while self.recognizer.inner.is_ready(&self.stream.inner) {
+            self.recognizer.inner.decode(&self.stream.inner);
+        }
     }
 
     fn result(&mut self) -> Option<StreamingResult> {
-        self.stream.result(&self.recognizer)
+        let result = self.recognizer.inner.get_result(&self.stream.inner)?;
+        Some(StreamingResult {
+            text: result.text.trim().to_owned(),
+            timestamps: result.timestamps.unwrap_or_default(),
+        })
     }
 
     fn is_endpoint(&self) -> bool {
-        self.stream.is_endpoint(&self.recognizer)
+        self.recognizer.inner.is_endpoint(&self.stream.inner)
     }
 
     fn reset(&mut self) {
-        self.stream.reset(&self.recognizer);
+        self.recognizer.inner.reset(&self.stream.inner);
     }
 
     fn finish(&mut self) {
-        self.stream.finish();
+        self.stream.inner.input_finished();
     }
 }
 
@@ -408,15 +316,6 @@ impl StreamingEngine {
             .max(start);
         (start, end)
     }
-}
-
-fn cstring(value: &str) -> Result<CString, String> {
-    CString::new(value).map_err(|error| format!("Invalid path for sherpa-onnx: {error}"))
-}
-
-#[allow(dead_code)]
-fn _assert_ptr_size() {
-    let _ = ptr::null::<sys::SherpaOnnxOnlineRecognizer>();
 }
 
 #[cfg(test)]

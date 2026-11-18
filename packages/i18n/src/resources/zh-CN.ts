@@ -11,6 +11,7 @@ export const zhCn = {
     live: '实时字幕',
     sessionSettings: '会话设置',
     diagnostics: '诊断',
+    models: '模型管理',
     settings: '设置',
     general: '常规',
     about: '关于',
@@ -192,6 +193,77 @@ export const zhCn = {
     historyLimit: '字幕历史上限',
     historyLimitHint: '超过上限后，较早的临时与已确认字幕会从内存中移除。',
     modelsDirectory: '模型目录：{{path}}',
+  },
+  models: {
+    title: '模型管理',
+    description:
+      '选择 SonaSub 可以使用的模型。可以一键下载并安装整套模型，也可以导入已经下载好的文件。',
+    loading: '正在加载模型清单…',
+    loadError: '无法加载模型清单',
+    directory: '安装目录',
+    downloadDirectory: '下载目录',
+    chooseDownloadDirectory: '选择下载目录',
+    resetDownloadDirectory: '恢复默认目录',
+    downloadDirectoryHint: '下载包会保存在这里；保持默认即可保存在模型目录中。',
+    source: '官方来源',
+    openSource: '打开来源页面',
+    downloadAndInstall: '下载并安装',
+    reinstall: '重新安装',
+    downloading: '正在下载…',
+    importFiles: '导入所选文件',
+    importing: '正在导入…',
+    importHint: '选择该模型的官方压缩包，或解压后的全部文件。SonaSub 会逐项校验固定的 SHA-256。',
+    installed: '已安装',
+    missing: '缺失',
+    downloadError: '下载或安装失败',
+    importError: '模型文件导入失败',
+    directoryError: '下载目录修改失败',
+    downloadSize: '下载约 {{size}}',
+    requiredFiles: '所需文件',
+    resourceNeeds: '资源需求',
+    effect: '效果说明',
+    installDirectoryHint: '模型文件实际安装在这里，启动会话时由应用直接读取。',
+    installedSummary: '已安装 {{installed}} / {{total}} 个模型',
+    filesReady: '{{present}} / {{total}} 个文件',
+    recognitionSection: '语音识别',
+    recognitionSectionHint: '选择把系统音频转成原文字幕的识别引擎。',
+    translationSection: '翻译',
+    translationSectionHint: '可选的本地 Bergamot 翻译方向，只需安装实际使用的方向。',
+    supportingSection: '辅助模型',
+    supportingSectionHint: '识别与字幕链路使用的语音检测和说话人分析模型。',
+    streamingZipformer: {
+      resource:
+        '压缩包约 488 MiB，安装后约 196 MB。使用 16 kHz 单声道音频；CPU 占用较低，可低延迟显示临时字幕。',
+      effect:
+        '中英双语识别，逐句自动检测语种。英文准确率通常低于 SenseVoice；强制指定语种不会改变结果。',
+    },
+    senseVoice: {
+      resource:
+        '压缩包约 155 MiB，安装后约 228 MB，另需很小的 VAD 模型。CPU 占用高于流式识别；分段结果等待语音边界后出现。',
+      effect:
+        '支持中文、英语、日语、韩语和粤语的多语种识别。总体准确率通常高于流式 Zipformer，但不提供实时临时字幕。',
+    },
+    sileroVad: {
+      resource: '约 0.6 MB，CPU 占用很低。',
+      effect: '为分段识别找出语音区间。选择 SenseVoice 时必须安装。',
+    },
+    campplus: {
+      resource: '约 27 MB，每条字幕的 CPU 占用较低。',
+      effect: '通过声纹让会话内的说话人标签保持稳定，不会拆分重叠人声。',
+    },
+    pyannote: {
+      resource: '压缩包约 6.6 MB，安装后仅数 MB。每个有界窗口的 CPU 占用中等。',
+      effect:
+        '按窗口进行说话人分割与聚类，用于生成说话人标签。会标出重叠带来的不确定区间，但不是人声分离。',
+    },
+    bergamotEnZh: {
+      resource: '安装后约 50 MB。每条已确认字幕后的 CPU 占用中等。',
+      effect: '本地英语到简体中文翻译，只处理完整文本，在字幕确认后返回译文。',
+    },
+    bergamotZhEn: {
+      resource: '安装后约 52 MB。每条已确认字幕后的 CPU 占用中等。',
+      effect: '本地简体中文到英语翻译，只处理完整文本，在字幕确认后返回译文。',
+    },
   },
   stats: {
     title: '会话遥测',

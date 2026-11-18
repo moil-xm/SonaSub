@@ -16,16 +16,25 @@ tauri-build = { version = "2.7.4", features = [] }
 [dependencies]
 tauri = { version = "2.12.5", features = [] }
 tauri-plugin-opener = "2.7.3"
+tauri-plugin-dialog = "2.8.4"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 crossbeam-channel = "0.5.17"
-sherpa-rs = { version = "=0.6.8", default-features = false, features = ["sys", "static"] }
+sherpa-onnx = "=2.0.1"
 flexaudio = "=0.8.1"
 flexaudio-os-macos = "=0.8.1"
 fxtranslate = "=0.5.0"
 uuid = { version = "1.29.2", features = ["v4"] }
 sysinfo = "0.40.3"
 sha2 = "0.10.9"
+ureq = { version = "2.12.1", default-features = false, features = [
+  "tls",
+  "gzip",
+  "proxy-from-env",
+] }
+bzip2 = "0.4.4"
+tar = "0.4.46"
+zstd = "0.14.4"
 
 [dev-dependencies]
 hound = "3.5.1"
