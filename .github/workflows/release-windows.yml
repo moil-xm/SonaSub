@@ -1,0 +1,61 @@
+name: release-windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v0.1.0-dev.2'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - name: Generate Windows icon
+        working-directory: apps/desktop/src-tauri
+        run: pnpm exec tauri icon icons/icon.png --output icons
+      - name: Build Windows installer
+        run: pnpm --filter @sonasub/desktop tauri build --bundles nsis
+      - name: Upload installer to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          asset=$(find apps/desktop/src-tauri/target/release/bundle/nsis -maxdepth 1 -name '*.exe' | head -n 1)
+          if [ -z "$asset" ]; then
+            echo "No NSIS installer was produced" >&2
+            exit 1
+          fi
+
+          renamed="SonaSub-${tag}-x64-setup.exe"
+          cp "$asset" "$renamed"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$renamed" --clobber
+          else
+            gh release create "$tag" "$renamed" \
+              --prerelease \
+              --generate-notes \
+              --verify-tag \
+              --target "$GITHUB_SHA"
+          fi
