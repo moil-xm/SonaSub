@@ -149,7 +149,10 @@ apps/desktop                 React workbench + src-tauri Rust application
   src-tauri/src/speaker/     CAM++ registry and windowed diarization
   src-tauri/src/translation/ TranslationEngine boundary and Bergamot worker
   src-tauri/src/subtitles/   Stable IDs, revisions and patch scheduling
-  src-tauri/src/session/     Lifecycle, bounded queues, events and metrics
+  src-tauri/src/session/     Live caption lifecycle, state and events
+  src-tauri/src/records/     Saved recordings, device runs and SQLite storage
+  src-tauri/src/pipeline/    Shared inference workers, queues and metrics
+  src-tauri/src/models/      Model registry, capabilities and installation
 apps/extension               Chrome extension popup (no capture yet)
 packages/ui                  Shared components, theme, icons and styles
 packages/i18n                English and Simplified Chinese UI resources

@@ -1,3 +1,5 @@
+mod attribution;
+
 use std::{
     collections::BTreeMap,
     path::Path,

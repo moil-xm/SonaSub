@@ -1,4 +1,4 @@
-//! The native worker threads of a session.
+//! The native worker threads used by live sessions and recording sources.
 //!
 //! The recognition, speaker, diarization and translation work runs on its own
 //! threads. This module owns their lifecycle so the stop protocol can be

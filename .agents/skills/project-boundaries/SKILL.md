@@ -10,7 +10,7 @@ description: Use when deciding where SonaSub code belongs or how modules connect
 - [docs/architecture.md](../../../docs/architecture.md): native pipeline, dependency direction, lifecycle and event contract.
 - [docs/models.md](../../../docs/models.md): model registry, preparation and capability limits.
 - [AGENTS.md](../../../AGENTS.md): boundaries and current scope.
-- Desktop entries: `apps/desktop/src-tauri/src/lib.rs`, `session/mod.rs`, `audio/mod.rs`, `asr/mod.rs`, `speaker/mod.rs`, `translation/mod.rs`, `subtitles/mod.rs`, `models.rs`, `config.rs`.
+- Desktop entries: `apps/desktop/src-tauri/src/lib.rs`, `session/mod.rs`, `pipeline/mod.rs`, `audio/mod.rs`, `asr/mod.rs`, `speaker/mod.rs`, `translation/mod.rs`, `subtitles/mod.rs`, `models/mod.rs`, `config.rs`.
 - Frontend entries: `apps/desktop/src/lib/session.ts`, `session.type.ts`, `session-cache.ts`, `apps/desktop/src-tauri/capabilities/default.json`, `apps/extension/wxt.config.ts`.
 
 ## Steps
@@ -20,7 +20,7 @@ description: Use when deciding where SonaSub code belongs or how modules connect
 3. Keep the process boundary narrow. React receives typed snapshots and subtitle patches; it never receives continuous audio, model handles or credentials. New commands/events update the Rust serializer, `session.type.ts`, the Query cache reducer and tests together.
 4. New Tauri commands update `capabilities/default.json` only when a permission is actually needed; prefer the existing minimal command set. Do not reintroduce a local server, WebSocket, HTTP or Node process.
 5. Keep inference behind the existing boundaries: `AsrEngine`, `TranslationEngine`, speaker registry/diarization, and the subtitle store. Add a compile-time adapter rather than scattering engine-name checks. Do not create one engine per model or a dynamic plugin loader.
-6. Model capabilities come from `models.rs` (model + adapter + interface), not from UI flags. A user preference may request a mode; the backend resolves it and rejects unsupported explicit modes.
+6. Model capabilities come from `models/` (model + adapter + interface), not from UI flags. A user preference may request a mode; the backend resolves it and rejects unsupported explicit modes.
 7. The extension stays isolated: it must not call desktop Tauri IPC, import apps/desktop source, or claim capture functionality that does not exist. Future tab capture is a new source adapter, not a hidden fallback.
 8. Use `rg` to check out-of-bounds imports (for example extension importing desktop source, `packages/ui` importing `@tauri-apps/*`, or desktop bundling `node:*` at runtime).
 

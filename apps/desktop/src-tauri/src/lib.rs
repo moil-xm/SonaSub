@@ -2,6 +2,7 @@ pub mod asr;
 pub mod audio;
 pub mod config;
 pub mod models;
+mod pipeline;
 pub mod records;
 pub mod session;
 pub mod speaker;

@@ -133,7 +133,10 @@ apps/desktop                 React 工作台 + src-tauri Rust 应用
   src-tauri/src/speaker/     CAM++ 注册表与窗口化 Diarization
   src-tauri/src/translation/ TranslationEngine 边界与 Bergamot Worker
   src-tauri/src/subtitles/   稳定 ID、修订号与 Patch 调度
-  src-tauri/src/session/     生命周期、有界队列、事件与指标
+  src-tauri/src/session/     实时字幕会话的生命周期、状态与事件
+  src-tauri/src/records/     录制记录、各设备的采集任务与 SQLite 存储
+  src-tauri/src/pipeline/    实时字幕与录制共用的推理线程、队列与指标
+  src-tauri/src/models/      模型注册表、能力查询与安装
 apps/extension               Chrome 扩展 popup（尚无采集）
 packages/ui                  共享组件、主题、图标与样式
 packages/i18n                英文与简体中文界面资源

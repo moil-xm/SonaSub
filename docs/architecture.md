@@ -16,21 +16,27 @@ authentication handshake or browser-side inference.
 | `packages/ui`            | Shared shadcn/ui components, theme variables, styles and hooks                                                                       | Tailwind CSS 4, CSS Variables, Radix primitives                  |
 | `packages/i18n`          | Shared `en-US` / `zh-CN` resources, i18next setup and typed selectors                                                                | i18next + react-i18next                                          |
 
-The desktop's Rust modules are deliberately separated:
+The native entry point is `apps/desktop/src-tauri/src/lib.rs`. It registers
+the Tauri commands and starts the live-session and record managers.
 
-- `audio/`: macOS system-output capture and 48 kHz stereo to 16 kHz mono DSP.
-- `asr/`: a common input/event adapter with streaming Zipformer and segmented
+- `session/` controls the live caption session. `manager.rs` serializes start,
+  stop and configuration changes. `runner/` drives capture and inference,
+  and `state.rs` owns the revisions used in snapshots and events.
+- `records/` manages saved recordings, device assignments and per-device
+  capture runs. `store.rs` persists records and subtitles in SQLite.
+- `pipeline/` contains the worker threads, bounded inference queues, shutdown
+  protocol and metrics used by both live sessions and recording sources.
+- `models/` owns the pinned registry, capability discovery, downloads and
+  verified installation. `config.rs` persists application settings.
+- `audio/` captures macOS system output and converts 48 kHz stereo to 16 kHz mono.
+- `asr/` provides a common input/event adapter for streaming Zipformer and segmented
   Silero VAD + SenseVoice implementations.
-- `speaker/`: CAM++ embedding registry and windowed Pyannote diarization.
-- `translation/`: the `TranslationEngine` boundary, Bergamot adapter and bounded
-  translation queue.
-- `subtitles/`: stable segment IDs, revisions and independent text, speaker and
+- `speaker/` owns the CAM++ embedding registry, windowed Pyannote diarization
+  and assignment of speakers to subtitle intervals.
+- `translation/` resolves source languages and owns the `TranslationEngine`
+  interface, Bergamot adapter and bounded translation queue.
+- `subtitles/` owns stable segment IDs, revisions and independent text, speaker and
   translation patches.
-- `session/`: serialized lifecycle, event emission, metrics and cleanup.
-  `session/workers.rs` owns the recognition, speaker, diarization and
-  translation worker threads, their bounded queues and the shutdown
-  bookkeeping; `session/mod.rs` owns the session thread, the subtitle
-  scheduling and the published state.
 
 ## Native Runtime
 
@@ -42,9 +48,6 @@ override is involved. Inference runs inside the desktop process.
 The diarization top-k regression test in
 `apps/desktop/src-tauri/tests/native_pipeline.rs` still exercises the case
 where active speakers exceed the requested cluster count.
-
-- `config.rs` / `models.rs`: validated persisted configuration, the pinned model
-  registry and capability resolution.
 
 ## Dependency Direction
 

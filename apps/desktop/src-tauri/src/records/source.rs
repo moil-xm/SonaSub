@@ -19,18 +19,17 @@ use crate::{
     },
     config::{AppConfig, TranslationTrigger},
     models::{
-        detect_translation_source, resolve_asr_mode, resolve_translation_mode, ModelPaths,
-        TranslationModelSpec, ASR_MODELS, BERGAMOT_ENGINE_ID, DIARIZATION_FILES, SPEAKER_FILES,
-        TRANSLATION_MODELS,
+        resolve_asr_mode, resolve_translation_mode, ModelPaths, TranslationModelSpec, ASR_MODELS,
+        BERGAMOT_ENGINE_ID, DIARIZATION_FILES, SPEAKER_FILES, TRANSLATION_MODELS,
     },
-    session::types::SessionMetrics,
-    session::workers::{
+    pipeline::metrics::{SessionMetrics, SessionStats},
+    pipeline::workers::{
         DiarizationInput, DiarizationResult, DiarizationTask, ShutdownState, SpeakerInput,
         SpeakerResult, SpeakerTask, WorkerEvent, WorkerKind, WorkerRuntime,
     },
-    speaker::{DiarizationWindow, SpeakerEngine, SpeakerInfo, SpeakerRegistry},
+    speaker::{DiarizationWindow, SpeakerEngine, SpeakerRegistry},
     subtitles::{SubtitlePatch, SubtitleStore},
-    translation::{PushOutcome, TranslationRequest, TranslationResult},
+    translation::{source_language, PushOutcome, TranslationRequest, TranslationResult},
 };
 
 use super::types::{RecordNotice, RecordStats, SourceEndReason};
@@ -577,47 +576,9 @@ impl SourceRunner {
         let segments = self.store.snapshot();
         let mut patches = Vec::new();
         for segment in &segments {
-            let end = segment.end_secs.unwrap_or(window.window_end);
-            let mut durations: Vec<(String, f64, Option<f32>, bool)> = Vec::new();
-            for interval in &window.intervals {
-                let overlap =
-                    end.min(interval.end_secs) - segment.start_secs.max(interval.start_secs);
-                if overlap < 0.2 {
-                    continue;
-                }
-                let Some(id) = &interval.speaker_id else {
-                    continue;
-                };
-                if let Some(existing) = durations.iter_mut().find(|(speaker, ..)| speaker == id) {
-                    existing.1 += overlap;
-                    if interval.confidence.unwrap_or(0.0) > existing.2.unwrap_or(0.0) {
-                        existing.2 = interval.confidence;
-                    }
-                    existing.3 |= interval.uncertain;
-                } else {
-                    durations.push((id.clone(), overlap, interval.confidence, interval.uncertain));
-                }
-            }
-            if durations.is_empty() {
+            let Some(speaker) = window.speaker_for_segment(segment.start_secs, segment.end_secs)
+            else {
                 continue;
-            }
-            durations.sort_by(|left, right| right.1.total_cmp(&left.1));
-            let (id, _, confidence, uncertain_cluster) = &durations[0];
-            let speaker_index = id
-                .strip_prefix('S')
-                .and_then(|value| value.parse::<usize>().ok())
-                .unwrap_or(0);
-            let speaker_overlap = window
-                .overlap_regions
-                .iter()
-                .any(|(start, finish)| end.min(*finish) - segment.start_secs.max(*start) > 0.15);
-            let speaker = SpeakerInfo {
-                id: id.clone(),
-                index: speaker_index,
-                confidence: *confidence,
-                uncertain: *uncertain_cluster || durations.len() > 1,
-                overlap: speaker_overlap,
-                source: "diarization".to_owned(),
             };
             if let Some(patch) = self.store.set_speaker(&segment.id, speaker) {
                 patches.push(patch);
@@ -657,7 +618,7 @@ impl SourceRunner {
         else {
             return;
         };
-        let source_language = translation_source(&text, language.as_deref());
+        let source_language = source_language(&text, language.as_deref());
         if source_language == target {
             if let Some(patch) =
                 self.store
@@ -893,7 +854,7 @@ impl SourceRunner {
     }
 }
 
-fn record_stats(stats: crate::session::types::SessionStats, active_sources: usize) -> RecordStats {
+fn record_stats(stats: SessionStats, active_sources: usize) -> RecordStats {
     RecordStats {
         started_at_ms: stats.started_at_ms,
         active_sources,
@@ -907,30 +868,6 @@ fn record_stats(stats: crate::session::types::SessionStats, active_sources: usiz
         diarization_windows: stats.diarization_windows,
         audio_peak: stats.audio_peak,
         audio_rms: stats.audio_rms,
-    }
-}
-
-fn translation_source(text: &str, language: Option<&str>) -> String {
-    if let Some(language) = language {
-        let normalized = normalize_language(language);
-        if !normalized.is_empty() && normalized != "auto" {
-            return normalized.to_owned();
-        }
-    }
-    detect_translation_source(text).to_owned()
-}
-
-fn normalize_language(language: &str) -> &str {
-    let language = language
-        .trim()
-        .trim_start_matches("<|")
-        .trim_end_matches("|>");
-    if language.starts_with("zh") || language == "yue" {
-        "zh-Hans"
-    } else if language.starts_with("en") {
-        "en"
-    } else {
-        language
     }
 }
 

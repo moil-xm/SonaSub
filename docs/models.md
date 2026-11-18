@@ -169,8 +169,8 @@ The flow uses these Tauri commands and permissions:
 ## Pinned SHA-256
 
 These values are duplicated in
-`apps/desktop/src-tauri/src/models.rs` so the preparation script and the
-runtime model registry cannot drift silently.
+`apps/desktop/src-tauri/src/models/registry.rs` so the preparation script and
+the runtime model registry cannot drift silently.
 
 | File                                                      | SHA-256                                                            |
 | --------------------------------------------------------- | ------------------------------------------------------------------ |
