@@ -147,11 +147,14 @@ Use **Choose download directory** to keep archives elsewhere; SonaSub saves
 that preference in the application config directory. **Use default directory**
 stores archives under `models/downloads`.
 
-Downloads and imports run on Rust worker tasks. A file is written to a
-temporary path, fully hashed, and renamed into place only when its checksum
-matches. A failure leaves the previous installed file untouched. Downloads use
-connect and read timeouts, and discard an incomplete temporary file so the next
-attempt starts cleanly.
+Downloads and imports run on Rust worker tasks. SonaSub streams each runtime
+file into a temporary file in its destination directory. It hashes the
+uncompressed bytes as it writes them and atomically replaces that file after
+both the minimum size and pinned SHA-256 match. Bergamot imports accept
+official `.zst` attachments and extracted `.bin` or `.spm` files. Sherpa
+archives unpack in a private temporary directory. A failed transfer or install
+discards its temporary files and preserves any previous copy of the affected
+file. Each verified file in a multi-file group can be installed independently.
 
 `pnpm prepare:models` remains a developer convenience for obtaining the full
 pinned set from a checkout. It is not required by the packaged application.

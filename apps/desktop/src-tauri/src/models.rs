@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{Read, Write},
+    io::{self, BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     sync::Mutex,
     time::Duration,
@@ -9,6 +9,7 @@ use std::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{command, State};
+use tempfile::NamedTempFile;
 
 use crate::{
     audio::SystemOutput,
@@ -395,13 +396,6 @@ fn download_dir(state: &crate::session::SessionManager) -> Result<PathBuf, Strin
     Ok(loaded.unwrap_or_else(|| state.model_root().join("downloads")))
 }
 
-fn download_destination(
-    state: &crate::session::SessionManager,
-    group_id: &str,
-) -> Result<PathBuf, String> {
-    Ok(download_dir(state)?.join(format!("{group_id}.download")))
-}
-
 fn pinned(file: &ModelInstallFile) -> Result<(&str, u64), String> {
     let sha256 = file
         .expected_sha256
@@ -438,29 +432,21 @@ fn find_nested_file(directory: &Path, name: &str, depth: usize) -> Option<PathBu
     None
 }
 
-fn install_sources(
-    state: &crate::session::SessionManager,
-    group: &ModelInstallGroup,
-    directory: &Path,
-) -> Result<(), String> {
+fn install_sources(root: &Path, group: &ModelInstallGroup, directory: &Path) -> Result<(), String> {
     let expected = group_expected_sources(group);
     for file in &group.files {
-        let (sha256, min_bytes) = pinned(file)?;
         let source_name = expected
             .iter()
             .find(|(relative, _)| *relative == file.relative)
             .map(|(_, name)| *name)
             .unwrap_or(file.source_name.as_str());
         let source = find_source(directory, source_name)?;
-        let target = state.model_root().join(&file.relative);
-        copy_verified(&source, &target, sha256, min_bytes)?;
+        install_model_file(root, file, &source)?;
     }
     Ok(())
 }
 
 fn extract_tar_bz2(archive: &Path, target: &Path) -> Result<(), String> {
-    fs::create_dir_all(target)
-        .map_err(|error| format!("failed to create {}: {error}", target.display()))?;
     let file = File::open(archive)
         .map_err(|error| format!("failed to read {}: {error}", archive.display()))?;
     let decoder = bzip2::read::BzDecoder::new(file);
@@ -471,27 +457,20 @@ fn extract_tar_bz2(archive: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn install_archive(
-    state: &crate::session::SessionManager,
-    group: &ModelInstallGroup,
-    archive: &Path,
-) -> Result<(), String> {
+fn install_archive(root: &Path, group: &ModelInstallGroup, archive: &Path) -> Result<(), String> {
     if group.download_kind == "file" {
-        return install_direct_file(&state.model_root(), group, archive);
+        return install_direct_file(root, group, archive);
     }
-    let temporary = archive.with_extension("extracted");
-    let _ = fs::remove_dir_all(&temporary);
-    let result = if group.download_kind == "tarBz2" {
-        extract_tar_bz2(archive, &temporary)
-            .and_then(|()| install_sources(state, group, &temporary))
-    } else {
-        Err(format!(
+    if group.download_kind != "tarBz2" {
+        return Err(format!(
             "Unsupported archive type `{}`.",
             group.download_kind
-        ))
-    };
-    let _ = fs::remove_dir_all(&temporary);
-    result
+        ));
+    }
+    let temporary = tempfile::tempdir()
+        .map_err(|error| format!("failed to create an extraction directory: {error}"))?;
+    extract_tar_bz2(archive, temporary.path())?;
+    install_sources(root, group, temporary.path())
 }
 
 fn install_direct_file(
@@ -505,99 +484,87 @@ fn install_direct_file(
             group.id
         ));
     };
-    let (sha256, min_bytes) = pinned(file)?;
-    copy_verified(source, &root.join(&file.relative), sha256, min_bytes)
+    install_model_file(root, file, source)
+}
+
+fn staging_file(target: &Path) -> Result<NamedTempFile, String> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory.", target.display()))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    NamedTempFile::new_in(parent).map_err(|error| {
+        format!(
+            "failed to create a temporary file in {}: {error}",
+            parent.display()
+        )
+    })
+}
+
+fn persist_file(temporary: NamedTempFile, target: &Path) -> Result<(), String> {
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("failed to flush {}: {error}", temporary.path().display()))?;
+    temporary
+        .persist(target)
+        .map_err(|error| format!("failed to store {}: {error}", target.display()))?;
+    Ok(())
 }
 
 fn download_file(url: &str, destination: &Path, expected_bytes: u64) -> Result<(), String> {
-    if let Ok(metadata) = fs::metadata(destination) {
-        if metadata.is_file() && metadata.len() == expected_bytes {
-            return Ok(());
-        }
+    if fs::metadata(destination)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.len() == expected_bytes)
+    {
+        return Ok(());
     }
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
-    }
-    let temporary = destination.with_extension("part");
-    let result: Result<(), String> = (|| {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(15))
-            .timeout_read(Duration::from_secs(30))
-            .timeout_write(Duration::from_secs(30))
-            .build();
-        let response = agent
-            .get(url)
-            .call()
-            .map_err(|error| format!("failed to download {}: {error}", redact_url(url)))?;
-        let mut reader = response.into_reader();
-        let mut output = File::create(&temporary)
-            .map_err(|error| format!("failed to create {}: {error}", temporary.display()))?;
-        let mut buffer = [0u8; 128 * 1024];
-        loop {
-            let read = reader
-                .read(&mut buffer)
-                .map_err(|error| format!("failed to read {}: {error}", redact_url(url)))?;
-            if read == 0 {
-                break;
-            }
-            output
-                .write_all(&buffer[..read])
-                .map_err(|error| format!("failed to write {}: {error}", temporary.display()))?;
-        }
-        output
-            .sync_all()
-            .map_err(|error| format!("failed to flush {}: {error}", temporary.display()))?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result?;
-    let actual = fs::metadata(&temporary)
-        .map_err(|error| format!("failed to inspect {}: {error}", temporary.display()))?
-        .len();
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(15))
+        .timeout_read(Duration::from_secs(30))
+        .timeout_write(Duration::from_secs(30))
+        .build();
+    let response = agent
+        .get(url)
+        .call()
+        .map_err(|error| format!("failed to download {}: {error}", redact_url(url)))?;
+    let mut temporary = staging_file(destination)?;
+    let actual =
+        io::copy(&mut response.into_reader(), temporary.as_file_mut()).map_err(|error| {
+            format!(
+                "failed to download {} to {}: {error}",
+                redact_url(url),
+                destination.display()
+            )
+        })?;
     if actual != expected_bytes {
-        let _ = fs::remove_file(&temporary);
         return Err(format!(
             "downloaded {} bytes from {}; expected {expected_bytes}",
             actual,
             redact_url(url)
         ));
     }
-    fs::rename(&temporary, destination)
-        .map_err(|error| format!("failed to store {}: {error}", destination.display()))?;
-    Ok(())
+    persist_file(temporary, destination)
 }
 
 fn redact_url(url: &str) -> &str {
     url.rsplit_once('/').map(|(_, name)| name).unwrap_or(url)
 }
 
-fn zstd_to_memory(path: &Path) -> Result<Vec<u8>, String> {
-    let data =
-        fs::read(path).map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    zstd::decode_all(data.as_slice())
-        .map_err(|error| format!("failed to decompress {}: {error}", path.display()))
-}
-
-fn download_group(
-    state: &crate::session::SessionManager,
-    group: &ModelInstallGroup,
-) -> Result<(), String> {
-    let destination = download_destination(state, &group.id)?;
-    fs::create_dir_all(&destination)
-        .map_err(|error| format!("failed to create {}: {error}", destination.display()))?;
+fn download_group(root: &Path, cache: &Path, group: &ModelInstallGroup) -> Result<(), String> {
+    let destination = cache.join(format!("{}.download", group.id));
 
     if group.download_kind == "bergamot" {
         for (index, file) in group.files.iter().enumerate() {
             let (sha256, min_bytes) = pinned(file)?;
-            let installed = state.model_root().join(&file.relative);
-            if let Ok(bytes) = fs::read(&installed) {
-                let actual = format!("{:x}", Sha256::digest(&bytes));
-                if (bytes.len() as u64) >= min_bytes && actual.eq_ignore_ascii_case(sha256) {
-                    continue;
+            let installed = root.join(&file.relative);
+            match file_checksum(&installed) {
+                Ok((size, digest)) if size >= min_bytes && digest.eq_ignore_ascii_case(sha256) => {
+                    continue
                 }
+                Err(error) if error.kind() != io::ErrorKind::NotFound => {
+                    return Err(format!("failed to read {}: {error}", installed.display()));
+                }
+                _ => {}
             }
             let url = group
                 .download_urls
@@ -610,45 +577,17 @@ fn download_group(
                 .ok_or_else(|| format!("No download size for {}.", file.relative))?;
             let archive = destination.join(&file.source_name);
             download_file(url, &archive, expected_bytes)?;
-            let bytes = zstd_to_memory(&archive)?;
-            if (bytes.len() as u64) < min_bytes {
-                return Err(format!(
-                    "{} is {} bytes; at least {min_bytes} bytes are required.",
-                    file.relative,
-                    bytes.len()
-                ));
-            }
-            let actual = format!("{:x}", Sha256::digest(&bytes));
-            if !actual.eq_ignore_ascii_case(sha256) {
-                return Err(format!(
-                    "checksum mismatch for {}: expected {sha256}, got {actual}.",
-                    file.relative
-                ));
-            }
-            let target = state.model_root().join(&file.relative);
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
-            }
-            let temporary = target.with_extension(format!("download-{}-tmp", std::process::id()));
-            fs::write(&temporary, &bytes)
-                .map_err(|error| format!("failed to write {}: {error}", temporary.display()))?;
-            fs::rename(&temporary, &target)
-                .map_err(|error| format!("failed to install {}: {error}", target.display()))?;
+            install_model_file(root, file, &archive)?;
         }
         return Ok(());
     }
 
     let archive = destination.join(format!("{}.{}", group.id, group.download_kind));
     download_file(&group.download_url, &archive, group.download_bytes)?;
-    install_archive(state, group, &archive)
+    install_archive(root, group, &archive)
 }
 
-fn import_group(
-    state: &crate::session::SessionManager,
-    group: &ModelInstallGroup,
-    sources: &[String],
-) -> Result<(), String> {
+fn import_group(root: &Path, group: &ModelInstallGroup, sources: &[String]) -> Result<(), String> {
     let mut archives = Vec::new();
     let mut files = Vec::new();
     let mut installed = 0usize;
@@ -669,7 +608,7 @@ fn import_group(
     }
     if !archives.is_empty() {
         for archive in archives {
-            install_archive(state, group, &archive)?;
+            install_archive(root, group, &archive)?;
             installed += 1;
         }
     }
@@ -685,37 +624,7 @@ fn import_group(
         else {
             continue;
         };
-        let (sha256, min_bytes) = pinned(file)?;
-        let bytes = if group.download_kind == "bergamot" {
-            zstd_to_memory(&source)?
-        } else {
-            fs::read(&source)
-                .map_err(|error| format!("failed to read {}: {error}", source.display()))?
-        };
-        if (bytes.len() as u64) < min_bytes {
-            return Err(format!(
-                "{} is {} bytes; at least {min_bytes} bytes are required.",
-                file.relative,
-                bytes.len()
-            ));
-        }
-        let actual = format!("{:x}", Sha256::digest(&bytes));
-        if !actual.eq_ignore_ascii_case(sha256) {
-            return Err(format!(
-                "checksum mismatch for {}: expected {sha256}, got {actual}.",
-                file.relative
-            ));
-        }
-        let target = state.model_root().join(&file.relative);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
-        }
-        let temporary = target.with_extension(format!("import-{}-tmp", std::process::id()));
-        fs::write(&temporary, &bytes)
-            .map_err(|error| format!("failed to write {}: {error}", temporary.display()))?;
-        fs::rename(&temporary, &target)
-            .map_err(|error| format!("failed to install {}: {error}", target.display()))?;
+        install_model_file(root, file, &source)?;
         installed += 1;
     }
     if installed == 0 {
@@ -742,61 +651,75 @@ fn is_import_name(group: &ModelInstallGroup, file: &ModelInstallFile, name: &str
         || file.source_name == name
 }
 
+fn install_model_file(root: &Path, file: &ModelInstallFile, source: &Path) -> Result<(), String> {
+    let (sha256, min_bytes) = pinned(file)?;
+    let target = root.join(&file.relative);
+    let input = File::open(source)
+        .map_err(|error| format!("failed to open {}: {error}", source.display()))?;
+    if file.source_name.ends_with(".zst") {
+        let mut input = BufReader::new(input);
+        let header = input
+            .fill_buf()
+            .map_err(|error| format!("failed to read {}: {error}", source.display()))?;
+        if source
+            .extension()
+            .is_some_and(|extension| extension == "zst")
+            || zstd::zstd_safe::get_frame_content_size(header).is_ok()
+        {
+            let decoder = zstd::stream::read::Decoder::with_buffer(input)
+                .map_err(|error| format!("failed to decompress {}: {error}", source.display()))?;
+            return copy_verified(decoder, &target, sha256, min_bytes);
+        }
+        return copy_verified(input, &target, sha256, min_bytes);
+    }
+    copy_verified(input, &target, sha256, min_bytes)
+}
+
 fn copy_verified(
-    source: &Path,
+    input: impl Read,
     target: &Path,
     expected_sha256: &str,
     min_bytes: u64,
 ) -> Result<(), String> {
-    let mut input = File::open(source)
-        .map_err(|error| format!("failed to read {}: {error}", source.display()))?;
-    let metadata = input
-        .metadata()
-        .map_err(|error| format!("failed to inspect {}: {error}", source.display()))?;
-    if metadata.len() < min_bytes {
+    let mut temporary = staging_file(target)?;
+    let (size, actual) = copy_and_hash(input, temporary.as_file_mut())
+        .map_err(|error| format!("failed to install {}: {error}", target.display()))?;
+    if size < min_bytes {
         return Err(format!(
-            "{} is {} bytes; at least {min_bytes} bytes are required.",
-            source.display(),
-            metadata.len()
+            "{} is {size} bytes; at least {min_bytes} bytes are required.",
+            target.display()
         ));
     }
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
-    }
-    let temporary = target.with_extension(format!("install-{}-tmp", std::process::id()));
-    let mut hasher = Sha256::new();
-    {
-        let mut output = File::create(&temporary)
-            .map_err(|error| format!("failed to create {}: {error}", temporary.display()))?;
-        let mut buffer = [0u8; 64 * 1024];
-        loop {
-            let read = input
-                .read(&mut buffer)
-                .map_err(|error| format!("failed to read {}: {error}", source.display()))?;
-            if read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..read]);
-            output
-                .write_all(&buffer[..read])
-                .map_err(|error| format!("failed to write {}: {error}", temporary.display()))?;
-        }
-        output
-            .sync_all()
-            .map_err(|error| format!("failed to flush {}: {error}", temporary.display()))?;
-    }
-    let actual = format!("{:x}", hasher.finalize());
     if !actual.eq_ignore_ascii_case(expected_sha256) {
-        let _ = fs::remove_file(&temporary);
         return Err(format!(
             "checksum mismatch for {}: expected {expected_sha256}, got {actual}.",
-            source.display()
+            target.display()
         ));
     }
-    fs::rename(&temporary, target)
-        .map_err(|error| format!("failed to install {}: {error}", target.display()))?;
-    Ok(())
+    persist_file(temporary, target)
+}
+
+fn copy_and_hash(mut input: impl Read, mut output: impl Write) -> io::Result<(u64, String)> {
+    let mut hasher = Sha256::new();
+    let mut size = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = match input.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            break;
+        }
+        output.write_all(&buffer[..count])?;
+        hasher.update(&buffer[..count]);
+        size += count as u64;
+    }
+    Ok((size, format!("{:x}", hasher.finalize())))
+}
+
+fn file_checksum(path: &Path) -> io::Result<(u64, String)> {
+    copy_and_hash(File::open(path)?, io::sink())
 }
 
 fn install_file_from_spec(root: &Path, file: &ModelFile, source_name: &str) -> ModelInstallFile {
@@ -930,9 +853,11 @@ pub async fn download_model(
         .into_iter()
         .find(|group| group.id == group_id)
         .ok_or_else(|| format!("Unknown model group `{group_id}`."))?;
-    tauri::async_runtime::spawn_blocking(move || download_group(&manager, &group))
-        .await
-        .map_err(|error| format!("Model download task failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        download_group(&manager.model_root(), &download_dir(&manager)?, &group)
+    })
+    .await
+    .map_err(|error| format!("Model download task failed: {error}"))?
 }
 
 #[command]
@@ -941,14 +866,14 @@ pub async fn import_model_files(
     group_id: String,
     sources: Vec<String>,
 ) -> Result<(), String> {
-    let manager = state.inner().clone();
+    let root = state.model_root();
     let group = state
         .model_paths()
         .install_groups()
         .into_iter()
         .find(|group| group.id == group_id)
         .ok_or_else(|| format!("Unknown model group `{group_id}`."))?;
-    tauri::async_runtime::spawn_blocking(move || import_group(&manager, &group, &sources))
+    tauri::async_runtime::spawn_blocking(move || import_group(&root, &group, &sources))
         .await
         .map_err(|error| format!("Model import task failed: {error}"))?
 }
@@ -1098,9 +1023,9 @@ impl ModelPaths {
 
     pub fn verify_file(&self, file: &ModelFile) -> Result<String, String> {
         let path = self.path(file.relative);
-        let bytes = fs::read(&path)
-            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-        Ok(format!("{:x}", Sha256::digest(bytes)))
+        file_checksum(&path)
+            .map(|(_, digest)| digest)
+            .map_err(|error| format!("failed to read {}: {error}", path.display()))
     }
 
     pub fn model_status(
@@ -1457,37 +1382,35 @@ mod tests {
     }
 
     #[test]
-    fn download_file_streams_the_expected_payload() {
+    fn a_short_download_preserves_the_cache_and_can_be_retried() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
-        let payload = b"sonasub-model-download".to_vec();
-        let served = payload.clone();
+        let payload = b"sonasub-model-download";
         let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0u8; 1024];
-            let _ = stream.read(&mut request);
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                served.len()
-            )
-            .unwrap();
-            stream.write_all(&served).unwrap();
+            for body in [&payload[..5], &payload[..]] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 1024];
+                assert!(stream.read(&mut request).unwrap() > 0);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(body).unwrap();
+            }
         });
-        let directory =
-            std::env::temp_dir().join(format!("sonasub-download-test-{}", std::process::id()));
-        fs::create_dir_all(&directory).unwrap();
-        let destination = directory.join("payload.bin");
-        download_file(
-            &format!("http://{address}/payload.bin"),
-            &destination,
-            payload.len() as u64,
-        )
-        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("payload.bin");
+        fs::write(&destination, b"previous").unwrap();
+        let url = format!("http://{address}/payload.bin");
+        let expected = payload.len() as u64;
+        assert!(download_file(&url, &destination, expected).is_err());
+        assert_eq!(fs::read(&destination).unwrap(), b"previous");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        download_file(&url, &destination, expected).unwrap();
         server.join().unwrap();
         assert_eq!(fs::read(&destination).unwrap(), payload);
-        let _ = fs::remove_file(&destination);
-        let _ = fs::remove_dir(&directory);
     }
 
     #[test]
@@ -1514,32 +1437,46 @@ mod tests {
                 bytes: 0,
             }],
         };
-        let directory =
-            std::env::temp_dir().join(format!("sonasub-install-test-{}", std::process::id()));
-        let source = directory.join("direct-test.onnx");
-        fs::create_dir_all(&directory).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("direct-test.onnx");
         fs::write(&source, &payload).unwrap();
-        install_direct_file(&directory, &group, &source).unwrap();
+        install_direct_file(directory.path(), &group, &source).unwrap();
         assert_eq!(
-            fs::read(directory.join("sherpa/direct-test.onnx")).unwrap(),
+            fs::read(directory.path().join("sherpa/direct-test.onnx")).unwrap(),
             payload
         );
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
-    fn archive_sources_are_found_in_a_nested_model_directory() {
-        let directory =
-            std::env::temp_dir().join(format!("sonasub-archive-test-{}", std::process::id()));
-        let nested = directory.join("sherpa-onnx-model-directory");
-        fs::create_dir_all(&nested).unwrap();
-        let expected = nested.join("model.int8.onnx");
-        fs::write(&expected, b"model").unwrap();
-        assert_eq!(
-            find_source(&directory, "model.int8.onnx").unwrap(),
-            expected
+    fn archive_import_installs_the_nested_pinned_file() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let mut group = model_install_groups(root.path())
+            .into_iter()
+            .find(|group| group.id == "pyannote-segmentation-3.0")
+            .unwrap();
+        let payload = b"nested model";
+        group.files[0].min_bytes = payload.len() as u64;
+        group.files[0].expected_sha256 = Some(format!("{:x}", Sha256::digest(payload)));
+        let archive = source_dir.path().join("model.tar.bz2");
+        let compressed = bzip2::write::BzEncoder::new(
+            File::create(&archive).unwrap(),
+            bzip2::Compression::default(),
         );
-        let _ = fs::remove_dir_all(&directory);
+        let mut builder = tar::Builder::new(compressed);
+        let mut header = tar::Header::new_gnu();
+        header.set_mode(0o644);
+        header.set_size(payload.len() as u64);
+        builder
+            .append_data(&mut header, "release/model.int8.onnx", &payload[..])
+            .unwrap();
+        builder.into_inner().unwrap().finish().unwrap();
+        import_group(root.path(), &group, &[archive.display().to_string()]).unwrap();
+        assert_eq!(
+            fs::read(root.path().join(&group.files[0].relative)).unwrap(),
+            payload
+        );
+        assert_eq!(fs::read_dir(source_dir.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -1582,34 +1519,110 @@ mod tests {
     }
 
     #[test]
-    fn bergamot_import_accepts_runtime_and_attachment_names() {
-        let group = ModelInstallGroup {
-            id: "bergamot-test".to_owned(),
-            label: "Bergamot test".to_owned(),
-            version: "test".to_owned(),
-            category: "translation".to_owned(),
-            upstream: "https://example.invalid".to_owned(),
-            download_kind: "bergamot".to_owned(),
-            download_url: "https://example.invalid/model.zst".to_owned(),
-            download_bytes: 1,
-            download_urls: Vec::new(),
-            download_bytes_each: Vec::new(),
-            files: Vec::new(),
-        };
-        let file = ModelInstallFile {
-            relative: "bergamot/en-zh-Hans/model.bin".to_owned(),
-            expected_sha256: None,
-            min_bytes: 1,
-            source_name: "model.enzh.intgemm.alphas.bin.zst".to_owned(),
-            present: false,
-            bytes: 0,
-        };
-        assert!(is_import_name(&group, &file, "model.bin"));
-        assert!(is_import_name(
-            &group,
-            &file,
-            "model.enzh.intgemm.alphas.bin.zst"
-        ));
-        assert!(!is_import_name(&group, &file, "other.bin"));
+    fn bergamot_import_installs_attachments_and_extracted_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("installed");
+        let payload = b"extracted model data".repeat(10_000);
+        let compressed = zstd::encode_all(payload.as_slice(), 1).unwrap();
+        let mut group = bergamot_group(&root, 0);
+        let file = &mut group.files[0];
+        file.expected_sha256 = Some(format!("{:x}", Sha256::digest(&payload)));
+        file.min_bytes = payload.len() as u64;
+        let attachment = directory.path().join(&file.source_name);
+        let runtime = directory.path().join("model.bin");
+        let target = root.join(&file.relative);
+        for (source, bytes) in [
+            (&attachment, &compressed),
+            (&runtime, &compressed),
+            (&runtime, &payload),
+        ] {
+            fs::write(source, bytes).unwrap();
+            import_group(&root, &group, &[source.display().to_string()]).unwrap();
+            assert_eq!(fs::read(&target).unwrap(), payload);
+            fs::remove_file(&target).unwrap();
+        }
+        assert!(!is_import_name(&group, &group.files[0], "other.bin"));
+    }
+
+    #[test]
+    fn failed_bergamot_import_preserves_the_installed_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut group = bergamot_group(directory.path(), 0);
+        let file = &mut group.files[0];
+        let payload = b"pinned content";
+        file.min_bytes = payload.len() as u64;
+        file.expected_sha256 = Some(format!("{:x}", Sha256::digest(payload)));
+        let target = directory.path().join(&file.relative);
+        let parent = target.parent().unwrap();
+        fs::create_dir_all(parent).unwrap();
+        fs::write(&target, b"previous installation").unwrap();
+        let source = directory.path().join(&file.source_name);
+        let short = zstd::encode_all(&b"short"[..], 1).unwrap();
+        let wrong = zstd::encode_all(&b"forged content"[..], 1).unwrap();
+        let valid = zstd::encode_all(&payload[..], 1).unwrap();
+        for (bytes, reason) in [
+            (&short[..], "at least"),
+            (&wrong[..], "checksum mismatch"),
+            (&valid[..valid.len() - 1], "failed to install"),
+        ] {
+            fs::write(&source, bytes).unwrap();
+            let error = import_group(directory.path(), &group, &[source.display().to_string()])
+                .unwrap_err();
+            assert!(error.contains(reason), "{error}");
+            assert_eq!(fs::read(&target).unwrap(), b"previous installation");
+            assert_eq!(fs::read_dir(parent).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn bergamot_download_repairs_from_cache_and_skips_a_valid_installation() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let mut group = bergamot_group(root.path(), 0);
+        group.files.truncate(1);
+        let payload = b"pinned model";
+        let compressed = zstd::encode_all(&payload[..], 1).unwrap();
+        let file = &mut group.files[0];
+        file.min_bytes = payload.len() as u64;
+        file.expected_sha256 = Some(format!("{:x}", Sha256::digest(payload)));
+        let target = root.path().join(&file.relative);
+        let archive = cache
+            .path()
+            .join(format!("{}.download", group.id))
+            .join(&file.source_name);
+        group.download_bytes_each[0] = compressed.len() as u64;
+        group.download_urls[0] = "offline".to_owned();
+        fs::create_dir_all(archive.parent().unwrap()).unwrap();
+        fs::write(&archive, compressed).unwrap();
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(&target, b"broken model").unwrap();
+        download_group(root.path(), cache.path(), &group).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), payload);
+        fs::remove_file(archive).unwrap();
+        download_group(root.path(), cache.path(), &group).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires the Bergamot attachments cached by pnpm prepare:models"]
+    fn import_pinned_bergamot_attachments() {
+        let prepared = std::env::var_os("SONASUB_MODELS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var_os("HOME").unwrap())
+                    .join("Library/Application Support/dev.sonasub.desktop/models")
+            });
+        let cache = prepared.join(".cache");
+        let destination = tempfile::tempdir().unwrap();
+        let paths = ModelPaths::new(destination.path().to_owned());
+        for (index, spec) in TRANSLATION_MODELS.iter().enumerate() {
+            let group = bergamot_group(&paths.root, index);
+            let sources = group
+                .files
+                .iter()
+                .map(|file| cache.join(&file.source_name).display().to_string())
+                .collect::<Vec<_>>();
+            import_group(&paths.root, &group, &sources).unwrap();
+            assert!(paths.missing(&translation_files(spec)).is_empty());
+        }
     }
 }

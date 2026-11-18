@@ -225,6 +225,93 @@ loaded. The process exited within 4 s, no `sonasub-*` worker survived the
 process, and no orphan capture or playback process was left behind. A
 relaunch reported the idle state with an empty subtitle list.
 
+## Game 4 Caption Baseline (2026-11-18)
+
+This run used the records workspace from `d73c236` with the streaming model
+installer changes, on an Apple M2 Max running macOS 27.2 arm64. A temporary
+release build used the local model weights and a fresh SQLite database per
+run. Native workers, subtitle batching, persistence and React rendering ran
+through the desktop application's records pipeline.
+
+### Live system output
+
+The player kept its existing output and volume. A 24-second pass through
+the default device delivered 1,199 consecutive 20 ms chunks. All had RMS
+above 0.001. The tap reported zero dropped chunks, missing frames or
+discontinuities. A separate 40.06-second run on that output used segmented
+SenseVoice with English input and Bergamot English to Simplified Chinese.
+All seven finalized subtitles and their translations appeared in the
+WebView and were present in SQLite after stopping. The source reported
+1,922,880 frames and zero drops. These measurements cover the device mix.
+
+A separate developer probe checked two actual process taps using the Chrome
+audio helper and `afplay`. Over three seconds the 500 Hz and 1,100 Hz sources
+delivered 149 and 147 chunks, with wanted-to-other tone ratios of 78.7 and
+76.5 dB respectively. Every 20 ms chunk contained 320 mono samples at
+16 kHz and consecutive frame indices advanced by 960. Neither tap reported
+a gap or a dropped chunk. The desktop build selects output devices for
+records.
+
+### Repeatable single- and two-source workload
+
+The input was the first 120 seconds of the supplied BLG–GEN Game 4
+highlights. The MP4 is 733.256 s long and has one 44.1 kHz stereo AAC track.
+FFmpeg 9.0.2 produced exactly 5,760,000 stereo frames with this command.
+
+```bash
+ffmpeg -nostdin -v error -i "$VIDEO" -map 0:a:0 \
+  -af 'aresample=48000,atrim=end_sample=5760000' \
+  -ac 2 -c:a pcm_s16le -f s16le game4-first120.s16
+```
+
+The PCM SHA-256 was
+`b48474245383e0bccd11f919a932df91c3e6b8b8de777c36e117a6818307188c`.
+One or two timed readers fed the same PCM into the production capture
+queues, in 960-frame chunks from a common clock. Each source had its own
+Zipformer recognizer and Bergamot English-to-Simplified-Chinese worker.
+Translation ran on final text and speaker analysis was disabled. Each trial
+started a fresh app process. Trials ran in the order single, dual, dual,
+single.
+
+The WebView observer sampled each caption row on the next animation frame
+after a React DOM change. First-text latency starts at the segment onset
+shown in the row. Final-text and translation latency start at the
+recognizer's final segment end. All three use the audio replay clock.
+SQLite batch time covers all subtitle upserts and the source elapsed-time
+update. The second pair of trials also timed each subtitle upsert inside
+`Connection::execute`, including its implicit SQLite commit. Peak RSS comes
+from `/usr/bin/time -l` for the native desktop process and excludes the
+separate WebKit processes.
+
+The first pair had complete WebView observations. The table shows the
+nearest-rank p95 across segments or batches in each trial. The SQL upsert
+column comes from the reverse-order pair.
+
+| Sources | Finalized and translated | Dropped frames per source | First text p95 | Final text p95 | Translation p95 | SQLite batch p95 | Subtitle upsert p95 | Peak native RSS |
+| ------- | ------------------------ | ------------------------- | -------------- | -------------- | --------------- | ---------------- | ------------------- | --------------- |
+| One     | 26                       | 0                         | 399 ms         | 615 ms         | 692 ms          | 0.624 ms         | 0.544 ms            | 608.3 MiB       |
+| Two     | 26 per source            | 0 / 0                     | 900 ms         | 1,015 ms       | 1,093 ms        | 3.541 ms         | 0.533 ms            | 1,028.2 MiB     |
+
+The dual-source first-text p95 was 920 ms on the first source and 887 ms
+on the second. Translation p95 was 1,093 and 1,065 ms respectively. The
+first pair wrote 325 and 662 subtitle batches. The reverse pair timed 372
+single-source and 744 dual-source subtitle upserts. Every source in all
+four trials delivered 6,000 chunks, and the persisted final texts and
+translations matched across sources and runs.
+
+The reverse pair had incomplete UI coverage. In the single-source run the
+WebView was hidden at the final check and the observer saw 20 of 26
+translated rows. In the dual-source run the caption list was absent at the
+final check and the observer saw 36 of 52 translated rows. All of those
+subtitles and translations were present in SQLite.
+
+An additional dual-source trial recorded the page URL and visibility. The
+record stayed open and the WebView became hidden 84.4 seconds into the run.
+At stop, the observer had seen 34 of the 52 translated rows saved in SQLite.
+Reopening the records in visible windows displayed all 26 translated rows
+from the single-source run and all 52 from each dual-source run. The
+on-screen percentiles use the first pair, which had complete frame observations.
+
 ## Shutdown Deadlock
 
 The review found a shutdown deadlock that the previous code introduced.
