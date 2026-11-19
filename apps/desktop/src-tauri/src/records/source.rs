@@ -11,21 +11,21 @@ use std::{
 use crossbeam_channel::{bounded, tick, Receiver, Sender, TrySendError};
 
 use crate::{
-    asr::{AsrControl, AsrEngine, AsrEvent, AsrFinal, AsrInput, AsrPartial},
-    audio::{
-        self,
-        dsp::{AudioHistory, DownmixResampler},
-        AudioChunk, CaptureEvent, CaptureOptions, CAPTURE_RATE,
-    },
+    asr::{AsrEngine, AsrEvent, AsrFinal, AsrInput, AsrPartial},
+    audio::{self, AudioChunk, CaptureEvent, CaptureOptions},
     config::{AppConfig, TranslationTrigger},
     models::{
         resolve_asr_mode, resolve_translation_mode, ModelPaths, TranslationModelSpec, ASR_MODELS,
         BERGAMOT_ENGINE_ID, DIARIZATION_FILES, SPEAKER_FILES, TRANSLATION_MODELS,
     },
-    pipeline::metrics::{SessionMetrics, SessionStats},
-    pipeline::workers::{
-        DiarizationInput, DiarizationResult, DiarizationTask, ShutdownState, SpeakerInput,
-        SpeakerResult, SpeakerTask, WorkerEvent, WorkerKind, WorkerRuntime,
+    pipeline::{
+        audio_flow::AudioFlow,
+        lifecycle,
+        metrics::{SessionMetrics, SessionStats},
+        workers::{
+            DiarizationInput, DiarizationResult, DiarizationTask, ShutdownState, SpeakerInput,
+            SpeakerResult, SpeakerTask, WorkerEvent, WorkerKind, WorkerRuntime,
+        },
     },
     speaker::{DiarizationWindow, SpeakerEngine, SpeakerRegistry},
     subtitles::{SubtitlePatch, SubtitleStore},
@@ -127,11 +127,7 @@ struct SourceRunner {
     capture_handle: Option<JoinHandle<()>>,
     workers: WorkerRuntime,
     store: SubtitleStore,
-    history: AudioHistory,
-    resampler: DownmixResampler,
-    expected_frame_end: Option<u64>,
-    last_audio_secs: f64,
-    pending_discontinuity: Option<f64>,
+    audio: AudioFlow,
     pending_patches: Vec<SubtitlePatch>,
     last_patch_emit: Instant,
     last_stats_emit: Instant,
@@ -290,13 +286,7 @@ impl SourceRunner {
                 context.occurrence_base_ms,
                 context.history_limit,
             ),
-            history: AudioHistory::new(
-                f64::from(context.config.speakers.window_secs.max(30.0)) + 2.0,
-            ),
-            resampler: DownmixResampler::new(2),
-            expected_frame_end: None,
-            last_audio_secs: 0.0,
-            pending_discontinuity: None,
+            audio: AudioFlow::new(f64::from(context.config.speakers.window_secs.max(30.0)) + 2.0),
             pending_patches: Vec::new(),
             last_patch_emit: now,
             last_stats_emit: now,
@@ -364,7 +354,7 @@ impl SourceRunner {
         let workers = mem::replace(&mut self.workers, WorkerRuntime::empty());
         workers.join();
         SourceOutcome {
-            captured_ms: (self.last_audio_secs * 1_000.0).max(0.0) as u64,
+            captured_ms: (self.audio.last_audio_secs() * 1_000.0).max(0.0) as u64,
             failure: self.failure,
             reason: self.end_reason,
         }
@@ -388,50 +378,33 @@ impl SourceRunner {
     }
 
     fn process_chunk(&mut self, chunk: AudioChunk) {
-        let expected = self.expected_frame_end.unwrap_or(chunk.frame_index);
-        let gap = chunk.frame_index.saturating_sub(expected);
-        let discontinuity =
-            chunk.discontinuity || chunk.recovered || chunk.dropped_before > 0 || gap > 48;
-        let start_secs = chunk.frame_index as f64 / CAPTURE_RATE as f64;
-        if discontinuity {
-            self.resampler.reset();
-            self.history.clear();
-            self.pending_discontinuity = Some(start_secs);
+        let outcome = self.audio.process_chunk(&chunk);
+        if outcome.discontinuity {
             self.last_diarization = Instant::now();
-            let dropped = if gap > 0 {
-                gap
-            } else {
-                u64::from(chunk.dropped_before) * 960
-            };
-            self.metrics.add_audio(0, dropped);
-            if gap > 0 || chunk.dropped_before > 0 {
+            self.metrics.add_audio(0, outcome.dropped_frames);
+            if outcome.notify_gap {
                 self.notice(
                     "warning",
                     format!(
                         "Audio gap detected at {:.2}s; subtitle timing continues after the real gap.",
-                        start_secs
+                        outcome.start_secs
                     ),
                 );
             }
         }
-        let samples = self.resampler.process(&chunk.data, chunk.frames);
-        self.history.push(start_secs, &samples);
         self.metrics.add_audio(chunk.frames as u64, 0);
         self.metrics.set_level(chunk.peak, chunk.rms);
         self.send_asr(
             AsrInput::Audio {
-                samples,
-                start_frame_48k: chunk.frame_index,
+                samples: outcome.samples,
+                start_frame_48k: outcome.start_frame_48k,
             },
-            start_secs,
+            outcome.start_secs,
         );
-        self.expected_frame_end = Some(chunk.frame_index.saturating_add(chunk.frames as u64));
-        self.last_audio_secs =
-            self.expected_frame_end.unwrap_or(chunk.frame_index) as f64 / CAPTURE_RATE as f64;
     }
 
     fn send_asr(&mut self, input: AsrInput, start_secs: f64) {
-        if let Some(at_secs) = self.pending_discontinuity {
+        if let Some(at_secs) = self.audio.pending_discontinuity() {
             let Some(sender) = self.workers.asr_tx.as_ref() else {
                 self.begin_shutdown(
                     Some("The ASR worker stopped unexpectedly.".to_owned()),
@@ -440,7 +413,7 @@ impl SourceRunner {
                 return;
             };
             match sender.try_send(AsrInput::Discontinuity { at_secs }) {
-                Ok(()) => self.pending_discontinuity = None,
+                Ok(()) => self.audio.clear_pending_discontinuity(),
                 Err(TrySendError::Full(_)) => {
                     self.drop_asr_input(start_secs);
                     return;
@@ -474,8 +447,7 @@ impl SourceRunner {
     }
 
     fn drop_asr_input(&mut self, start_secs: f64) {
-        self.pending_discontinuity = Some(start_secs);
-        self.history.clear();
+        self.audio.mark_asr_dropped(start_secs);
         self.metrics.add_audio(0, 960);
         self.notice(
             "warning",
@@ -524,7 +496,8 @@ impl SourceRunner {
     fn apply_final(&mut self, final_event: AsrFinal) {
         let segment_id = format!("{}:{}", self.context.source_run_id, final_event.local_id);
         let samples = Arc::new(final_event.samples.clone());
-        let latency_ms = ((self.last_audio_secs - final_event.end_secs).max(0.0) * 1_000.0) as u64;
+        let latency_ms =
+            ((self.audio.last_audio_secs() - final_event.end_secs).max(0.0) * 1_000.0) as u64;
         self.metrics.final_subtitle(latency_ms);
         let patches = self.store.apply_final(final_event.clone());
         self.pending_patches.extend(patches);
@@ -757,11 +730,11 @@ impl SourceRunner {
         let window_secs = self.context.config.speakers.window_secs as f64;
         let interval = Duration::from_secs_f64((window_secs / 2.0).max(5.0));
         if self.last_diarization.elapsed() < interval
-            || self.history.available_secs() + 0.001 < window_secs
+            || self.audio.available_secs() + 0.001 < window_secs
         {
             return;
         }
-        let Some((start_secs, samples)) = self.history.snapshot(window_secs) else {
+        let Some((start_secs, samples)) = self.audio.snapshot(window_secs) else {
             return;
         };
         let Some(sender) = self.workers.diarization_tx.as_ref() else {
@@ -786,29 +759,12 @@ impl SourceRunner {
         self.end_reason = reason;
         self.shutdown_started = Some(Instant::now());
         self.context.stop.store(true, Ordering::SeqCst);
-        if let Some(handle) = self.capture_handle.take() {
-            let _ = handle.join();
-        }
-        let (keepalive, receiver) = bounded(1);
-        self.capture_rx = receiver;
-        self._capture_keepalive = Some(keepalive);
-        if let Some(sender) = self.workers.asr_control_tx.as_ref() {
-            if let Err(error) = sender.try_send(AsrControl::Stop) {
-                if error.is_disconnected() {
-                    self.workers.asr_control_tx = None;
-                }
-            }
-        }
-        if let Some(sender) = self.workers.speaker_tx.as_ref() {
-            if sender.try_send(SpeakerInput::Stop).is_err() {
-                self.workers.speaker_tx = None;
-            }
-        }
-        if let Some(sender) = self.workers.diarization_tx.as_ref() {
-            if sender.try_send(DiarizationInput::Stop).is_err() {
-                self.workers.diarization_tx = None;
-            }
-        }
+        lifecycle::stop_capture(
+            &mut self.capture_handle,
+            &mut self.capture_rx,
+            &mut self._capture_keepalive,
+        );
+        lifecycle::stop_workers(&mut self.workers);
     }
 
     fn flush_patches(&mut self, force: bool) {

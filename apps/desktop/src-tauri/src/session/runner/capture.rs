@@ -5,7 +5,7 @@ use crossbeam_channel::TrySendError;
 use super::Runner;
 use crate::{
     asr::AsrInput,
-    audio::{AudioChunk, CaptureEvent, CAPTURE_RATE},
+    audio::{AudioChunk, CaptureEvent},
     session::state::add_notice,
 };
 
@@ -31,35 +31,21 @@ impl Runner {
     }
 
     fn process_chunk(&mut self, chunk: AudioChunk) {
-        let expected = self.expected_frame_end.unwrap_or(chunk.frame_index);
-        let gap = chunk.frame_index.saturating_sub(expected);
-        let discontinuity =
-            chunk.discontinuity || chunk.recovered || chunk.dropped_before > 0 || gap > 48;
-        let start_secs = chunk.frame_index as f64 / CAPTURE_RATE as f64;
-        if discontinuity {
-            self.resampler.reset();
-            self.history.clear();
-            self.pending_discontinuity = Some(start_secs);
+        let outcome = self.audio.process_chunk(&chunk);
+        if outcome.discontinuity {
             self.last_diarization = Instant::now();
-            let dropped = if gap > 0 {
-                gap
-            } else {
-                u64::from(chunk.dropped_before) * 960
-            };
-            self.add_dropped_frames(dropped);
-            if gap > 0 || chunk.dropped_before > 0 {
+            self.add_dropped_frames(outcome.dropped_frames);
+            if outcome.notify_gap {
                 add_notice(
                     &self.inner,
                     "warning",
                     format!(
                         "System audio gap detected at {:.2}s; subtitle timing continues after the real gap.",
-                        start_secs
+                        outcome.start_secs
                     ),
                 );
             }
         }
-        let samples = self.resampler.process(&chunk.data, chunk.frames);
-        self.history.push(start_secs, &samples);
         {
             let mut runtime = self.inner.runtime();
             runtime.metrics.add_audio(chunk.frames as u64, 0);
@@ -67,24 +53,21 @@ impl Runner {
         }
         self.send_asr(
             AsrInput::Audio {
-                samples,
-                start_frame_48k: chunk.frame_index,
+                samples: outcome.samples,
+                start_frame_48k: outcome.start_frame_48k,
             },
-            start_secs,
+            outcome.start_secs,
         );
-        self.expected_frame_end = Some(chunk.frame_index.saturating_add(chunk.frames as u64));
-        self.last_audio_secs =
-            self.expected_frame_end.unwrap_or(chunk.frame_index) as f64 / CAPTURE_RATE as f64;
     }
 
     fn send_asr(&mut self, input: AsrInput, start_secs: f64) {
-        if let Some(at_secs) = self.pending_discontinuity {
+        if let Some(at_secs) = self.audio.pending_discontinuity() {
             let Some(sender) = self.workers.asr_tx.as_ref() else {
                 self.begin_shutdown(Some("The ASR worker stopped unexpectedly.".to_owned()));
                 return;
             };
             match sender.try_send(AsrInput::Discontinuity { at_secs }) {
-                Ok(()) => self.pending_discontinuity = None,
+                Ok(()) => self.audio.clear_pending_discontinuity(),
                 Err(TrySendError::Full(_)) => {
                     self.drop_asr_input(start_secs);
                     return;
@@ -109,8 +92,7 @@ impl Runner {
     }
 
     fn drop_asr_input(&mut self, start_secs: f64) {
-        self.pending_discontinuity = Some(start_secs);
-        self.history.clear();
+        self.audio.mark_asr_dropped(start_secs);
         self.add_dropped_frames(960);
         add_notice(
             &self.inner,

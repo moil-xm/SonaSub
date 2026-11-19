@@ -53,7 +53,7 @@ fn handle_source_subtitles(
     source_run_id: &str,
     patches: Vec<SubtitlePatch>,
 ) {
-    let (event, changed, elapsed_ms) = {
+    let (changed, elapsed_ms) = {
         let mut runtime = inner
             .runtime
             .lock()
@@ -75,9 +75,55 @@ fn handle_source_subtitles(
                     .min(u64::MAX as f64) as u64;
                 elapsed_ms = elapsed_ms.max(local_elapsed_ms);
             }
+        }
+        (changed, elapsed_ms)
+    };
+
+    if let Err(error) = inner
+        .store
+        .upsert_subtitles(&changed, Some(source_run_id), elapsed_ms)
+    {
+        push_record_error(inner, record_id, error);
+        let history_limit = {
+            let runtime = inner
+                .runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime
+                .records
+                .get(record_id)
+                .map(|record| record.config.ui.history_limit)
+        };
+        if let Some(history_limit) = history_limit {
+            match inner.store.list_recent_segments(record_id, history_limit) {
+                Ok(segments) => {
+                    let mut runtime = inner
+                        .runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if let Some(record) = runtime.records.get_mut(record_id) {
+                        record.segments.replace(segments);
+                    }
+                }
+                Err(reload_error) => push_record_error(inner, record_id, reload_error),
+            }
+        }
+        return;
+    }
+
+    let event = {
+        let mut runtime = inner
+            .runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(record) = runtime.records.get_mut(record_id) else {
+            return;
+        };
+        record.subtitle_revision = record.subtitle_revision.saturating_add(1);
+        if let Some(source) = record.active_sources.get_mut(source_run_id) {
             source.source.elapsed_ms = source.source.elapsed_ms.max(elapsed_ms);
         }
-        let event = RecordSubtitleBatch {
+        RecordSubtitleBatch {
             record_id: record_id.to_owned(),
             source_run_id: source_run_id.to_owned(),
             revision: record.subtitle_revision,
@@ -87,17 +133,8 @@ fn handle_source_subtitles(
                     segment: segment.clone(),
                 })
                 .collect(),
-        };
-        (event, changed, elapsed_ms)
-    };
-    for segment in &changed {
-        if let Err(error) = inner.store.upsert_subtitle(segment) {
-            push_record_error(inner, record_id, error);
         }
-    }
-    if elapsed_ms > 0 {
-        let _ = inner.store.touch_source_elapsed(source_run_id, elapsed_ms);
-    }
+    };
     let _ = inner.app.emit("record://subtitles", event);
 }
 

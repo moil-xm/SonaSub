@@ -38,7 +38,8 @@ impl Runner {
     fn apply_final(&mut self, final_event: AsrFinal) {
         let segment_id = format!("{}:{}", self.session_id, final_event.local_id);
         let samples = Arc::new(final_event.samples.clone());
-        let latency_ms = ((self.last_audio_secs - final_event.end_secs).max(0.0) * 1_000.0) as u64;
+        let latency_ms =
+            ((self.audio.last_audio_secs() - final_event.end_secs).max(0.0) * 1_000.0) as u64;
         let patches = {
             let mut runtime = self.inner.runtime();
             runtime.metrics.final_subtitle(latency_ms);
@@ -131,11 +132,11 @@ impl Runner {
         let window_secs = self.config.speakers.window_secs as f64;
         let interval = Duration::from_secs_f64((window_secs / 2.0).max(5.0));
         if self.last_diarization.elapsed() < interval
-            || self.history.available_secs() + 0.001 < window_secs
+            || self.audio.available_secs() + 0.001 < window_secs
         {
             return;
         }
-        let Some((start_secs, samples)) = self.history.snapshot(window_secs) else {
+        let Some((start_secs, samples)) = self.audio.snapshot(window_secs) else {
             return;
         };
         let Some(sender) = self.workers.diarization_tx.as_ref() else {

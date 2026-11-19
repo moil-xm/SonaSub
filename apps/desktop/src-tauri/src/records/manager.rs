@@ -16,11 +16,11 @@ use crate::{
 use super::{
     devices::device_name,
     events::{handle_source_notice, run_event_loop, shutdown_event, RECORD_EVENT_QUEUE_DEPTH},
+    persistence::RecordStore,
     runtime::{
         load_records, now_ms, record_snapshot, set_record_state, sync_summary, RecordManagerInner,
         RecordRuntime, RecordRuntimeState,
     },
-    store::RecordStore,
     subtitles::RecordSubtitleStore,
     types::{
         RecordInput, RecordNotice, RecordSnapshot, RecordState, RecordStats, RecordSubtitlePage,

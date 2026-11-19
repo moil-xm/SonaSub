@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossbeam_channel::{bounded, tick, Receiver, Sender};
+use crossbeam_channel::{tick, Receiver, Sender};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 
 use self::startup::StartupError;
@@ -23,14 +23,12 @@ use super::{
     types::{SessionInfo, SessionStatus},
 };
 use crate::{
-    asr::AsrControl,
-    audio::{
-        dsp::{AudioHistory, DownmixResampler},
-        CaptureEvent,
-    },
+    audio::CaptureEvent,
     config::AppConfig,
-    pipeline::workers::{
-        DiarizationInput, ShutdownState, SpeakerInput, WorkerEvent, WorkerKind, WorkerRuntime,
+    pipeline::{
+        audio_flow::AudioFlow,
+        lifecycle,
+        workers::{ShutdownState, WorkerEvent, WorkerKind, WorkerRuntime},
     },
     subtitles::SubtitlePatch,
 };
@@ -84,11 +82,7 @@ struct Runner {
     _capture_keepalive: Option<Sender<CaptureEvent>>,
     capture_handle: Option<JoinHandle<()>>,
     workers: WorkerRuntime,
-    history: AudioHistory,
-    resampler: DownmixResampler,
-    expected_frame_end: Option<u64>,
-    last_audio_secs: f64,
-    pending_discontinuity: Option<f64>,
+    audio: AudioFlow,
     pending_patches: Vec<SubtitlePatch>,
     last_patch_emit: Instant,
     last_stats_emit: Instant,
@@ -264,32 +258,12 @@ impl Runner {
                 },
             },
         );
-        if let Some(handle) = self.capture_handle.take() {
-            let _ = handle.join();
-        }
-        let (keepalive, receiver) = bounded(1);
-        self.capture_rx = receiver;
-        self._capture_keepalive = Some(keepalive);
-        // The stop signal travels on the control channel so it is never
-        // blocked behind a full audio backlog. A busy recognition worker
-        // therefore always reaches its flush and reports the last subtitle.
-        if let Some(sender) = self.workers.asr_control_tx.as_ref() {
-            if let Err(error) = sender.try_send(AsrControl::Stop) {
-                if error.is_disconnected() {
-                    self.workers.asr_control_tx = None;
-                }
-            }
-        }
-        if let Some(sender) = self.workers.speaker_tx.as_ref() {
-            if sender.try_send(SpeakerInput::Stop).is_err() {
-                self.workers.speaker_tx = None;
-            }
-        }
-        if let Some(sender) = self.workers.diarization_tx.as_ref() {
-            if sender.try_send(DiarizationInput::Stop).is_err() {
-                self.workers.diarization_tx = None;
-            }
-        }
+        lifecycle::stop_capture(
+            &mut self.capture_handle,
+            &mut self.capture_rx,
+            &mut self._capture_keepalive,
+        );
+        lifecycle::stop_workers(&mut self.workers);
     }
 
     fn flush_patches(&mut self, force: bool) {

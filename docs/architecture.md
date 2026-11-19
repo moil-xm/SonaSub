@@ -23,9 +23,12 @@ the Tauri commands and starts the live-session and record managers.
   stop and configuration changes. `runner/` drives capture and inference,
   and `state.rs` owns the revisions used in snapshots and events.
 - `records/` manages saved recordings, device assignments and per-device
-  capture runs. `store.rs` persists records and subtitles in SQLite.
-- `pipeline/` contains the worker threads, bounded inference queues, shutdown
-  protocol and metrics used by both live sessions and recording sources.
+  capture runs. `persistence/` owns the SQLite schema and record, source-run
+  and subtitle persistence.
+- `pipeline/` contains the worker threads, bounded inference queues and metrics
+  used by both live sessions and recording sources. `audio_flow.rs` owns the
+  shared resampling, audio-history and discontinuity state; `lifecycle.rs`
+  owns the shared capture and worker stop protocol.
 - `models/` owns the pinned registry, capability discovery, downloads and
   verified installation. `config.rs` persists application settings.
 - `audio/` captures macOS system output and converts 48 kHz stereo to 16 kHz mono.

@@ -3,9 +3,9 @@ mod devices;
 mod events;
 mod lifecycle;
 mod manager;
+mod persistence;
 mod runtime;
 pub mod source;
-pub mod store;
 pub mod subtitles;
 pub mod types;
 
@@ -15,6 +15,7 @@ pub use commands::{
     update_record,
 };
 pub use manager::RecordManager;
+pub use persistence::RecordStore;
 
 #[doc(hidden)]
 pub(crate) use commands::{

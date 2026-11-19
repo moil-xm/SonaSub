@@ -9,17 +9,16 @@ use tauri::Emitter;
 use super::{ResourceMonitor, Runner, RunnerContext};
 use crate::{
     asr::AsrEngine,
-    audio::{
-        self,
-        dsp::{AudioHistory, DownmixResampler},
-        CaptureOptions,
-    },
+    audio::{self, CaptureOptions},
     config::{AsrMode, TranslationMode, TranslationTrigger},
     models::{
         resolve_asr_mode, resolve_translation_mode, ASR_MODELS, BERGAMOT_ENGINE_ID,
         DIARIZATION_FILES, SPEAKER_FILES,
     },
-    pipeline::workers::{ShutdownState, WorkerRuntime},
+    pipeline::{
+        audio_flow::AudioFlow,
+        workers::{ShutdownState, WorkerRuntime},
+    },
     session::{
         state::publish_status,
         types::{AsrInfo, SessionInfo, SessionStatus, SpeakerInfoStatus, TranslationInfo},
@@ -224,8 +223,7 @@ impl Runner {
             history_limit: context.history_limit,
             run_boundary: RUN_BOUNDARY.to_owned(),
         };
-        let history =
-            AudioHistory::new(f64::from(context.config.speakers.window_secs.max(30.0)) + 2.0);
+        let audio = AudioFlow::new(f64::from(context.config.speakers.window_secs.max(30.0)) + 2.0);
         let now = Instant::now();
         let runner = Self {
             inner: context.inner.clone(),
@@ -238,11 +236,7 @@ impl Runner {
             _capture_keepalive: None,
             capture_handle: Some(capture_handle),
             workers,
-            history,
-            resampler: DownmixResampler::new(2),
-            expected_frame_end: None,
-            last_audio_secs: 0.0,
-            pending_discontinuity: None,
+            audio,
             pending_patches: Vec::new(),
             last_patch_emit: now,
             last_stats_emit: now,

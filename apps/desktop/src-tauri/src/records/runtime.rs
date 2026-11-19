@@ -11,8 +11,8 @@ use tauri::AppHandle;
 use crate::{config::AppConfig, models::ModelPaths};
 
 use super::{
+    persistence::RecordStore,
     source::SourceEvent,
-    store::RecordStore,
     subtitles::RecordSubtitleStore,
     types::{
         RecordNotice, RecordSnapshot, RecordSource, RecordState, RecordStats, RecordSummary,
