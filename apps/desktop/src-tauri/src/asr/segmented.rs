@@ -3,12 +3,25 @@ use sherpa_onnx::{
     VadModelConfig, VoiceActivityDetector,
 };
 
-use crate::asr::{AsrEvent, AsrFinal};
+use crate::asr::{qwen3, AsrEvent, AsrFinal};
+
+pub use qwen3::Qwen3Backend;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentedRecognizer {
+    SenseVoice,
+    Qwen3,
+}
 
 pub struct SegmentedConfig {
+    pub backend: SegmentedRecognizer,
     pub vad_model: String,
     pub asr_model: String,
     pub tokens: String,
+    pub qwen3_conv_frontend: Option<String>,
+    pub qwen3_encoder: Option<String>,
+    pub qwen3_decoder: Option<String>,
+    pub qwen3_tokenizer: Option<String>,
     pub language: String,
     pub max_segment_secs: f32,
     pub vad_threshold: f32,
@@ -41,7 +54,7 @@ pub trait VadBackend {
 /// The offline recognizer surface used by [`SegmentedEngine`].
 pub trait RecognizerBackend {
     /// Returns the transcript and the detected language, if any.
-    fn transcribe(&mut self, samples: &[f32]) -> (String, Option<String>);
+    fn transcribe(&mut self, samples: &[f32]) -> Result<(String, Option<String>), String>;
 }
 
 struct SherpaVad {
@@ -124,21 +137,16 @@ impl SenseVoiceBackend {
 }
 
 impl RecognizerBackend for SenseVoiceBackend {
-    fn transcribe(&mut self, samples: &[f32]) -> (String, Option<String>) {
+    fn transcribe(&mut self, samples: &[f32]) -> Result<(String, Option<String>), String> {
         let stream = self.recognizer.create_stream();
         stream.accept_waveform(16_000, samples);
         self.recognizer.decode(&stream);
         let result = stream
             .get_result()
-            .unwrap_or_else(|| sherpa_onnx::OfflineRecognizerResult {
-                text: String::new(),
-                tokens: Vec::new(),
-                timestamps: None,
-                durations: None,
-            });
+            .ok_or_else(|| "SenseVoice returned no recognition result".to_owned())?;
         let language = sense_voice_language(&result.text);
         let text = sanitize_sense_voice_text(&result.text);
-        (text, language)
+        Ok((text, language))
     }
 }
 
@@ -154,7 +162,10 @@ impl SegmentedEngine {
     pub fn new(config: SegmentedConfig) -> Result<Self, String> {
         Ok(Self {
             vad: Box::new(SherpaVad::new(&config)?),
-            recognizer: Box::new(SenseVoiceBackend::new(&config)?),
+            recognizer: match config.backend {
+                SegmentedRecognizer::SenseVoice => Box::new(SenseVoiceBackend::new(&config)?),
+                SegmentedRecognizer::Qwen3 => Box::new(Qwen3Backend::new(&config)?),
+            },
             epoch_secs: None,
             next_local_id: 1,
             max_segment_secs: config.max_segment_secs,
@@ -186,8 +197,7 @@ impl SegmentedEngine {
             self.epoch_secs = Some(start_frame_48k as f64 / 48_000.0);
         }
         self.vad.accept_waveform(samples);
-        self.drain(emit);
-        Ok(())
+        self.drain(emit)
     }
 
     pub fn discontinuity(
@@ -196,7 +206,7 @@ impl SegmentedEngine {
         emit: &mut dyn FnMut(AsrEvent),
     ) -> Result<(), String> {
         self.vad.flush();
-        self.drain(emit);
+        self.drain(emit)?;
         self.vad.reset()?;
         self.epoch_secs = Some(at_secs);
         Ok(())
@@ -204,11 +214,10 @@ impl SegmentedEngine {
 
     pub fn flush(&mut self, emit: &mut dyn FnMut(AsrEvent)) -> Result<(), String> {
         self.vad.flush();
-        self.drain(emit);
-        Ok(())
+        self.drain(emit)
     }
 
-    fn drain(&mut self, emit: &mut dyn FnMut(AsrEvent)) {
+    fn drain(&mut self, emit: &mut dyn FnMut(AsrEvent)) -> Result<(), String> {
         let epoch_secs = self.epoch_secs.unwrap_or(0.0);
         for segment in self.vad.drain() {
             let start_secs = epoch_secs + segment.start as f64 / 16_000.0;
@@ -216,7 +225,7 @@ impl SegmentedEngine {
             if segment.samples.len() < (0.1 * 16_000.0) as usize {
                 continue;
             }
-            let (text, language) = self.recognizer.transcribe(&segment.samples);
+            let (text, language) = self.recognizer.transcribe(&segment.samples)?;
             if text.is_empty() {
                 continue;
             }
@@ -231,6 +240,7 @@ impl SegmentedEngine {
                 samples: segment.samples,
             }));
         }
+        Ok(())
     }
 }
 
@@ -324,8 +334,16 @@ mod tests {
     }
 
     impl RecognizerBackend for FixedRecognizer {
-        fn transcribe(&mut self, _samples: &[f32]) -> (String, Option<String>) {
-            (self.text.clone(), self.language.clone())
+        fn transcribe(&mut self, _samples: &[f32]) -> Result<(String, Option<String>), String> {
+            Ok((self.text.clone(), self.language.clone()))
+        }
+    }
+
+    struct FailingRecognizer;
+
+    impl RecognizerBackend for FailingRecognizer {
+        fn transcribe(&mut self, _samples: &[f32]) -> Result<(String, Option<String>), String> {
+            Err("transcription failed".to_owned())
         }
     }
 
@@ -440,6 +458,24 @@ mod tests {
         engine
             .flush(&mut |event| events.push(event))
             .expect("flush succeeds");
+        assert!(finals(&events).is_empty());
+    }
+
+    #[test]
+    fn transcription_failure_reaches_flush() {
+        let mut engine = SegmentedEngine::with_backends(
+            Box::new(ScriptedVad::new(8_000)),
+            Box::new(FailingRecognizer),
+            12.0,
+        );
+        let mut events = Vec::new();
+        engine
+            .push(&[0.0; 16_000], 0, &mut |event| events.push(event))
+            .expect("audio push succeeds");
+        let error = engine
+            .flush(&mut |event| events.push(event))
+            .expect_err("recognized failure is propagated");
+        assert_eq!(error, "transcription failed");
         assert!(finals(&events).is_empty());
     }
 }

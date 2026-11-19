@@ -15,9 +15,10 @@ pub use install::{ModelInstallFile, ModelInstallGroup};
 pub use paths::ModelPaths;
 pub use registry::{
     language_label, mode_label, resolve_asr_mode, resolve_translation_mode, translation_files,
-    verify_files, AsrModelKind, AsrModelSpec, ModelFile, TranslationModelSpec, ASR_MODELS,
-    ASR_SEGMENTED_ID, ASR_STREAMING_ID, BERGAMOT_ENGINE_ID, DIARIZATION_FILES, LANGUAGE_LABEL_ZH,
-    SPEAKER_FILES, SUPPORTED_LANGUAGES, TRANSLATION_MODELS, VAD_FILES,
+    validate_asr_config, verify_files, AsrModelKind, AsrModelSpec, ModelFile, TranslationModelSpec,
+    ASR_MODELS, ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID, ASR_SEGMENTED_ID, ASR_STREAMING_ID,
+    BERGAMOT_ENGINE_ID, DIARIZATION_FILES, LANGUAGE_LABEL_ZH, SPEAKER_FILES, SUPPORTED_LANGUAGES,
+    TRANSLATION_MODELS, VAD_FILES,
 };
 pub use status::{
     AsrModelCapability, AudioCapabilities, Capabilities, LanguageOption, ModeCapability,

@@ -13,6 +13,8 @@ const MODEL_ROOT = process.env.SONASUB_MODELS_DIR
 const CACHE_ROOT = path.join(MODEL_ROOT, '.cache');
 
 const SHERPA_RELEASE = 'https://github.com/k2-fsa/sherpa-onnx/releases/download';
+const MODELSCOPE_API = 'https://modelscope.cn/api/v1/models/zengshuishui/Qwen3-ASR-onnx/repo';
+const QWEN3_17B_REVISION = '9c182309f7bb075f241424441add9e16c5086dfb';
 const FIREFOX_ATTACHMENTS =
   'https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models-v2';
 
@@ -26,6 +28,12 @@ const downloads = {
     url: `${SHERPA_RELEASE}/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`,
     file: 'sense-voice.tar.bz2',
     bytes: 163002883,
+  },
+  qwen3_06b: {
+    url: `${SHERPA_RELEASE}/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2`,
+    file: 'qwen3-asr-0.6b.tar.bz2',
+    bytes: 878702423,
+    sha256: '393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96',
   },
   vad: {
     url: `${SHERPA_RELEASE}/asr-models/silero_vad.onnx`,
@@ -43,6 +51,90 @@ const downloads = {
     bytes: 28281164,
   },
 };
+
+const qwen3_06b = {
+  root: 'sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25',
+  files: [
+    {
+      source: 'conv_frontend.onnx',
+      target: 'sherpa/qwen3-asr-0.6b-int8/conv_frontend.onnx',
+      sha256: 'd22dc4423e0940e49884e903d2ea2f7e5567c14fc1aed97e4e26d6b8f208ef9e',
+    },
+    {
+      source: 'encoder.int8.onnx',
+      target: 'sherpa/qwen3-asr-0.6b-int8/encoder.int8.onnx',
+      sha256: '60748d3e6744a57c9c91e1b17424a6c2990567e8adceb0783940c03ed98fa9d9',
+    },
+    {
+      source: 'decoder.int8.onnx',
+      target: 'sherpa/qwen3-asr-0.6b-int8/decoder.int8.onnx',
+      sha256: '4f6885be5959ae26af3089d38ee7972c5fafbeeb1cf8d5e76eab6d8b61ca5771',
+    },
+    {
+      source: 'tokenizer/merges.txt',
+      target: 'sherpa/qwen3-asr-0.6b-int8/tokenizer/merges.txt',
+      sha256: '8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5',
+    },
+    {
+      source: 'tokenizer/tokenizer_config.json',
+      target: 'sherpa/qwen3-asr-0.6b-int8/tokenizer/tokenizer_config.json',
+      sha256: '4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c',
+    },
+    {
+      source: 'tokenizer/vocab.json',
+      target: 'sherpa/qwen3-asr-0.6b-int8/tokenizer/vocab.json',
+      sha256: 'ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910',
+    },
+  ],
+};
+
+const qwen3_17b = [
+  {
+    source: 'model_1.7B/conv_frontend.onnx',
+    file: 'qwen3-17b-conv_frontend.onnx',
+    target: 'sherpa/qwen3-asr-1.7b-int8/conv_frontend.onnx',
+    bytes: 48080441,
+    sha256: 'fa894a4ba53da6a4238f2a6ca0b09362e505d39cecbd646051b033e2e8d7e2fb',
+  },
+  {
+    source: 'model_1.7B/encoder.int8.onnx',
+    file: 'qwen3-17b-encoder.int8.onnx',
+    target: 'sherpa/qwen3-asr-1.7b-int8/encoder.int8.onnx',
+    bytes: 314222162,
+    sha256: '436fbd910a0c8914851e5ac1354e807be9f283d08a5da728adaa609731c41469',
+  },
+  {
+    source: 'model_1.7B/decoder.int8.onnx',
+    file: 'qwen3-17b-decoder.int8.onnx',
+    target: 'sherpa/qwen3-asr-1.7b-int8/decoder.int8.onnx',
+    bytes: 2037458645,
+    sha256: 'c43c853fa6e97d08365cb8a5502b360b595cd43c00dc60e4d8ca7cc18cad460b',
+  },
+  {
+    source: 'tokenizer/merges.txt',
+    file: 'qwen3-17b-merges.txt',
+    target: 'sherpa/qwen3-asr-1.7b-int8/tokenizer/merges.txt',
+    bytes: 1671853,
+    sha256: '8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5',
+  },
+  {
+    source: 'tokenizer/tokenizer_config.json',
+    file: 'qwen3-17b-tokenizer_config.json',
+    target: 'sherpa/qwen3-asr-1.7b-int8/tokenizer/tokenizer_config.json',
+    bytes: 12487,
+    sha256: '4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c',
+  },
+  {
+    source: 'tokenizer/vocab.json',
+    file: 'qwen3-17b-vocab.json',
+    target: 'sherpa/qwen3-asr-1.7b-int8/tokenizer/vocab.json',
+    bytes: 2776833,
+    sha256: 'ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910',
+  },
+].map((file) => ({
+  ...file,
+  url: `${MODELSCOPE_API}?Revision=${QWEN3_17B_REVISION}&FilePath=${encodeURIComponent(file.source)}`,
+}));
 
 const bergamot = [
   {
@@ -125,6 +217,8 @@ const expected = {
       'f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc',
     ],
   ],
+  qwen3_06b: qwen3_06b.files.map((file) => [file.target, file.sha256]),
+  qwen3_17b: qwen3_17b.map((file) => [file.target, file.sha256]),
   vad: [
     ['sherpa/silero_vad.onnx', '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6'],
   ],
@@ -205,7 +299,11 @@ function curl(url, output) {
 async function download(asset) {
   const cache = path.join(CACHE_ROOT, asset.file);
   const cached = await fileSize(cache);
-  if (cached === asset.bytes) return cache;
+  if (cached === asset.bytes) {
+    if (!asset.sha256 || (await sha256(cache)) === asset.sha256) return cache;
+    console.info(`Discarding cached ${asset.file} after its checksum did not match.`);
+    await rm(cache, { force: true });
+  }
   if (cached !== null) {
     console.info(`Discarding cached ${asset.file} (${cached} bytes, expected ${asset.bytes}).`);
     await rm(cache, { force: true });
@@ -245,6 +343,12 @@ async function download(asset) {
   if (size !== asset.bytes) {
     throw new Error(
       `Downloaded ${asset.file} is ${size ?? 0} bytes, expected ${asset.bytes}; rerun to retry`,
+    );
+  }
+  if (asset.sha256 && (await sha256(partial)) !== asset.sha256) {
+    await rm(partial, { force: true });
+    throw new Error(
+      `Checksum mismatch for ${asset.file}: expected ${asset.sha256}. The partial download was discarded.`,
     );
   }
   await rename(partial, cache);
@@ -342,6 +446,31 @@ async function prepareSenseVoice(temporary) {
   );
 }
 
+async function prepareQwen3_06b(temporary) {
+  if (await allExpected(expected.qwen3_06b)) return;
+  const archive = await download(downloads.qwen3_06b);
+  const extracted = path.join(temporary, 'qwen3-06b');
+  await extract(archive, extracted);
+  const root = path.join(extracted, qwen3_06b.root);
+  for (const file of qwen3_06b.files) {
+    await installFile(
+      path.join(root, file.source),
+      path.join(MODEL_ROOT, file.target),
+      file.sha256,
+      archive,
+    );
+  }
+}
+
+async function prepareQwen3_17b() {
+  for (const file of qwen3_17b) {
+    const target = path.join(MODEL_ROOT, file.target);
+    if (await isExpected(target, file.sha256)) continue;
+    const cached = await download(file);
+    await installFile(cached, target, file.sha256, cached);
+  }
+}
+
 async function prepareVad() {
   if (await allExpected(expected.vad)) return;
   const cached = await download(downloads.vad);
@@ -392,6 +521,8 @@ async function main() {
   try {
     await prepareStreaming(temporary);
     await prepareSenseVoice(temporary);
+    await prepareQwen3_06b(temporary);
+    await prepareQwen3_17b();
     await prepareVad();
     await prepareSpeakerEmbedding();
     await prepareDiarization(temporary);

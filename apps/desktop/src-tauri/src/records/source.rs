@@ -29,7 +29,9 @@ use crate::{
     },
     speaker::{DiarizationWindow, SpeakerEngine, SpeakerRegistry},
     subtitles::{SubtitlePatch, SubtitleStore},
-    translation::{source_language, PushOutcome, TranslationRequest, TranslationResult},
+    translation::{
+        prompt_language, source_language, PushOutcome, TranslationRequest, TranslationResult,
+    },
 };
 
 use super::types::{RecordNotice, RecordStats, SourceEndReason};
@@ -591,7 +593,12 @@ impl SourceRunner {
         else {
             return;
         };
-        let source_language = source_language(&text, language.as_deref());
+        let configured_language = if self.context.config.recognition.source_language == "auto" {
+            None
+        } else {
+            prompt_language(Some(&self.context.config.recognition.source_language))
+        };
+        let source_language = source_language(&text, configured_language.or(language.as_deref()));
         if source_language == target {
             if let Some(patch) =
                 self.store

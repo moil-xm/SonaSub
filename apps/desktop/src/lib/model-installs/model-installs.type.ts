@@ -18,6 +18,9 @@ export type ModelInstallGroup = {
   downloadKind: string;
   downloadUrl: string;
   downloadBytes: number;
+  downloadUrls: string[];
+  downloadBytesEach: number[];
+  archiveSha256: string | null;
   files: ModelInstallFile[];
 };
 

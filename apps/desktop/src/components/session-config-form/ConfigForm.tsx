@@ -288,6 +288,9 @@ export function ConfigForm({
                   if (field.state.value !== 'auto') {
                     modeHint = t(($) => $.config.asrModeExplicitHint);
                   }
+                  if (selectedModel?.kind === 'segmented') {
+                    modeHint = `${modeHint} ${t(($) => $.config.segmentedNoPartialHint)}`;
+                  }
                   return (
                     <SettingsRow
                       labelFor="asr-mode"

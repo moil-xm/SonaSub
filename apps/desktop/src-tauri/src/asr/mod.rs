@@ -1,3 +1,4 @@
+mod qwen3;
 pub mod segmented;
 pub mod streaming;
 
@@ -5,11 +6,13 @@ use std::path::Path;
 
 use crate::{
     config::{AsrMode, RecognitionConfig},
-    models::{ModelPaths, ASR_MODELS, ASR_SEGMENTED_ID, ASR_STREAMING_ID},
+    models::{
+        validate_asr_config, ModelPaths, ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID, ASR_STREAMING_ID,
+    },
 };
 
 use self::{
-    segmented::{SegmentedConfig, SegmentedEngine},
+    segmented::{SegmentedConfig, SegmentedEngine, SegmentedRecognizer},
     streaming::{StreamingConfig, StreamingEngine},
 };
 
@@ -123,22 +126,7 @@ impl AsrEngine {
         config: &RecognitionConfig,
         model_id: &str,
     ) -> Result<Self, String> {
-        let spec = ASR_MODELS
-            .iter()
-            .find(|spec| spec.id == model_id)
-            .ok_or_else(|| format!("Unknown ASR model id `{model_id}`."))?;
-        if config.source_language != "auto"
-            && !spec
-                .source_languages
-                .iter()
-                .any(|language| *language == config.source_language)
-        {
-            return Err(format!(
-                "The selected ASR model does not support source language `{}`. Supported languages: {}.",
-                config.source_language,
-                spec.source_languages.join(", ")
-            ));
-        }
+        validate_asr_config(model_id, mode, &config.source_language)?;
         match mode {
             AsrMode::Streaming => {
                 if model_id != ASR_STREAMING_ID {
@@ -170,22 +158,49 @@ impl AsrEngine {
                 Ok(Self::Streaming(engine))
             }
             AsrMode::Segmented => {
-                if model_id != ASR_SEGMENTED_ID {
-                    return Err(format!(
-                        "Segmented mode requires the `{ASR_SEGMENTED_ID}` model, got `{model_id}`."
-                    ));
-                }
                 let root = &paths.root;
-                let engine = SegmentedEngine::new(SegmentedConfig {
+                let is_qwen3 = model_id == ASR_QWEN3_06B_ID || model_id == ASR_QWEN3_17B_ID;
+                let qwen3_root = is_qwen3.then(|| root.join(format!("sherpa/{model_id}")));
+                let config = SegmentedConfig {
+                    backend: if is_qwen3 {
+                        SegmentedRecognizer::Qwen3
+                    } else {
+                        SegmentedRecognizer::SenseVoice
+                    },
                     vad_model: path_string(root, "sherpa/silero_vad.onnx")?,
-                    asr_model: path_string(root, "sherpa/sense-voice-int8/model.onnx")?,
-                    tokens: path_string(root, "sherpa/sense-voice-int8/tokens.txt")?,
+                    asr_model: if is_qwen3 {
+                        String::new()
+                    } else {
+                        path_string(root, "sherpa/sense-voice-int8/model.onnx")?
+                    },
+                    tokens: if is_qwen3 {
+                        String::new()
+                    } else {
+                        path_string(root, "sherpa/sense-voice-int8/tokens.txt")?
+                    },
+                    qwen3_conv_frontend: qwen3_root
+                        .as_ref()
+                        .map(|root| path_string(root, "conv_frontend.onnx"))
+                        .transpose()?,
+                    qwen3_encoder: qwen3_root
+                        .as_ref()
+                        .map(|root| path_string(root, "encoder.int8.onnx"))
+                        .transpose()?,
+                    qwen3_decoder: qwen3_root
+                        .as_ref()
+                        .map(|root| path_string(root, "decoder.int8.onnx"))
+                        .transpose()?,
+                    qwen3_tokenizer: qwen3_root
+                        .as_ref()
+                        .map(|root| path_dir_string(root, "tokenizer"))
+                        .transpose()?,
                     language: recognition_language(&config.source_language).to_owned(),
                     max_segment_secs: config.max_segment_secs,
                     vad_threshold: config.vad_threshold,
                     min_silence_secs: config.min_silence_secs,
                     min_speech_secs: config.min_speech_secs,
-                })?;
+                };
+                let engine = SegmentedEngine::new(config)?;
                 Ok(Self::Segmented(engine))
             }
             AsrMode::Auto => {
@@ -200,6 +215,19 @@ fn path_string(root: &Path, relative: &str) -> Result<String, String> {
     if !path.is_file() {
         return Err(format!(
             "Missing model file: {}. Open the models directory and follow docs/models.md.",
+            path.display()
+        ));
+    }
+    path.to_str()
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| format!("Model path is not valid UTF-8: {}", path.display()))
+}
+
+fn path_dir_string(root: &Path, relative: &str) -> Result<String, String> {
+    let path = root.join(relative);
+    if !path.is_dir() {
+        return Err(format!(
+            "Missing model directory: {}. Open the models directory and follow docs/models.md.",
             path.display()
         ));
     }

@@ -15,6 +15,8 @@ Node.js。
 - 通过 Core Audio process tap 采集 macOS 系统输出（macOS 14.4+，arm64）。
 - 流式 Zipformer 中英双语识别，输出增量文本与最终文本。
 - Silero VAD + SenseVoice 分段识别，支持中、英、日、韩、粤语。
+- Silero VAD + Qwen3-ASR 0.6B/1.7B INT8 分段识别，覆盖 30 种语言和
+  22 种汉语方言，仅生成最终字幕。
 - CAM++ 说话人嵌入，以及有界窗口的 Pyannote Diarization。
 - 原生 Bergamot 翻译，支持 en -> zh-Hans 与 zh-Hans -> en。
 - Rust 字幕调度：稳定 ID、修订号，以及原文、说话人、译文独立 Patch。
@@ -70,7 +72,21 @@ pnpm dev:desktop:app
 
 在打包后的应用中，打开“模型管理”即可按模型组选择要安装的模型。每张卡片都显示大致下载量、
 磁盘与计算资源需求，以及效果说明。点击“下载并安装”即可一键获取固定的官方安装包或模型
-文件，也可以导入本地已有文件；还可以单独选择下载目录。只有你主动操作时才会开始下载。
+文件，也可以导入本地已有文件或解压后的模型文件夹；还可以单独选择下载目录。只有你主动
+操作时才会开始下载。
+
+### Qwen3 ASR 模型来源
+
+`qwen3-asr-0.6b-int8` 来自 sherpa-onnx 官方 2026-03-25 INT8 Release。
+`qwen3-asr-1.7b-int8` 使用 `zengshuishui` 在 ModelScope 发布的 ONNX 导出，
+并固定到 revision `9c182309f7bb075f241424441add9e16c5086dfb`。ModelScope
+模型卡声明 Apache-2.0，并链接 sherpa-onnx 兼容推理路径，同时明确说明该导出
+仅作参考演示，不保证生产可用性。
+
+两个参数规模共用 Rust `Qwen3Backend`。SonaSub 将 Silero VAD 分段交给离线
+识别器，只生成最终字幕。固定的 sherpa-onnx 2.0.1 Qwen stream 没有语言
+覆盖选项，因此 Qwen 模型使用自动语言检测，会话界面的语音语言选择会被
+禁用；原生不提供临时 Partial 字幕。
 
 ## 常用命令
 
@@ -129,7 +145,7 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
 apps/desktop                 React 工作台 + src-tauri Rust 应用
   src/                       Tauri IPC/事件、实时字幕与配置界面
   src-tauri/src/audio/       Core Audio 系统采集与 48k -> 16k DSP
-  src-tauri/src/asr/         流式 Zipformer 与分段 SenseVoice
+  src-tauri/src/asr/         流式 Zipformer、分段 SenseVoice 与 Qwen3
   src-tauri/src/speaker/     CAM++ 注册表与窗口化 Diarization
   src-tauri/src/translation/ TranslationEngine 边界与 Bergamot Worker
   src-tauri/src/subtitles/   稳定 ID、修订号与 Patch 调度

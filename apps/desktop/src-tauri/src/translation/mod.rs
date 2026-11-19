@@ -1,7 +1,7 @@
 mod language;
 
 pub use language::detect_translation_source;
-pub(crate) use language::source_language;
+pub(crate) use language::{prompt_language, source_language};
 
 use std::{
     collections::VecDeque,

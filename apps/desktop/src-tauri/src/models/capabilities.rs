@@ -144,7 +144,7 @@ fn audio_capabilities() -> AudioCapabilities {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::ModelPaths;
+    use crate::models::{ModelPaths, ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID};
 
     #[test]
     fn a_missing_translation_route_carries_a_stable_reason_code() {
@@ -158,5 +158,22 @@ mod tests {
         assert!(!streaming.available);
         assert_eq!(streaming.reason_code.as_deref(), Some("complete-text-only"));
         assert!(streaming.reason.is_some());
+    }
+
+    #[test]
+    fn qwen3_capabilities_report_segmented_recognition_and_all_languages() {
+        let paths = ModelPaths::new(std::env::temp_dir());
+        let capabilities = paths.capabilities();
+        for id in [ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID] {
+            let model = capabilities
+                .asr_models
+                .iter()
+                .find(|model| model.status.id == id)
+                .expect("Qwen3 capability is exposed");
+            assert_eq!(model.kind, "segmented");
+            assert_eq!(model.supported_modes, vec!["segmented"]);
+            assert!(!model.supports_source_language);
+            assert_eq!(model.source_languages.len(), 30);
+        }
     }
 }

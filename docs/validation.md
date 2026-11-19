@@ -11,7 +11,9 @@ simulated result.
 | Item      | Value                                                      |
 | --------- | ---------------------------------------------------------- |
 | Platform  | macOS 27.2, arm64                                          |
-| Rust      | stable toolchain, `rust-version = 1.90`                    |
+| Hardware  | Apple M2 Max                                               |
+| Rust      | 1.97.0, project `rust-version = 1.90`                      |
+| Node.js   | 24.22.1                                                    |
 | pnpm      | 12.15.0 (`packageManager` in `package.json`)               |
 | App build | `pnpm --filter @sonasub/desktop tauri build --debug`       |
 | Models    | `~/Library/Application Support/dev.sonasub.desktop/models` |
@@ -22,17 +24,20 @@ static runtime during compilation; no separate native preparation step exists.
 
 ## Automated Checks
 
-| Command                                                       | Result                                         |
-| ------------------------------------------------------------- | ---------------------------------------------- |
-| `pnpm check` (Vite+ format, lint, type check)                 | pass — 137 files formatted, no lint/type error |
-| `pnpm test`                                                   | pass — 5 files, 24 tests                       |
-| `pnpm build` (desktop + extension)                            | pass                                           |
-| `pnpm check:rust` (`cargo fmt --check`, `clippy -D warnings`) | pass                                           |
-| `cargo test --locked -- --test-threads=1`                     | pass — 37 passed, 6 ignored                    |
-| `pnpm install --frozen-lockfile`                              | pass                                           |
-| `git diff --check`                                            | pass                                           |
+| Command                                                       | Result                                        |
+| ------------------------------------------------------------- | --------------------------------------------- |
+| `pnpm fmt`                                                    | pass — 173 files formatted                    |
+| `pnpm check` (Vite+ format, lint, type check)                 | pass — 173 formatted, 136 lint/type clean     |
+| `pnpm typecheck`                                              | pass — 136 files, no type errors              |
+| `pnpm test`                                                   | pass — 7 files, 32 tests                      |
+| `pnpm build` (desktop + extension)                            | pass — existing >500 kB chunk warning remains |
+| `pnpm check:rust` (`cargo fmt --check`, `clippy -D warnings`) | pass                                          |
+| `cargo test --locked -- --test-threads=1`                     | pass — 68 passed, 13 ignored                  |
+| `node --check scripts/prepare-models.mjs`                     | pass                                          |
+| `pnpm install --frozen-lockfile`                              | pass                                          |
+| `git diff --check`                                            | pass                                          |
 
-The six ignored Rust tests are the real-model tests. They are **not** part
+The 13 ignored Rust tests are the real-model tests. They are **not** part
 of the automatic suite and are reported separately below.
 
 ## Real-Model Tests
@@ -40,41 +45,155 @@ of the automatic suite and are reported separately below.
 Run explicitly with the locally prepared models:
 
 ```bash
+SONASUB_MODELS_DIR=/tmp/sonasub-all-models-qwen pnpm prepare:models
+
 cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
   --test native_pipeline -- --ignored --test-threads=1
 ```
 
-Result: 6 passed in 45.17 s.
+`pnpm prepare:models` completed with `All pinned models are ready in
+/tmp/sonasub-all-models-qwen`. It verified every pinned archive/runtime
+checksum without leaving weights in the repository.
 
-| Test                                                     | Covers                                 |
-| -------------------------------------------------------- | -------------------------------------- |
-| `model_files_match_the_recorded_checksums`               | pinned model integrity                 |
-| `streaming_asr_transcribes_a_real_clip`                  | streaming Zipformer on a real clip     |
-| `segmented_asr_transcribes_a_real_clip`                  | VAD + SenseVoice on a real clip        |
-| `bergamot_translates_both_configured_directions`         | `en → zh-Hans` and `zh-Hans → en`      |
-| `windowed_diarization_finds_multiple_speakers`           | windowed diarization on a real clip    |
-| `diarization_handles_more_active_speakers_than_clusters` | the pinned top-k clamp regression case |
+Result: 13 passed in 275.46 s. The 30-minute case was run separately with
+`SONASUB_QWEN_LONG_TEST=1` and passed in 1802.84 s; the ignored suite invocation
+above reports the opt-in message and returns from that test immediately unless
+the variable is set.
+
+The full run uses a temporary model root that links the existing Zipformer,
+SenseVoice, Bergamot and speaker assets to the two Qwen3 model directories, so
+one run verifies all pinned files and engines. The Qwen multilingual tests run
+in `auto` mode because the pinned sherpa-onnx Qwen stream exposes no language
+override. The 1.7B decoder-scaffold test also asserts that valid `language=en`
+metadata is preserved when the runtime emits it.
+
+| Test                                                          | Covers                                                       |
+| ------------------------------------------------------------- | ------------------------------------------------------------ |
+| `model_files_match_the_recorded_checksums`                    | all pinned model and Qwen3 runtime file integrity            |
+| `streaming_asr_transcribes_a_real_clip`                       | streaming Zipformer on a real clip                           |
+| `segmented_asr_transcribes_a_real_clip`                       | VAD + SenseVoice on a real clip                              |
+| `bergamot_translates_both_configured_directions`              | `en → zh-Hans` and `zh-Hans → en`                            |
+| `windowed_diarization_finds_multiple_speakers`                | windowed diarization on a real clip                          |
+| `diarization_handles_more_active_speakers_than_clusters`      | the pinned top-k clamp regression case                       |
+| `qwen3_06b_transcribes_a_real_clip_in_auto_language_mode`     | Qwen3 0.6B automatic language detection and VAD-final output |
+| `qwen3_06b_transcribes_chinese_japanese_and_mixed_clips`      | Qwen3 0.6B Chinese, Japanese and Chinese-English code switch |
+| `qwen3_06b_handles_a_long_clip_and_records_runtime_metrics`   | Qwen3 0.6B across multiple VAD segments                      |
+| `qwen3_06b_sustains_thirty_minutes_of_realtime_audio`         | paced 30-minute input, queue, latency and RSS run            |
+| `qwen3_17b_transcribes_a_real_clip`                           | Qwen3 1.7B and decoder-scaffold cleanup                      |
+| `qwen3_17b_transcribes_chinese_japanese_and_mixed_clips`      | Qwen3 1.7B Chinese, Japanese and Chinese-English code switch |
+| `qwen3_17b_handles_a_long_clip_without_degenerate_repetition` | 1.7B long output, repeated n-gram and duplicate-final checks |
 
 These tests exercise the real engines with the real weights. They do not
 exercise Core Audio capture, the session lifecycle or the frontend.
+
+## Qwen3 ASR Validation
+
+The official 0.6B archive matched its release SHA-256. The archive contained
+`conv_frontend.onnx`, `encoder.int8.onnx`, `decoder.int8.onnx` and three
+tokenizer files, and every extracted file matched the pinned runtime SHA-256.
+The 1.7B ModelScope export was downloaded from revision
+`9c182309f7bb075f241424441add9e16c5086dfb`; all six files matched their exact
+byte sizes and pinned SHA-256 values.
+
+The created Qwen offline stream reports no `language` option under
+sherpa-onnx 2.0.1. The registry therefore marks both Qwen sizes as
+auto-language only, backend and record validation reject a persisted forced
+language, and the frontend disables the control. Setting the option would not
+affect inference.
+
+Real inference in the supported `auto` mode produced these examples:
+
+- Qwen3 0.6B English: `Pencil with black lead writes best.`,
+  `The lamp shone with a steady green flame.`,
+  `Baths and lodging are free to new men.`, and
+  `The glow deepened in the eyes of the sweet girl.`
+- Qwen3 0.6B Chinese: `今天天气很好，我们一起去公园散步。`
+- Qwen3 0.6B Japanese:
+  `今日はとても良い天気です。公園へ散歩に行きましょう。`
+- Qwen3 0.6B Chinese-English mixed input:
+  `今天的会议在下午三点开始。Please bring the latest project report.`
+- Qwen3 1.7B English produced the same four final texts with no native
+  partials. One segment carried `language=en` metadata.
+- Qwen3 1.7B Chinese, Japanese and Chinese-English mixed input produced the
+  same three texts shown above.
+
+The first uncorrected 1.7B run returned
+`language English<asr_text>Clothes and lodging are free to new men.` in one
+segment. The Qwen adapter now removes the leading Qwen decoder scaffold before
+the subtitle event is emitted. The regression test rejects any `<asr_text>`
+marker, and the rerun returned
+`Clothes and lodging are free to new men.`
+
+### Runtime measurements
+
+The measured long clip was generated locally with macOS `say`, converted to
+16 kHz mono PCM WAV, and lasted 35.269 seconds. It crossed three VAD segments.
+`processing` includes the shared VAD, decoding, timestamp and final-event path,
+so RTF is `processing / audio duration`.
+
+| Model | Initialization | Processing | RTF   | Peak process RSS |
+| ----- | -------------- | ---------- | ----- | ---------------- |
+| 0.6B  | 1.507 s        | 10.959 s   | 0.311 | 1.55 GB          |
+| 1.7B  | 2.319 s        | 25.843 s   | 0.733 | 4.17 GB          |
+
+Peak RSS was measured with `/usr/bin/time -l` on the corresponding real-model
+test process. It includes the test harness and model runtime. The 0.6B and
+1.7B long clips each produced three finals. The 1.7B outputs contained no
+repeated eight-word sequence and no duplicate consecutive final.
+
+These are single-machine observations, not release guarantees. The following
+were not measured by the native test harness:
+
+- End-to-end subtitle delivery latency after the ASR final event, including
+  speaker, translation and frontend patches.
+- Isolated per-segment ASR inference time. The end-to-end push duration is
+  recorded, but it also includes VAD and event scheduling.
+- A 30-minute sustained run with Qwen3 1.7B.
+- A 30-minute Qwen3 system-output session in the packaged macOS app.
+
+### 30-minute real-time queue run
+
+`qwen3_06b_sustains_thirty_minutes_of_realtime_audio` fed a 35.269-second
+16 kHz mono clip 51 times through bounded recognition input from a native test
+harness. Input arrival was paced to real time, but this was not Core Audio
+capture and did not run the React frontend.
+
+| Metric                             | Value                           |
+| ---------------------------------- | ------------------------------- |
+| Audio                              | 1798.700 s (29 min 58.7 s)      |
+| Wall time                          | 1801.311 s                      |
+| Final subtitles                    | 128                             |
+| Maximum input queue                | 31 chunks                       |
+| Dropped audio chunks               | 0                               |
+| Recognition-busy time              | 580.277 s                       |
+| Recognition RTF                    | 0.323                           |
+| Average final-arrival delay        | 6218 ms                         |
+| Maximum final-arrival delay        | 8618 ms                         |
+| Maximum single push                | 6.373 s                         |
+| Maximum finals emitted from a push | 1                               |
+| Peak process RSS                   | 2,261,499,904 bytes (2.106 GiB) |
+
+The queue stayed bounded and caught up after inference bursts. The test measured
+delay from a final segment's audio end to the consumer receiving its `AsrFinal`.
+It does not include speaker analysis, Bergamot, subtitle IPC or React rendering.
 
 ## Regression Coverage
 
 The automatic suite covers the scheduling and state logic that does not need
 the acoustic models.
 
-| Requested regression                          | Test                                                                                                                                                                                                      |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stop with a full queue and a slow worker      | `pipeline::workers::tests::the_stop_signal_reaches_a_worker_behind_a_full_audio_queue`                                                                                                                   |
+| Requested regression                          | Test                                                                                                                                                                                                       |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stop with a full queue and a slow worker      | `pipeline::workers::tests::the_stop_signal_reaches_a_worker_behind_a_full_audio_queue`                                                                                                                     |
 | Cancel or fail during initialization          | `pipeline::workers::tests::a_failing_initialization_releases_a_worker_that_is_blocked_on_the_event_queue`, `a_disabled_worker_counts_as_finished`, plus the `stage()` failure path in `Runner::initialize` |
-| Worker exited before the last ASR event       | `pipeline::workers::tests::the_translation_queue_waits_for_the_last_recognition_event`                                                                                                                   |
-| Timeline after an audio gap                   | `asr::segmented::tests::a_gap_resets_the_detector_and_keeps_absolute_timestamps`, `a_gap_flushes_the_speech_that_precedes_it`                                                                             |
-| Final text without a partial                  | `asr::streaming::tests::a_final_result_without_a_partial_still_becomes_a_subtitle`, `an_empty_final_result_keeps_the_partial_text`, `an_endpoint_finalizes_the_pending_partial`                           |
-| 1000 subtitles with `historyLimit = 400`      | `session-cache.test.ts` → "keeps the subtitle list within the configured history limit"                                                                                                                   |
-| Old-session subtitle while starting           | `session-cache.test.ts` → "ignores a subtitle of the previous session while a new one starts"                                                                                                             |
-| Old-version patch after a newer subtitle      | `session-cache.test.ts` → "rejects an older text revision after a newer subtitle was applied"                                                                                                             |
-| Late old translation and late old snapshot    | `session-cache.test.ts` → "rejects a translation that belongs to an older text revision", "keeps the newer channels when a late snapshot arrives"                                                         |
-| Embedding and diarization in different orders | `subtitles::tests::a_diarization_label_replaces_an_earlier_embedding_label`, `a_late_embedding_does_not_erase_a_diarization_label`                                                                        |
+| Worker exited before the last ASR event       | `pipeline::workers::tests::the_translation_queue_waits_for_the_last_recognition_event`                                                                                                                     |
+| Timeline after an audio gap                   | `asr::segmented::tests::a_gap_resets_the_detector_and_keeps_absolute_timestamps`, `a_gap_flushes_the_speech_that_precedes_it`                                                                              |
+| Final text without a partial                  | `asr::streaming::tests::a_final_result_without_a_partial_still_becomes_a_subtitle`, `an_empty_final_result_keeps_the_partial_text`, `an_endpoint_finalizes_the_pending_partial`                            |
+| 1000 subtitles with `historyLimit = 400`      | `session-cache.test.ts` → "keeps the subtitle list within the configured history limit"                                                                                                                    |
+| Old-session subtitle while starting           | `session-cache.test.ts` → "ignores a subtitle of the previous session while a new one starts"                                                                                                              |
+| Old-version patch after a newer subtitle      | `session-cache.test.ts` → "rejects an older text revision after a newer subtitle was applied"                                                                                                              |
+| Late old translation and late old snapshot    | `session-cache.test.ts` → "rejects a translation that belongs to an older text revision", "keeps the newer channels when a late snapshot arrives"                                                          |
+| Embedding and diarization in different orders | `subtitles::tests::a_diarization_label_replaces_an_earlier_embedding_label`, `a_late_embedding_does_not_erase_a_diarization_label`                                                                         |
 
 ## Dependency Policy
 
@@ -97,14 +216,28 @@ install completed. The global configuration was restored afterwards.
 
 ## Packaging
 
-`pnpm --filter @sonasub/desktop tauri build --debug` produced
-`apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app` (69 MB).
+`pnpm --filter @sonasub/desktop tauri build --debug --bundles app --no-sign`
+produced
+`apps/desktop/src-tauri/target/debug/bundle/macos/SonaSub.app` (87.42 MiB).
 
 - The bundle contains only the executable, the icon and `Info.plist`.
 - It contains no Node.js runtime, no engine or protocol artifact and no
   bundled model weights.
 - `otool -L` lists only system frameworks and system libraries; the pinned
   sherpa-onnx runtime is linked statically.
+
+After both Qwen model directories were installed under the real application
+model root, the debug app reported **9 installed bundles out of 9**. Both
+Qwen3 cards exposed their source revision, segmented mode, 30-language list,
+download size, local usage, download action, and file/folder import actions.
+Session settings listed both Qwen3 models and displayed the Silero VAD
+final-only explanation.
+
+The final source tree was rebuilt as the same 87.42 MiB debug bundle after the
+automated checks. The Computer Use tool became unavailable during application
+update, so the final rebuild was not re-driven through the UI or used for a
+Qwen system-output session. The 9/9 observation belongs to the immediately
+preceding debug build using the same installed model root and model UI.
 
 ## Native System-Audio Verification
 
@@ -263,10 +396,11 @@ inverted again.
 
 ## Deferred Work
 
-### Official sherpa-onnx Rust API Migration
+### Historical sherpa-onnx Rust API migration
 
-The native speech modules now use the official `sherpa-onnx` crate pinned to
-v2.0.1. The following checks were run after the migration:
+The native speech modules use the official `sherpa-onnx` crate pinned to
+v2.0.1. The following table is the original post-migration record and predates
+the Qwen3 additions. The current counts are in the sections above.
 
 | Command                                                                                                                                  | Result                                       |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
@@ -294,9 +428,6 @@ two checks remain unverified for this change.
   pipeline. The migration to the official sherpa-onnx v2.0.1 Rust API is a
   separate change; the subsection above records its automated and real-model
   verification.
-- The in-app model import, validation and preparation interface is planned
-  in [models.md](models.md#planned-in-app-model-preparation) and was not
-  implemented in this round.
 
 ## Known Limitations
 
@@ -307,4 +438,9 @@ two checks remain unverified for this change.
   fragment and overlapping speech is not split into separate tracks.
 - The translation adapter is complete-text only. `streaming` is rejected
   rather than emulated.
+- Qwen3 recognition is VAD-segmented. It produces final captions only and
+  never claims native streaming partials.
+- Qwen3 1.7B uses the pinned community ModelScope ONNX export. Its model card
+  does not promise production readiness, and its measured peak process RSS was
+  4.17 GB on the test machine.
 - The debug bundle is ad-hoc signed and not notarized.

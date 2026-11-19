@@ -30,6 +30,31 @@ export const enUs = {
     japanese: 'Japanese',
     korean: 'Korean',
     cantonese: 'Cantonese',
+    arabic: 'Arabic',
+    german: 'German',
+    french: 'French',
+    spanish: 'Spanish',
+    portuguese: 'Portuguese',
+    indonesian: 'Indonesian',
+    italian: 'Italian',
+    russian: 'Russian',
+    thai: 'Thai',
+    vietnamese: 'Vietnamese',
+    turkish: 'Turkish',
+    hindi: 'Hindi',
+    malay: 'Malay',
+    dutch: 'Dutch',
+    swedish: 'Swedish',
+    danish: 'Danish',
+    finnish: 'Finnish',
+    polish: 'Polish',
+    czech: 'Czech',
+    filipino: 'Filipino',
+    persian: 'Persian',
+    greek: 'Greek',
+    hungarian: 'Hungarian',
+    macedonian: 'Macedonian',
+    romanian: 'Romanian',
   },
   workbench: {
     eyebrow: 'Local system-audio session',
@@ -78,6 +103,8 @@ export const enUs = {
       unknownAsrModel: 'The selected speech-recognition model is not registered.',
       asrModel: 'The selected speech-recognition model is missing one or more required files.',
       asrMode: 'The selected recognition mode does not match the selected model capability.',
+      asrLanguage:
+        'The selected speech language cannot be applied by the selected recognition model.',
       vadModel: 'Segmented recognition needs the Silero VAD model, which is missing or incomplete.',
       translationModel:
         'No complete Bergamot model is available for the selected translation target.',
@@ -313,6 +340,8 @@ export const enUs = {
       'Auto leaves language handling to the selected model. Translation chooses its direction per finalized segment.',
     sourceLanguageAutoOnly:
       'This model detects the language of every utterance, so the source language stays on automatic.',
+    segmentedNoPartialHint:
+      'Segmented recognition waits for Silero VAD to close a speech segment. It produces final captions only and has no native streaming partials.',
     translationSection: 'Local translation',
     translationHint:
       '{{engine}} runs in this process as complete-text translation. Source text appears first and never waits for it.',
@@ -382,15 +411,19 @@ export const enUs = {
     reinstall: 'Reinstall',
     downloading: 'Downloading…',
     importFiles: 'Import selected files',
+    importDirectory: 'Import model folder',
     importing: 'Importing…',
     importHint:
-      'Select the official archive or all extracted files for this model. SonaSub checks every pinned SHA-256 before installing.',
+      'Select the official archive, all extracted files, or the extracted model folder. SonaSub checks every pinned SHA-256 before installing.',
     installed: 'Installed',
     missing: 'Missing',
     downloadError: 'Download or installation failed',
     importError: 'Model files could not be imported',
     directoryError: 'Download directory could not be changed',
     downloadSize: 'Download about {{size}}',
+    localUsage: 'Local files',
+    recognitionMode: 'Recognition mode',
+    supportedLanguages: 'Supported languages',
     requiredFiles: 'Required files',
     resourceNeeds: 'Resources',
     effect: 'Recognition effect',
@@ -418,10 +451,22 @@ export const enUs = {
       effect:
         'Multilingual recognition for Chinese, English, Japanese, Korean and Cantonese. Generally better accuracy than streaming Zipformer, with no live partial captions.',
     },
+    qwen3ASR06B: {
+      resource:
+        'Official INT8 archive about 838 MiB; installed files about 941 MiB, plus a small VAD model. Peak process RSS measured 1.55 GB on an Apple M2 Max; other hardware and session settings can differ.',
+      effect:
+        'Qwen3 ASR 0.6B recognizes 30 languages and 22 Chinese dialects. SonaSub uses VAD segments and emits final subtitles only, with no native streaming partials.',
+    },
+    qwen3ASR17B: {
+      resource:
+        'Community INT8 export from a pinned ModelScope revision; six runtime files total about 2.4 GB, plus VAD and translation models. Peak process RSS measured 4.17 GB on an Apple M2 Max, so this size is best suited to systems with substantial free memory.',
+      effect:
+        'Qwen3 ASR 1.7B supports the same languages as 0.6B. SonaSub uses VAD segments and emits final subtitles only. This is a third-party ONNX export provided for compatibility, without a production-readiness guarantee.',
+    },
     sileroVad: {
       resource: 'About 0.6 MB. Very low CPU use.',
       effect:
-        'Finds speech regions for segmented recognition. Required whenever SenseVoice is selected.',
+        'Finds speech regions for segmented recognition. Required whenever SenseVoice or a Qwen3 ASR model is selected.',
     },
     campplus: {
       resource: 'About 27 MB. Low CPU use per subtitle segment.',

@@ -23,6 +23,13 @@ export function assessModelReadiness(
   else {
     if (!selectedAsr.available) issues.push('asrModel');
     if (selectedMode !== selectedAsr.kind) issues.push('asrMode');
+    if (
+      config.recognition.sourceLanguage !== 'auto' &&
+      (!selectedAsr.supportsSourceLanguage ||
+        !selectedAsr.sourceLanguages.includes(config.recognition.sourceLanguage))
+    ) {
+      issues.push('asrLanguage');
+    }
     if (selectedMode === 'segmented' && !capabilities.vad.available) issues.push('vadModel');
   }
   if (!selectedTranslationModels.some((model) => model.available)) {

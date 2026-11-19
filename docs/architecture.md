@@ -32,8 +32,8 @@ the Tauri commands and starts the live-session and record managers.
 - `models/` owns the pinned registry, capability discovery, downloads and
   verified installation. `config.rs` persists application settings.
 - `audio/` captures macOS system output and converts 48 kHz stereo to 16 kHz mono.
-- `asr/` provides a common input/event adapter for streaming Zipformer and segmented
-  Silero VAD + SenseVoice implementations.
+- `asr/` provides a common input/event adapter for streaming Zipformer and
+  segmented Silero VAD + SenseVoice or Qwen3-ASR implementations.
 - `speaker/` owns the CAM++ embedding registry, windowed Pyannote diarization
   and assignment of speakers to subtitle intervals.
 - `translation/` resolves source languages and owns the `TranslationEngine`
@@ -115,14 +115,28 @@ produces final text. It does not wait for a VAD utterance boundary. Final
 segments keep their audio for speaker embedding.
 
 **Segmented:** Silero VAD closes bounded utterances or cuts at the configured
-maximum length, then SenseVoice int8 transcribes each segment. This is real
-segmented recognition, not native streaming. It still produces results during
-the session; it does not wait for the recording to end.
+maximum length, then either SenseVoice int8 or the selected Qwen3-ASR INT8
+model transcribes each segment. SenseVoice and both Qwen sizes implement the
+same `RecognizerBackend`; `SegmentedRecognizer::Qwen3` selects the Qwen adapter
+without duplicating VAD, timeline, discontinuity, flush or shutdown code. This
+is real segmented recognition, not native streaming. It still produces results
+during the session; it does not wait for the recording to end.
 
 Model format and decoding differences stay inside `asr/`. `auto` resolves to the
 selected model's actual capability. An explicit incompatible mode is rejected
 with an error and is disabled in the UI; `auto` is never a fallback after an
 inference failure.
+
+Qwen3-ASR uses the official `OfflineQwen3ASRModelConfig`,
+`OfflineRecognizerConfig` and `OfflineRecognizer`. The runtime consumes
+`conv_frontend.onnx`, `encoder.int8.onnx`, `decoder.int8.onnx` and a tokenizer
+directory. sherpa-onnx v2.0.1 has neither a language field in the Qwen model
+config nor a `language` option on the created offline stream. Qwen therefore
+uses automatic language detection, the persisted configuration is validated
+against that capability, and the session language control stays on `auto`. If
+a Qwen decode returns no result, the error crosses `RecognizerBackend`,
+`SegmentedEngine` and the recognition worker instead of becoming an empty
+caption.
 
 A final result never depends on an earlier partial. If the recognizer only
 produces text while flushing, that text still receives its own subtitle
@@ -179,6 +193,11 @@ an asynchronous patch for the same subtitle ID and text revision.
 - Language directions come from the pinned local model registry
   (`en → zh-Hans`, `zh-Hans → en`); no arbitrary language pair is inferred from
   Firefox's supported-language list.
+- A forced source language takes precedence over a missing or removed ASR
+  language tag. With automatic Qwen language handling and no tag, conservative
+  script routing recognizes Latin, Han, Japanese kana and Korean Hangul.
+  Unsupported scripts such as Arabic, Thai or Cyrillic are marked `unknown`
+  rather than being sent through the English or Chinese Bergamot model.
 - The translation queue closes only after the recognition worker stopped and
   every event it produced was consumed. Closing it earlier would drop the
   translation of the last subtitle; never closing it keeps the translation
@@ -316,8 +335,10 @@ The source language is only a real setting for a model that can honour it. The
 streaming Zipformer detects the language per utterance and ignores a forced
 source language, so the control is locked on automatic and explains why; the
 session reports the language that is actually in effect. The segmented
-SenseVoice accepts a forced language. A configuration that forces a language a
-model does not support is rejected before the session starts.
+SenseVoice accepts a forced language. The pinned Qwen3 runtime has no language
+override, so both Qwen sizes are also locked on automatic and reject a
+persisted forced value. A configuration that forces a language a model does
+not support is rejected before the session starts.
 
 ## Imports And Packaging
 

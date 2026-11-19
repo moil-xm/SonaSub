@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     config::AppConfig,
-    models::{ModelPaths, BERGAMOT_ENGINE_ID, TRANSLATION_MODELS},
+    models::{validate_asr_config, ModelPaths, BERGAMOT_ENGINE_ID, TRANSLATION_MODELS},
 };
 
 use super::{
@@ -413,6 +413,11 @@ pub(super) fn validate_record_config(config: &AppConfig) -> Result<(), String> {
             return Err(format!("Device `{id}` is selected more than once."));
         }
     }
+    validate_asr_config(
+        &config.recognition.model_id,
+        config.recognition.mode,
+        &config.recognition.source_language,
+    )?;
     let model = TRANSLATION_MODELS
         .iter()
         .find(|model| model.id == config.translation.model_id)
@@ -454,7 +459,10 @@ fn resolved_name(name: &str, config: &AppConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::validate_record_config;
-    use crate::config::AppConfig;
+    use crate::{
+        config::{AppConfig, AsrMode},
+        models::{ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID},
+    };
 
     #[test]
     fn record_config_rejects_an_incompatible_translation_model() {
@@ -463,5 +471,18 @@ mod tests {
         config.translation.target_language = "zh-Hans".to_owned();
         config.translation.model_id = "bergamotZhEn".to_owned();
         assert!(validate_record_config(&config).is_err());
+    }
+
+    #[test]
+    fn record_config_accepts_qwen3_and_rejects_fake_streaming() {
+        for model_id in [ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID] {
+            let mut config = AppConfig::default();
+            config.audio.device_ids = vec!["device".to_owned()];
+            config.recognition.model_id = model_id.to_owned();
+            config.recognition.mode = AsrMode::Segmented;
+            validate_record_config(&config).unwrap();
+            config.recognition.mode = AsrMode::Streaming;
+            assert!(validate_record_config(&config).is_err());
+        }
     }
 }

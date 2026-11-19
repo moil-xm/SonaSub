@@ -9,7 +9,16 @@ pub const ASR_STREAMING_ID: &str = "zipformer-bilingual-streaming";
 
 pub const ASR_SEGMENTED_ID: &str = "sense-voice-int8";
 
+pub const ASR_QWEN3_06B_ID: &str = "qwen3-asr-0.6b-int8";
+
+pub const ASR_QWEN3_17B_ID: &str = "qwen3-asr-1.7b-int8";
+
 pub const BERGAMOT_ENGINE_ID: &str = "bergamot";
+
+const QWEN3_ASR_LANGUAGES: &[&str] = &[
+    "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th", "vi", "ja",
+    "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +56,8 @@ pub struct AsrModelSpec {
     pub upstream: &'static str,
     pub version: &'static str,
     pub files: &'static [ModelFile],
+    pub download_bytes: u64,
+    pub source_name: Option<&'static str>,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +108,8 @@ pub const ASR_MODELS: &[AsrModelSpec] = &[
                 sha256: Some("a8e0e4ec53810e433789b54a5c0134a7eaa2ffca595a6334d54c00da858841d3"),
             },
         ],
+        download_bytes: 511_274_346,
+        source_name: None,
     },
     AsrModelSpec {
         id: ASR_SEGMENTED_ID,
@@ -119,6 +132,100 @@ pub const ASR_MODELS: &[AsrModelSpec] = &[
                 sha256: Some("f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"),
             },
         ],
+        download_bytes: 163_002_883,
+        source_name: None,
+    },
+    AsrModelSpec {
+        id: ASR_QWEN3_06B_ID,
+        label: "Qwen3 ASR 0.6B INT8 (segmented)",
+        kind: AsrModelKind::Segmented,
+        source_languages: QWEN3_ASR_LANGUAGES,
+        supports_source_language: false,
+        source_language_note: Some(
+            "Qwen3 detects the language of every utterance. sherpa-onnx 2.0.1 does not expose a per-stream language override.",
+        ),
+        upstream: "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models",
+        version: "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
+        files: &[
+            ModelFile {
+                relative: "sherpa/qwen3-asr-0.6b-int8/conv_frontend.onnx",
+                min_bytes: 44_148_281,
+                sha256: Some("d22dc4423e0940e49884e903d2ea2f7e5567c14fc1aed97e4e26d6b8f208ef9e"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-0.6b-int8/encoder.int8.onnx",
+                min_bytes: 182_491_662,
+                sha256: Some("60748d3e6744a57c9c91e1b17424a6c2990567e8adceb0783940c03ed98fa9d9"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-0.6b-int8/decoder.int8.onnx",
+                min_bytes: 755_914_231,
+                sha256: Some("4f6885be5959ae26af3089d38ee7972c5fafbeeb1cf8d5e76eab6d8b61ca5771"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-0.6b-int8/tokenizer/merges.txt",
+                min_bytes: 1_671_853,
+                sha256: Some("8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-0.6b-int8/tokenizer/tokenizer_config.json",
+                min_bytes: 12_487,
+                sha256: Some("4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-0.6b-int8/tokenizer/vocab.json",
+                min_bytes: 2_776_833,
+                sha256: Some("ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"),
+            },
+        ],
+        download_bytes: 878_702_423,
+        source_name: Some("sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2"),
+    },
+    AsrModelSpec {
+        id: ASR_QWEN3_17B_ID,
+        label: "Qwen3 ASR 1.7B INT8 (segmented)",
+        kind: AsrModelKind::Segmented,
+        source_languages: QWEN3_ASR_LANGUAGES,
+        supports_source_language: false,
+        source_language_note: Some(
+            "Qwen3 detects the language of every utterance. sherpa-onnx 2.0.1 does not expose a per-stream language override.",
+        ),
+        upstream: "https://modelscope.cn/models/zengshuishui/Qwen3-ASR-onnx",
+        version: "9c182309f7bb075f241424441add9e16c5086dfb",
+        files: &[
+            ModelFile {
+                relative: "sherpa/qwen3-asr-1.7b-int8/conv_frontend.onnx",
+                min_bytes: 48_080_441,
+                sha256: Some("fa894a4ba53da6a4238f2a6ca0b09362e505d39cecbd646051b033e2e8d7e2fb"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-1.7b-int8/encoder.int8.onnx",
+                min_bytes: 314_222_162,
+                sha256: Some("436fbd910a0c8914851e5ac1354e807be9f283d08a5da728adaa609731c41469"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-1.7b-int8/decoder.int8.onnx",
+                min_bytes: 2_037_458_645,
+                sha256: Some("c43c853fa6e97d08365cb8a5502b360b595cd43c00dc60e4d8ca7cc18cad460b"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-1.7b-int8/tokenizer/merges.txt",
+                min_bytes: 1_671_853,
+                sha256: Some("8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-1.7b-int8/tokenizer/tokenizer_config.json",
+                min_bytes: 12_487,
+                sha256: Some("4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c"),
+            },
+            ModelFile {
+                relative: "sherpa/qwen3-asr-1.7b-int8/tokenizer/vocab.json",
+                min_bytes: 2_776_833,
+                sha256: Some("ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"),
+            },
+        ],
+        download_bytes: 2_404_222_421,
+        source_name: None,
     },
 ];
 
@@ -227,6 +334,31 @@ pub fn resolve_asr_mode(spec: &AsrModelSpec, requested: AsrMode) -> Result<AsrMo
     Ok(actual)
 }
 
+pub fn validate_asr_config(
+    model_id: &str,
+    requested_mode: AsrMode,
+    source_language: &str,
+) -> Result<(&'static AsrModelSpec, AsrMode), String> {
+    let spec = ASR_MODELS
+        .iter()
+        .find(|model| model.id == model_id)
+        .ok_or_else(|| format!("Unknown ASR model `{model_id}`."))?;
+    if source_language != "auto" && !spec.source_languages.contains(&source_language) {
+        return Err(format!(
+            "ASR model `{}` does not support source language `{source_language}`.",
+            spec.label
+        ));
+    }
+    if source_language != "auto" && !spec.supports_source_language {
+        return Err(format!(
+            "ASR model `{}` detects the language of every utterance, so a forced source language has no effect. Use `auto` instead.",
+            spec.label
+        ));
+    }
+    let resolved_mode = resolve_asr_mode(spec, requested_mode)?;
+    Ok((spec, resolved_mode))
+}
+
 pub fn resolve_translation_mode(requested: TranslationMode) -> Result<TranslationMode, String> {
     match requested {
         TranslationMode::Auto | TranslationMode::Text => Ok(TranslationMode::Text),
@@ -290,6 +422,25 @@ mod tests {
             AsrMode::Streaming
         );
         assert!(resolve_asr_mode(streaming, AsrMode::Segmented).is_err());
+    }
+
+    #[test]
+    fn qwen3_models_are_independently_selectable_segmented_models() {
+        for id in [ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID] {
+            let model = ASR_MODELS
+                .iter()
+                .find(|model| model.id == id)
+                .expect("Qwen3 model is registered");
+            assert_eq!(model.kind, AsrModelKind::Segmented);
+            assert!(!model.supports_source_language);
+            assert_eq!(model.source_languages.len(), 30);
+            assert_eq!(
+                resolve_asr_mode(model, AsrMode::Auto).unwrap(),
+                AsrMode::Segmented
+            );
+            assert!(resolve_asr_mode(model, AsrMode::Streaming).is_err());
+            assert!(validate_asr_config(id, AsrMode::Auto, "en").is_err());
+        }
     }
 
     #[test]

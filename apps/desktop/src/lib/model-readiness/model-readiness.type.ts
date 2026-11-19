@@ -5,6 +5,7 @@ export type ReadinessIssue =
   | 'unknownAsrModel'
   | 'asrModel'
   | 'asrMode'
+  | 'asrLanguage'
   | 'vadModel'
   | 'translationModel'
   | 'speakerModel'

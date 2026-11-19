@@ -3,7 +3,9 @@ use crate::{
     config::TranslationTrigger,
     models::{BERGAMOT_ENGINE_ID, TRANSLATION_MODELS},
     subtitles::StableCandidate,
-    translation::{source_language, PushOutcome, TranslationRequest, TranslationResult},
+    translation::{
+        prompt_language, source_language, PushOutcome, TranslationRequest, TranslationResult,
+    },
 };
 
 impl Runner {
@@ -59,7 +61,12 @@ impl Runner {
         let Some(text_revision) = segment_revision else {
             return;
         };
-        let source_language = source_language(&text, language.as_deref());
+        let configured_language = if self.config.recognition.source_language == "auto" {
+            None
+        } else {
+            prompt_language(Some(&self.config.recognition.source_language))
+        };
+        let source_language = source_language(&text, configured_language.or(language.as_deref()));
         if source_language == target {
             let patch = {
                 let mut runtime = self.inner.runtime();

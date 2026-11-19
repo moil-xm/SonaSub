@@ -18,6 +18,8 @@ or microphone fallbacks.
 - macOS system-output capture through Core Audio process taps (macOS 14.4+ arm64).
 - Streaming Zipformer zh-en recognition with partial and final text.
 - Segmented Silero VAD + SenseVoice recognition for zh, en, ja, ko and yue.
+- Segmented Silero VAD + Qwen3-ASR 0.6B/1.7B INT8 recognition for 30 languages
+  and 22 Chinese dialects, with final captions only.
 - CAM++ speaker embeddings and bounded-window Pyannote diarization.
 - Native Bergamot translation for en -> zh-Hans and zh-Hans -> en.
 - Rust subtitle scheduling with stable IDs, revisions and independent text,
@@ -81,8 +83,24 @@ In the packaged app, open **Models** to choose which models to install. Each
 bundle card shows approximate download size, disk and compute requirements,
 and a short quality summary. Use **Download and install** to fetch the pinned
 official archive or files with one click, or import files you already
-downloaded. You can also choose a separate download directory. Nothing
-downloads unless you start it from the model page.
+downloaded or the extracted model folder. You can also choose a separate
+download directory. Nothing downloads unless you start it from the model page.
+
+### Qwen3 ASR model sources
+
+`qwen3-asr-0.6b-int8` is the official sherpa-onnx INT8 release from
+2026-03-25. `qwen3-asr-1.7b-int8` uses the ModelScope ONNX export by
+`zengshuishui`, pinned to revision
+`9c182309f7bb075f241424441add9e16c5086dfb`. The ModelScope card declares
+Apache-2.0 and links the sherpa-onnx compatibility path, while explicitly
+describing the export as a reference implementation without a production
+readiness guarantee.
+
+Both variants use the same Rust `Qwen3Backend`. SonaSub feeds Silero VAD
+segments into the offline recognizer and emits final captions only. The
+selected sherpa-onnx 2.0.1 Qwen stream has no language override, so Qwen models
+use automatic language detection and the session language control is disabled.
+There are no native Qwen partial captions.
 
 ## Commands
 
@@ -145,7 +163,7 @@ start or restart.
 apps/desktop                 React workbench + src-tauri Rust application
   src/                       Tauri IPC/events, live captions and configuration
   src-tauri/src/audio/       Core Audio system capture and 48k -> 16k DSP
-  src-tauri/src/asr/         Streaming Zipformer and segmented SenseVoice
+  src-tauri/src/asr/         Streaming Zipformer, segmented SenseVoice and Qwen3
   src-tauri/src/speaker/     CAM++ registry and windowed diarization
   src-tauri/src/translation/ TranslationEngine boundary and Bergamot worker
   src-tauri/src/subtitles/   Stable IDs, revisions and patch scheduling

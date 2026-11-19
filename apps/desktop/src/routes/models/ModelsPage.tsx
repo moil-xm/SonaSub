@@ -27,12 +27,17 @@ import {
   useSetModelDownloadDirectory,
 } from '@/lib/model-installs';
 import type { ModelCategory, ModelInstallGroup } from '@/lib/model-installs';
+import { sessionCapabilitiesOptions } from '@/lib/session';
+import type { AsrModelCapability } from '@/lib/session';
+import { LanguageName } from '@/components/session-config-form';
 
 type ModelCopyKey = keyof TranslationResource['models'];
 
 const MODEL_COPY: Record<string, ModelCopyKey> = {
   'zipformer-bilingual-streaming': 'streamingZipformer',
   'sense-voice-int8': 'senseVoice',
+  'qwen3-asr-0.6b-int8': 'qwen3ASR06B',
+  'qwen3-asr-1.7b-int8': 'qwen3ASR17B',
   'bergamot-en-zh-Hans': 'bergamotEnZh',
   'bergamot-zh-Hans-en': 'bergamotZhEn',
   'silero-vad': 'sileroVad',
@@ -75,6 +80,34 @@ function ModelCopy({ copyKey }: { copyKey: ModelCopyKey | undefined }) {
         <p className="font-medium text-foreground">{t(($) => $.models.effect)}</p>
         <p className="leading-relaxed text-muted-foreground">
           {t(($) => $.models.senseVoice.effect)}
+        </p>
+      </div>
+    );
+  }
+  if (copyKey === 'qwen3ASR06B' || copyKey === 'qwen3ASR17B') {
+    if (copyKey === 'qwen3ASR06B') {
+      return (
+        <div className="space-y-1.5">
+          <p className="font-medium text-foreground">{t(($) => $.models.resourceNeeds)}</p>
+          <p className="leading-relaxed text-muted-foreground">
+            {t(($) => $.models.qwen3ASR06B.resource)}
+          </p>
+          <p className="font-medium text-foreground">{t(($) => $.models.effect)}</p>
+          <p className="leading-relaxed text-muted-foreground">
+            {t(($) => $.models.qwen3ASR06B.effect)}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-1.5">
+        <p className="font-medium text-foreground">{t(($) => $.models.resourceNeeds)}</p>
+        <p className="leading-relaxed text-muted-foreground">
+          {t(($) => $.models.qwen3ASR17B.resource)}
+        </p>
+        <p className="font-medium text-foreground">{t(($) => $.models.effect)}</p>
+        <p className="leading-relaxed text-muted-foreground">
+          {t(($) => $.models.qwen3ASR17B.effect)}
         </p>
       </div>
     );
@@ -154,15 +187,17 @@ function ModelCopy({ copyKey }: { copyKey: ModelCopyKey | undefined }) {
 
 type ModelCardProps = {
   group: ModelInstallGroup;
+  capability?: AsrModelCapability;
 };
 
-function ModelCard({ group }: ModelCardProps) {
+function ModelCard({ group, capability }: ModelCardProps) {
   const { t } = useTranslation();
   const download = useDownloadModel();
   const importFiles = useImportModelFiles();
   const copyKey = MODEL_COPY[group.id];
   const missingFiles = group.files.filter((file) => !file.present);
   const presentFiles = group.files.filter((file) => file.present);
+  const localBytes = group.files.reduce((total, file) => total + file.bytes, 0);
   const isReady = missingFiles.length === 0;
   const statusLabel = isReady
     ? t(($) => $.models.installed)
@@ -185,6 +220,19 @@ function ModelCard({ group }: ModelCardProps) {
     await importFiles.mutateAsync({ groupId: group.id, sources });
   }
 
+  async function handleImportDirectory() {
+    const selected = await open({
+      directory: true,
+      multiple: true,
+      title: t(($) => $.models.importDirectory),
+    });
+    if (!selected) return;
+    await importFiles.mutateAsync({
+      groupId: group.id,
+      sources: Array.isArray(selected) ? selected : [selected],
+    });
+  }
+
   return (
     <Card className="gap-3 py-4">
       <CardHeader className="gap-1 px-4">
@@ -201,6 +249,31 @@ function ModelCard({ group }: ModelCardProps) {
       </CardHeader>
       <CardContent className="space-y-3 px-4 text-xs">
         <ModelCopy copyKey={copyKey} />
+        {capability && (
+          <div className="grid gap-1 rounded-md border bg-muted/30 p-2 text-muted-foreground sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-x-3">
+            <span className="font-medium text-foreground">
+              {t(($) => $.models.recognitionMode)}
+            </span>
+            <span>
+              {capability.kind === 'streaming'
+                ? t(($) => $.config.asrModes.streaming)
+                : t(($) => $.config.asrModes.segmented)}
+            </span>
+            <span className="font-medium text-foreground">
+              {t(($) => $.models.supportedLanguages)}
+            </span>
+            <span className="break-words">
+              {capability.sourceLanguages.map((language, index) => (
+                <span key={language}>
+                  {index > 0 && ' · '}
+                  <LanguageName code={language} />
+                </span>
+              ))}
+            </span>
+            <span className="font-medium text-foreground">{t(($) => $.models.localUsage)}</span>
+            <span>{formatSize(localBytes)}</span>
+          </div>
+        )}
         <p className="text-muted-foreground">{t(($) => $.models.importHint)}</p>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -221,6 +294,18 @@ function ModelCard({ group }: ModelCardProps) {
           >
             <Icon icon={importIcon} />
             {importFiles.isPending ? t(($) => $.models.importing) : t(($) => $.models.importFiles)}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={download.isPending || importFiles.isPending}
+            onClick={() => void handleImportDirectory()}
+          >
+            <Icon icon={folderIcon} />
+            {importFiles.isPending
+              ? t(($) => $.models.importing)
+              : t(($) => $.models.importDirectory)}
           </Button>
           <Button
             type="button"
@@ -264,6 +349,7 @@ function ModelCard({ group }: ModelCardProps) {
 export function ModelsPage() {
   const { t } = useTranslation();
   const { data: groups, isPending, isError } = useQuery(modelInstallsOptions);
+  const { data: capabilities } = useQuery(sessionCapabilitiesOptions);
   const { data: settings } = useQuery(modelDownloadSettingsOptions);
   const setDirectory = useSetModelDownloadDirectory();
   const installedCount =
@@ -367,7 +453,11 @@ export function ModelsPage() {
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 {sectionGroups.map((group) => (
-                  <ModelCard key={group.id} group={group} />
+                  <ModelCard
+                    key={group.id}
+                    group={group}
+                    capability={capabilities?.asrModels.find((model) => model.id === group.id)}
+                  />
                 ))}
               </div>
             </section>

@@ -10,7 +10,11 @@ use sha2::{Digest, Sha256};
 
 use crate::config::ConfigStore;
 
-use super::install::{group_expected_sources, ModelInstallFile, ModelInstallGroup};
+use super::install::{
+    group_expected_sources, qwen3_06b_runtime_files, qwen3_17b_runtime_files, qwen3_archive_spec,
+    ModelInstallFile, ModelInstallGroup, MODELSCOPE_API, QWEN3_17B_REVISION,
+};
+use super::registry::ASR_QWEN3_17B_ID;
 
 pub(super) static DOWNLOAD_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -206,6 +210,121 @@ fn download_file(url: &str, destination: &Path, expected_bytes: u64) -> Result<(
     Ok(())
 }
 
+fn verified_digest(path: &Path) -> Result<String, String> {
+    let mut input =
+        File::open(path).map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 128 * 1024];
+    loop {
+        let read = input
+            .read(&mut buffer)
+            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn verify_source_file(source: &Path, sha256: &str, min_bytes: u64) -> Result<(), String> {
+    let metadata = fs::metadata(source)
+        .map_err(|error| format!("failed to inspect {}: {error}", source.display()))?;
+    if metadata.len() < min_bytes {
+        return Err(format!(
+            "{} is {} bytes; at least {min_bytes} bytes are required.",
+            source.display(),
+            metadata.len()
+        ));
+    }
+    let actual = verified_digest(source)?;
+    if !actual.eq_ignore_ascii_case(sha256) {
+        return Err(format!(
+            "checksum mismatch for {}: expected {sha256}, got {actual}.",
+            source.display()
+        ));
+    }
+    Ok(())
+}
+
+fn install_preverified_file(source: &Path, target: &Path) -> Result<(), String> {
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    }
+    let temporary = target.with_extension(format!("install-{}-tmp", std::process::id()));
+    let result = fs::copy(source, &temporary)
+        .map_err(|error| format!("failed to stage {}: {error}", target.display()))
+        .and_then(|_| {
+            fs::rename(&temporary, target)
+                .map_err(|error| format!("failed to install {}: {error}", target.display()))
+        });
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn install_verified_file(
+    source: &Path,
+    target: &Path,
+    sha256: &str,
+    min_bytes: u64,
+) -> Result<(), String> {
+    verify_source_file(source, sha256, min_bytes)?;
+    install_preverified_file(source, target)
+}
+
+fn expand_import_sources(sources: &[String]) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    for source in sources {
+        collect_import_files(Path::new(source), &mut files)?;
+    }
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
+fn collect_import_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?;
+    if metadata.is_file() {
+        files.push(path.to_owned());
+        return Ok(());
+    }
+    if !metadata.is_dir() {
+        return Err(format!(
+            "{} is neither a file nor a directory.",
+            path.display()
+        ));
+    }
+    let entries = fs::read_dir(path)
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("failed to inspect {}: {error}", entry.path().display()))?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        collect_import_files(&entry.path(), files)?;
+    }
+    Ok(())
+}
+
+fn urlencode(path: &str) -> String {
+    let mut encoded = String::new();
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'/' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
 fn redact_url(url: &str) -> &str {
     url.rsplit_once('/').map(|(_, name)| name).unwrap_or(url)
 }
@@ -224,6 +343,83 @@ pub(super) fn download_group(
     let destination = download_destination(state, &group.id)?;
     fs::create_dir_all(&destination)
         .map_err(|error| format!("failed to create {}: {error}", destination.display()))?;
+
+    if let Some((archive_name, archive_sha256)) = qwen3_archive_spec(&group.id) {
+        let archive = destination.join(archive_name);
+        download_file(&group.download_url, &archive, group.download_bytes)?;
+        let actual = verified_digest(&archive)?;
+        if !actual.eq_ignore_ascii_case(archive_sha256) {
+            let _ = fs::remove_file(&archive);
+            return Err(format!(
+                "checksum mismatch for {}: expected {archive_sha256}, got {actual}.",
+                archive.display()
+            ));
+        }
+        let extracted = archive.with_extension("extracted");
+        let _ = fs::remove_dir_all(&extracted);
+        let result = extract_tar_bz2(&archive, &extracted).and_then(|()| {
+            let root = extracted.join(group.version.as_str());
+            for (relative, source_name) in qwen3_06b_runtime_files() {
+                let file = group
+                    .files
+                    .iter()
+                    .find(|file| file.relative == *relative)
+                    .ok_or_else(|| format!("No checksum registered for {relative}."))?;
+                let (sha256, min_bytes) = pinned(file)?;
+                let source = find_source(&root, source_name)?;
+                install_verified_file(
+                    &source,
+                    &state.model_root().join(relative),
+                    sha256,
+                    min_bytes,
+                )?;
+            }
+            Ok(())
+        });
+        let _ = fs::remove_dir_all(&extracted);
+        return result;
+    }
+
+    if group.id == ASR_QWEN3_17B_ID {
+        for (source_path, file_name, size, sha256) in qwen3_17b_runtime_files() {
+            let relative = format!("sherpa/{}/{}", group.id, file_name);
+            let installed = state.model_root().join(&relative);
+            if let Ok(actual) = verified_digest(&installed) {
+                if actual.eq_ignore_ascii_case(sha256) {
+                    continue;
+                }
+            }
+            let url = format!(
+                "{MODELSCOPE_API}?Revision={QWEN3_17B_REVISION}&FilePath={}",
+                urlencode(source_path)
+            );
+            let archive = destination.join(file_name);
+            download_file(&url, &archive, *size)?;
+            let actual = verified_digest(&archive)?;
+            if !actual.eq_ignore_ascii_case(sha256) {
+                let _ = fs::remove_file(&archive);
+                return Err(format!(
+                    "checksum mismatch for {}: expected {sha256}, got {actual}.",
+                    relative
+                ));
+            }
+            let target_dir = if source_path.starts_with("tokenizer/") {
+                "tokenizer"
+            } else {
+                ""
+            };
+            let target = if target_dir.is_empty() {
+                installed
+            } else {
+                state
+                    .model_root()
+                    .join(format!("sherpa/{}/{target_dir}", group.id))
+                    .join(file_name)
+            };
+            install_verified_file(&archive, &target, sha256, *size)?;
+        }
+        return Ok(());
+    }
 
     if group.download_kind == "bergamot" {
         for (index, file) in group.files.iter().enumerate() {
@@ -288,11 +484,7 @@ pub(super) fn import_group(
     let mut archives = Vec::new();
     let mut files = Vec::new();
     let mut installed = 0usize;
-    for source in sources {
-        let path = PathBuf::from(source);
-        if !path.is_file() {
-            return Err(format!("{} is not a file.", path.display()));
-        }
+    for path in expand_import_sources(sources)? {
         if path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -302,6 +494,111 @@ pub(super) fn import_group(
         } else {
             files.push(path);
         }
+    }
+    if group.id == ASR_QWEN3_17B_ID {
+        let mut selected = Vec::new();
+        let mut missing = Vec::new();
+        for (source_path, file_name, size, sha256) in qwen3_17b_runtime_files() {
+            let matches = archives
+                .iter()
+                .chain(files.iter())
+                .find(|path| path.file_name().and_then(|name| name.to_str()) == Some(*file_name));
+            let Some(source) = matches else {
+                missing.push(*file_name);
+                continue;
+            };
+            let target_dir = if source_path.starts_with("tokenizer/") {
+                "tokenizer"
+            } else {
+                ""
+            };
+            let relative = if target_dir.is_empty() {
+                format!("sherpa/{}/{}", group.id, file_name)
+            } else {
+                format!("sherpa/{}/{target_dir}/{file_name}", group.id)
+            };
+            verify_source_file(source, sha256, *size)?;
+            selected.push((source.clone(), state.model_root().join(relative)));
+        }
+        if !missing.is_empty() {
+            return Err(format!(
+                "Select all runtime files for this model, including the tokenizer files. Missing: {}.",
+                missing.join(", ")
+            ));
+        }
+        for (source, target) in selected {
+            install_preverified_file(&source, &target)?;
+        }
+        return Ok(());
+    }
+    if let Some((archive_name, archive_sha256)) = qwen3_archive_spec(&group.id) {
+        if !archives.is_empty() {
+            let [archive] = archives.as_slice() else {
+                return Err(format!(
+                    "Select only the {archive_name} archive for this model."
+                ));
+            };
+            let actual = verified_digest(archive)?;
+            if !actual.eq_ignore_ascii_case(archive_sha256) {
+                return Err(format!(
+                    "checksum mismatch for {}: expected {archive_sha256}, got {actual}.",
+                    archive.display()
+                ));
+            }
+            let extracted = archive.with_extension("extracted");
+            let _ = fs::remove_dir_all(&extracted);
+            let result = extract_tar_bz2(archive, &extracted).and_then(|()| {
+                let root = extracted.join(group.version.as_str());
+                for (relative, source_name) in qwen3_06b_runtime_files() {
+                    let file = group
+                        .files
+                        .iter()
+                        .find(|file| file.relative == *relative)
+                        .ok_or_else(|| format!("No checksum registered for {relative}."))?;
+                    let (sha256, min_bytes) = pinned(file)?;
+                    let source = find_source(&root, source_name)?;
+                    install_verified_file(
+                        &source,
+                        &state.model_root().join(relative),
+                        sha256,
+                        min_bytes,
+                    )?;
+                }
+                Ok(())
+            });
+            let _ = fs::remove_dir_all(&extracted);
+            return result;
+        }
+
+        let mut selected = Vec::new();
+        let mut missing = Vec::new();
+        for (relative, source_name) in qwen3_06b_runtime_files() {
+            let Some(source) = files
+                .iter()
+                .find(|path| path.file_name().and_then(|name| name.to_str()) == Some(*source_name))
+            else {
+                missing.push(*source_name);
+                continue;
+            };
+            let file = group
+                .files
+                .iter()
+                .find(|file| file.relative == *relative)
+                .ok_or_else(|| format!("No checksum registered for {relative}."))?;
+            let (sha256, min_bytes) = pinned(file)?;
+            verify_source_file(source, sha256, min_bytes)?;
+            selected.push((source.clone(), state.model_root().join(relative)));
+        }
+        if !missing.is_empty() {
+            return Err(format!(
+                "Select the archive or all extracted runtime files for this model. Missing: {}.",
+                missing.join(", ")
+            ));
+        }
+        for (source, target) in selected {
+            install_preverified_file(&source, &target)?;
+        }
+        return Ok(());
     }
     if !archives.is_empty() {
         for archive in archives {
@@ -438,8 +735,8 @@ fn copy_verified(
 #[cfg(test)]
 mod tests {
     use super::{
-        download_file, find_source, install_direct_file, is_import_name, ModelInstallFile,
-        ModelInstallGroup,
+        download_file, expand_import_sources, find_source, install_direct_file, is_import_name,
+        verify_source_file, ModelInstallFile, ModelInstallGroup,
     };
     use std::fs;
     use std::io::{Read, Write};
@@ -495,6 +792,7 @@ mod tests {
             download_bytes: payload.len() as u64,
             download_urls: Vec::new(),
             download_bytes_each: Vec::new(),
+            archive_sha256: None,
             files: vec![ModelInstallFile {
                 relative: "sherpa/direct-test.onnx".to_owned(),
                 expected_sha256: Some(sha256),
@@ -545,6 +843,7 @@ mod tests {
             download_bytes: 1,
             download_urls: Vec::new(),
             download_bytes_each: Vec::new(),
+            archive_sha256: None,
             files: Vec::new(),
         };
         let file = ModelInstallFile {
@@ -562,5 +861,42 @@ mod tests {
             "model.enzh.intgemm.alphas.bin.zst"
         ));
         assert!(!is_import_name(&group, &file, "other.bin"));
+    }
+
+    #[test]
+    fn directory_import_expands_nested_runtime_files() {
+        let directory =
+            std::env::temp_dir().join(format!("sonasub-directory-import-{}", std::process::id()));
+        let tokenizer = directory.join("tokenizer");
+        fs::create_dir_all(&tokenizer).unwrap();
+        fs::write(directory.join("conv_frontend.onnx"), b"model").unwrap();
+        fs::write(tokenizer.join("vocab.json"), b"tokenizer").unwrap();
+
+        let files = expand_import_sources(&[directory.display().to_string()]).unwrap();
+        let names = files
+            .iter()
+            .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"conv_frontend.onnx"));
+        assert!(names.contains(&"vocab.json"));
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn runtime_import_rejects_a_wrong_checksum() {
+        let directory =
+            std::env::temp_dir().join(format!("sonasub-checksum-test-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("model.onnx");
+        fs::write(&source, b"unexpected").unwrap();
+        let error = verify_source_file(
+            &source,
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            b"unexpected".len() as u64,
+        )
+        .expect_err("a wrong checksum must fail");
+        assert!(error.contains("checksum mismatch"));
+        let _ = fs::remove_dir_all(directory);
     }
 }

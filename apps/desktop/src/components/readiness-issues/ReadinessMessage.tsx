@@ -14,6 +14,7 @@ export function ReadinessMessage({ issue }: ReadinessMessageProps) {
     message = t(($) => $.workbench.readiness.unsupportedPlatform);
   if (issue === 'asrModel') message = t(($) => $.workbench.readiness.asrModel);
   if (issue === 'asrMode') message = t(($) => $.workbench.readiness.asrMode);
+  if (issue === 'asrLanguage') message = t(($) => $.workbench.readiness.asrLanguage);
   if (issue === 'vadModel') message = t(($) => $.workbench.readiness.vadModel);
   if (issue === 'translationModel') message = t(($) => $.workbench.readiness.translationModel);
   if (issue === 'speakerModel') message = t(($) => $.workbench.readiness.speakerModel);

@@ -46,15 +46,17 @@ downloads archives itself in Rust and has no Node.js runtime.
 
 ## Pinned Model Set
 
-| Purpose                  | Model                           | Version/source                                                | Runtime files                                                                            |
-| ------------------------ | ------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Streaming ASR            | Zipformer bilingual zh-en, int8 | `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20`  | `sherpa/streaming-zipformer-bilingual-zh-en/{encoder,decoder,joiner}.onnx`, `tokens.txt` |
-| Segmented ASR            | SenseVoice multilingual, int8   | `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`     | `sherpa/sense-voice-int8/{model.onnx,tokens.txt}`                                        |
-| VAD                      | Silero VAD                      | `silero_vad.onnx` from sherpa-onnx                            | `sherpa/silero_vad.onnx`                                                                 |
-| Speaker embedding        | 3D-Speaker CAM++ zh-en, 16 kHz  | `3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx` | `sherpa/speaker/campplus-zh-en.onnx`                                                     |
-| Diarization              | Pyannote segmentation 3.0, int8 | `sherpa-onnx-pyannote-segmentation-3-0`                       | `sherpa/diarization/pyannote-segmentation-3.0.onnx`                                      |
-| Translation en → zh-Hans | Bergamot v3.0                   | Firefox Translations model attachments                        | `bergamot/en-zh-Hans/{model.bin,src.spm,trg.spm,lex.bin}`                                |
-| Translation zh-Hans → en | Bergamot v3.1                   | Firefox Translations model attachments                        | `bergamot/zh-Hans-en/{model.bin,vocab.spm,lex.bin}`                                      |
+| Purpose                  | Model                           | Version/source                                                | Runtime files                                                                                    |
+| ------------------------ | ------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Streaming ASR            | Zipformer bilingual zh-en, int8 | `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20`  | `sherpa/streaming-zipformer-bilingual-zh-en/{encoder,decoder,joiner}.onnx`, `tokens.txt`         |
+| Segmented ASR            | SenseVoice multilingual, int8   | `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`     | `sherpa/sense-voice-int8/{model.onnx,tokens.txt}`                                                |
+| Segmented ASR            | Qwen3-ASR 0.6B, int8            | Official `sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25`         | `sherpa/qwen3-asr-0.6b-int8/{conv_frontend.onnx,encoder.int8.onnx,decoder.int8.onnx,tokenizer/}` |
+| Segmented ASR            | Qwen3-ASR 1.7B, int8            | ModelScope `zengshuishui/Qwen3-ASR-onnx` at pinned revision   | `sherpa/qwen3-asr-1.7b-int8/{conv_frontend.onnx,encoder.int8.onnx,decoder.int8.onnx,tokenizer/}` |
+| VAD                      | Silero VAD                      | `silero_vad.onnx` from sherpa-onnx                            | `sherpa/silero_vad.onnx`                                                                         |
+| Speaker embedding        | 3D-Speaker CAM++ zh-en, 16 kHz  | `3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx` | `sherpa/speaker/campplus-zh-en.onnx`                                                             |
+| Diarization              | Pyannote segmentation 3.0, int8 | `sherpa-onnx-pyannote-segmentation-3-0`                       | `sherpa/diarization/pyannote-segmentation-3.0.onnx`                                              |
+| Translation en → zh-Hans | Bergamot v3.0                   | Firefox Translations model attachments                        | `bergamot/en-zh-Hans/{model.bin,src.spm,trg.spm,lex.bin}`                                        |
+| Translation zh-Hans → en | Bergamot v3.1                   | Firefox Translations model attachments                        | `bergamot/zh-Hans-en/{model.bin,vocab.spm,lex.bin}`                                              |
 
 The sherpa-onnx runtime is pinned through the official `sherpa-onnx` Rust crate
 v2.0.1. The native Bergamot adapter is `fxtranslate 0.5.0`.
@@ -88,10 +90,21 @@ The official v2.0.1 runtime must return speaker segments for this input.
   session starts.
 - SenseVoice uses Silero VAD and a maximum segment length to produce complete
   segment text. It is segmented recognition, not native streaming.
+- Qwen3-ASR 0.6B and 1.7B reuse Silero VAD, timeline calculation, discontinuity
+  handling, subtitle finalization, flush and shutdown. Both report only the
+  segmented capability and never claim a native partial stream.
+- Both Qwen models declare the 30 languages supported by the Qwen3-ASR family.
+  sherpa-onnx v2.0.1 exposes neither a model-config language field nor a
+  `language` option on the Qwen offline stream. SonaSub therefore keeps Qwen
+  on automatic language detection, rejects a persisted forced language, and
+  disables the language control in the frontend.
 - SenseVoice recognizes Chinese, English, Japanese, Korean and Cantonese, but
   translation is limited to the two pinned Bergamot directions. Other source
   languages remain source-only with an explicit `unavailable` translation
-  state.
+  state. The same restriction applies to Qwen. Conservative script routing
+  handles Chinese, English, Japanese kana and Korean Hangul when Qwen has no
+  language tag; other scripts are marked `unknown` instead of being routed
+  incorrectly through Bergamot.
 - Bergamot returns one complete translated string for a submitted source
   string. The adapter declares `text` only; `streaming` is not supported.
 - The translation adapter separates the native runtime (`fxtranslate`) from
@@ -142,6 +155,9 @@ Each bundle offers two methods:
 - **Import selected files**: selects the official archive, the downloaded
   model attachments, or all extracted runtime files from disk. The same
   verification and atomic install path is used.
+- **Import model folder**: recursively collects a selected extracted model or
+  tokenizer directory, matches the pinned file names and requires the complete
+  Qwen runtime set before installing it.
 
 Use **Choose download directory** to keep archives elsewhere; SonaSub saves
 that preference in the application config directory. **Use default directory**
@@ -152,6 +168,26 @@ temporary path, fully hashed, and renamed into place only when its checksum
 matches. A failure leaves the previous installed file untouched. Downloads use
 connect and read timeouts, and discard an incomplete temporary file so the next
 attempt starts cleanly.
+
+The official Qwen3-ASR 0.6B archive is checked against its archive SHA-256
+before extraction and every extracted runtime file is checked again. The 1.7B
+community export is downloaded as six files from a fixed ModelScope revision;
+each file has an exact byte size and SHA-256. The two models have separate
+installation roots and can coexist with SenseVoice, Zipformer and each other.
+
+### Qwen3-ASR 1.7B source and license
+
+The sherpa-onnx models release documents the 0.6B checkpoint directly. The
+1.7B path uses `zengshuishui/Qwen3-ASR-onnx`, pinned to revision
+`9c182309f7bb075f241424441add9e16c5086dfb`. Its ModelScope card declares
+Apache-2.0 and links the sherpa-onnx compatibility implementation. The same
+card explicitly calls the export a reference demo and gives no completeness or
+production-readiness guarantee.
+
+This repository pins the export because it is the source linked by the official
+sherpa-onnx documentation, but its runtime behavior and resource use remain a
+validation item. The app must not relabel it as an official Qwen release or an
+officially production-supported sherpa-onnx asset.
 
 `pnpm prepare:models` remains a developer convenience for obtaining the full
 pinned set from a checkout. It is not required by the packaged application.
@@ -180,6 +216,13 @@ the runtime model registry cannot drift silently.
 | `sherpa/streaming-zipformer-bilingual-zh-en/tokens.txt`   | `a8e0e4ec53810e433789b54a5c0134a7eaa2ffca595a6334d54c00da858841d3` |
 | `sherpa/sense-voice-int8/model.onnx`                      | `c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51` |
 | `sherpa/sense-voice-int8/tokens.txt`                      | `f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc` |
+| Qwen3 0.6B archive                                        | `393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96` |
+| `sherpa/qwen3-asr-0.6b-int8/conv_frontend.onnx`           | `d22dc4423e0940e49884e903d2ea2f7e5567c14fc1aed97e4e26d6b8f208ef9e` |
+| `sherpa/qwen3-asr-0.6b-int8/encoder.int8.onnx`            | `60748d3e6744a57c9c91e1b17424a6c2990567e8adceb0783940c03ed98fa9d9` |
+| `sherpa/qwen3-asr-0.6b-int8/decoder.int8.onnx`            | `4f6885be5959ae26af3089d38ee7972c5fafbeeb1cf8d5e76eab6d8b61ca5771` |
+| `sherpa/qwen3-asr-1.7b-int8/conv_frontend.onnx`           | `fa894a4ba53da6a4238f2a6ca0b09362e505d39cecbd646051b033e2e8d7e2fb` |
+| `sherpa/qwen3-asr-1.7b-int8/encoder.int8.onnx`            | `436fbd910a0c8914851e5ac1354e807be9f283d08a5da728adaa609731c41469` |
+| `sherpa/qwen3-asr-1.7b-int8/decoder.int8.onnx`            | `c43c853fa6e97d08365cb8a5502b360b595cd43c00dc60e4d8ca7cc18cad460b` |
 | `sherpa/silero_vad.onnx`                                  | `9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6` |
 | `sherpa/speaker/campplus-zh-en.onnx`                      | `aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2` |
 | `sherpa/diarization/pyannote-segmentation-3.0.onnx`       | `d582f4b4c6b48205de7e0643c57df0df5615a3c176189be3fc461e9d18827b5d` |
@@ -190,3 +233,11 @@ the runtime model registry cannot drift silently.
 | `bergamot/zh-Hans-en/model.bin`                           | `5cd149601802fc8a18124a1c1306144dbbedc058630c4ddb2d53aa76fa9c7c06` |
 | `bergamot/zh-Hans-en/vocab.spm`                           | `dff594318ab7d8b7b60b844ab98ebe6b932ae8045fab15235404c787715965b3` |
 | `bergamot/zh-Hans-en/lex.bin`                             | `8524dd4c93ffd7f0ae7be32f77a7c14fea7cdbbebe34ea6ad0ec368d5ddd8b13` |
+
+Both Qwen tokenizer directories share these pinned files:
+
+| File component          | SHA-256                                                            |
+| ----------------------- | ------------------------------------------------------------------ |
+| `merges.txt`            | `8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5` |
+| `tokenizer_config.json` | `4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c` |
+| `vocab.json`            | `ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910` |

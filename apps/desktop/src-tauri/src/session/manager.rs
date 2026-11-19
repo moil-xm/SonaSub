@@ -21,7 +21,7 @@ use crate::{
     audio,
     config::{AppConfig, ConfigStore},
     models::{
-        resolve_asr_mode, resolve_translation_mode, ModelPaths, ASR_MODELS, BERGAMOT_ENGINE_ID,
+        resolve_translation_mode, validate_asr_config, ModelPaths, BERGAMOT_ENGINE_ID,
         SUPPORTED_LANGUAGES, TRANSLATION_MODELS,
     },
     pipeline::metrics::SessionMetrics,
@@ -465,28 +465,11 @@ fn validate_configuration(config: &AppConfig) -> Result<(), String> {
             config.translation.engine
         ));
     }
-    let asr = ASR_MODELS
-        .iter()
-        .find(|model| model.id == config.recognition.model_id)
-        .ok_or_else(|| format!("Unknown ASR model `{}`.", config.recognition.model_id))?;
-    resolve_asr_mode(asr, config.recognition.mode)?;
-    if config.recognition.source_language != "auto"
-        && !asr
-            .source_languages
-            .iter()
-            .any(|language| *language == config.recognition.source_language)
-    {
-        return Err(format!(
-            "ASR model `{}` does not support source language `{}`.",
-            asr.label, config.recognition.source_language
-        ));
-    }
-    if config.recognition.source_language != "auto" && !asr.supports_source_language {
-        return Err(format!(
-            "ASR model `{}` detects the language of every utterance, so a forced source language has no effect. Use `auto` instead.",
-            asr.label
-        ));
-    }
+    validate_asr_config(
+        &config.recognition.model_id,
+        config.recognition.mode,
+        &config.recognition.source_language,
+    )?;
     if !SUPPORTED_LANGUAGES
         .iter()
         .any(|(code, _)| *code == config.translation.target_language)
@@ -507,4 +490,25 @@ fn validate_configuration(config: &AppConfig) -> Result<(), String> {
     }
     resolve_translation_mode(config.translation.mode)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_configuration;
+    use crate::{
+        config::{AppConfig, AsrMode},
+        models::{ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID},
+    };
+
+    #[test]
+    fn live_session_accepts_qwen3_segmented_and_rejects_streaming() {
+        for model_id in [ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID] {
+            let mut config = AppConfig::default();
+            config.recognition.model_id = model_id.to_owned();
+            config.recognition.mode = AsrMode::Segmented;
+            validate_configuration(&config).unwrap();
+            config.recognition.mode = AsrMode::Streaming;
+            assert!(validate_configuration(&config).is_err());
+        }
+    }
 }
