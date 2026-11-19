@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { AppConfig, SubtitleSegment } from '@/lib/session';
 
-import { applyRecordSubtitleBatch, sortRecordSegments } from './records';
-import type { RecordSnapshot, RecordStats } from './records.type';
+import { applyRecordSubtitleBatch, sortRecordSegments } from '../records';
+import type { RecordSnapshot, RecordStats } from '../records.type';
 
 const EMPTY_STATS: RecordStats = {
   startedAtMs: 0,

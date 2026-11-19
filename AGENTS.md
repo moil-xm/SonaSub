@@ -31,8 +31,8 @@ Dependency direction and import conventions are in [docs/architecture.md](docs/a
 ## File Organization and Naming
 
 - Directories and non-component modules use kebab-case; React components and types use PascalCase, functions and variables use camelCase.
-- Every React component lives in its own directory named after it in kebab-case, following the Ant Design `components/<name>/` layout. `apps/desktop/src/components/live-subtitles/` holds `LiveSubtitles.tsx`, its colocated `LiveSubtitles.test.tsx` and `LiveSubtitles.type.ts`, the named sub-components (`SubtitleRow.tsx`) and an `index.ts` public entry that only re-exports.
-- The same layout applies to `.ts` modules: `apps/desktop/src/lib/session/` holds `session.ts`, its colocated `session.type.ts` and an `index.ts` public entry. PascalCase stays reserved for React components and types; a module keeps its kebab-case file name.
+- Every React component lives in its own directory named after it in kebab-case, following the Ant Design `components/<name>/` layout. `apps/desktop/src/components/live-subtitles/` holds `LiveSubtitles.tsx`, `LiveSubtitles.type.ts`, the named sub-components (`SubtitleRow.tsx`) and an `index.ts` public entry that only re-exports. Tests live in the module's `__tests__/` directory: `LiveSubtitles.test.tsx`.
+- The same layout applies to `.ts` modules: `apps/desktop/src/lib/session/` holds `session.ts`, `session.type.ts`, `__tests__/` and an `index.ts` public entry. PascalCase stays reserved for React components and types; a module keeps its kebab-case file name.
 - Consumers import the component directory (`@/components/live-subtitles`), never the implementation file inside it.
 - A directory that groups sibling files of one kind is a collection, not a module, and keeps its own `index.ts` (`packages/i18n/src/resources/`); app entry files (`main.tsx`, `routeTree.ts`) stay at the workspace root.
 - Desktop pages live in `apps/desktop/src/routes/<route>/` and are registered in `src/routeTree.ts`; layout components live in `src/components`.

@@ -20,11 +20,11 @@ They do not apply to generated artifacts (`routeTree.gen.ts`, WXT-generated file
 ## Component Directories
 
 - Every React component owns a directory named after it in kebab-case, mirroring the Ant Design `components/<name>/` layout: `src/components/live-subtitles/`.
-- The directory holds the implementation file in PascalCase (`LiveSubtitles.tsx`), the named sub-components of that component (`SubtitleRow.tsx`), the colocated `LiveSubtitles.test.tsx` and `LiveSubtitles.type.ts`, and an `index.ts` public entry.
+- The directory holds the implementation file in PascalCase (`LiveSubtitles.tsx`), the named sub-components of that component (`SubtitleRow.tsx`), `LiveSubtitles.type.ts`, an `index.ts` public entry, and a `__tests__/` directory containing `LiveSubtitles.test.tsx`, following Ant Design's `components/<name>/__tests__/` layout.
 - `index.ts` only re-exports the component, its props types and the sub-components that form the public surface; it holds no implementation logic. Private sub-components stay unexported.
 - Consumers import the directory (`@/components/live-subtitles`), never a file inside it. Sibling files inside one directory use relative paths (`./SubtitleRow`).
 - One named React component per file. Plain helper functions stay in the file that uses them.
-- Keep a component directory flat; add `style/`, `demo/` or `__tests__/` only when a real need appears.
+- Tests belong in `__tests__/`; otherwise keep a component directory flat and add `style/` or `demo/` only when a real need appears.
 - WXT entrypoints own their directory shape (`index.html`, `main.tsx`); the component file inside is PascalCase and imported directly by the entry.
 
 ## Module Directories

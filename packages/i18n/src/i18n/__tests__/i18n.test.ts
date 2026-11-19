@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import { FALLBACK_LOCALE, isLanguagePreference, resolveLocale } from '../locale';
-import { enUs, zhCn } from '../resources';
+import { FALLBACK_LOCALE, isLanguagePreference, resolveLocale } from '../../locale';
+import { enUs, zhCn } from '../../resources';
 
-import { createI18n } from './i18n';
+import { createI18n } from '../i18n';
 
 function flattenTranslations(value: object, prefix = ''): Map<string, string> {
   const translations = new Map<string, string>();

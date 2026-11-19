@@ -35,7 +35,7 @@ afterEach(() => {
 describe('extension language preference', () => {
   it('restores a saved language and persists or clears later choices', async () => {
     storage.get.mockResolvedValue({ [LANGUAGE_STORAGE_KEY]: 'zh-CN' });
-    const { initializeI18n, setLanguagePreference } = await import('./i18n');
+    const { initializeI18n, setLanguagePreference } = await import('../i18n');
 
     const instance = await initializeI18n();
 
@@ -53,7 +53,7 @@ describe('extension language preference', () => {
 
   it('falls back to English when the system language is unsupported', async () => {
     vi.stubGlobal('navigator', { language: 'fr-FR' });
-    const { initializeI18n } = await import('./i18n');
+    const { initializeI18n } = await import('../i18n');
 
     const instance = await initializeI18n();
 

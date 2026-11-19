@@ -31,7 +31,7 @@ describe('desktop language preference', () => {
     vi.stubGlobal('document', { documentElement: { lang: '' } });
     vi.stubGlobal('navigator', { language: 'zh-CN' });
 
-    const { i18n, setLanguagePreference } = await import('./i18n');
+    const { i18n, setLanguagePreference } = await import('../i18n');
 
     expect(i18n.language).toBe('zh-CN');
     expect(document.documentElement.lang).toBe('zh-CN');
@@ -51,7 +51,7 @@ describe('desktop language preference', () => {
     vi.stubGlobal('document', { documentElement: { lang: '' } });
     vi.stubGlobal('navigator', { language: 'fr-FR' });
 
-    const { i18n } = await import('./i18n');
+    const { i18n } = await import('../i18n');
 
     expect(i18n.language).toBe('en-US');
   });
