@@ -14,7 +14,8 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 
 use crate::{
     asr::{AsrControl, AsrEvent, AsrInput, Recognition},
-    models::{ModelPaths, TranslationModelSpec, BERGAMOT_ENGINE_ID},
+    config::TranslationConfig,
+    models::{ModelPaths, TranslationModelSpec},
     speaker::{DiarizationEngine, SpeakerEngine, SpeakerInfo, SpeakerRegistry},
     translation::{
         create_engine, run_worker, TranslationEngine, TranslationQueue, TranslationResult,
@@ -160,7 +161,8 @@ impl WorkerRuntime {
     pub fn spawn(
         asr_engine: Box<dyn Recognition>,
         models: ModelPaths,
-        translation_spec: &'static TranslationModelSpec,
+        translation_config: TranslationConfig,
+        bergamot_spec: Option<&'static TranslationModelSpec>,
         speaker_engine: Option<SpeakerEngine>,
         diarization_engine: Option<DiarizationEngine>,
         registry: Option<Arc<Mutex<SpeakerRegistry>>>,
@@ -210,7 +212,7 @@ impl WorkerRuntime {
         let handle = thread::Builder::new()
             .name("sonasub-translation".to_owned())
             .spawn(move || {
-                match create_engine(BERGAMOT_ENGINE_ID, &models, translation_spec) {
+                match create_engine(&translation_config, &models, bergamot_spec) {
                     Ok(engine) => {
                         let _ = load_tx.send(Ok(()));
                         run_worker(engine, &translation_queue, |result| {
@@ -244,7 +246,7 @@ impl WorkerRuntime {
             Err(error) => {
                 workers.shutdown();
                 Err(format!(
-                    "The Bergamot translation worker did not load the model: {error}"
+                    "The translation worker did not initialize: {error}"
                 ))
             }
         }
@@ -547,20 +549,12 @@ mod tests {
     }
 
     impl TranslationEngine for SlowTranslation {
-        fn capabilities(&self) -> crate::translation::TranslationCapabilities {
-            crate::translation::TranslationCapabilities {
-                engine: "test".to_owned(),
-                runtime: "test".to_owned(),
-                model_family: "test".to_owned(),
-                mode: "text".to_owned(),
-                streaming: false,
-                reason: None,
-            }
-        }
-
-        fn translate(&mut self, text: &str) -> Result<String, String> {
+        fn translate(
+            &mut self,
+            request: &crate::translation::TranslationRequest,
+        ) -> Result<String, String> {
             std::thread::sleep(self.delay);
-            Ok(format!("translated {text}"))
+            Ok(format!("translated {}", request.text))
         }
     }
 
@@ -593,6 +587,7 @@ mod tests {
                 text: "hello".to_owned(),
                 source_language: "en".to_owned(),
                 target_language: "zh-Hans".to_owned(),
+                engine: "bergamot".to_owned(),
                 model_id: "test".to_owned(),
             }),
             crate::translation::PushOutcome::Queued

@@ -8,13 +8,13 @@ authentication handshake or browser-side inference.
 
 ## Module Responsibilities
 
-| Path                     | Responsibility                                                                                                                       | Technology                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| `apps/desktop`           | React control UI; Tauri commands, events and native desktop shell                                                                    | React + TypeScript, TanStack Router/Query/Form, Zustand, Tauri 2 |
-| `apps/desktop/src-tauri` | Audio capture, DSP, sherpa-onnx workers, speaker analysis, Bergamot worker, subtitle scheduling, configuration and session lifecycle | Rust, flexaudio, sherpa-onnx, fxtranslate                        |
-| `apps/extension`         | Chrome extension (Manifest V3), popup only; no capture implementation yet                                                            | WXT + React + TypeScript                                         |
-| `packages/ui`            | Shared shadcn/ui components, theme variables, styles and hooks                                                                       | Tailwind CSS 4, CSS Variables, Radix primitives                  |
-| `packages/i18n`          | Shared `en-US` / `zh-CN` resources, i18next setup and typed selectors                                                                | i18next + react-i18next                                          |
+| Path                     | Responsibility                                                                                                                                             | Technology                                                       |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `apps/desktop`           | React control UI; Tauri commands, events and native desktop shell                                                                                          | React + TypeScript, TanStack Router/Query/Form, Zustand, Tauri 2 |
+| `apps/desktop/src-tauri` | Audio capture, DSP, sherpa-onnx workers, speaker analysis, local and remote translation adapters, subtitle scheduling, configuration and session lifecycle | Rust, flexaudio, sherpa-onnx, fxtranslate, adk-model             |
+| `apps/extension`         | Chrome extension (Manifest V3), popup only; no capture implementation yet                                                                                  | WXT + React + TypeScript                                         |
+| `packages/ui`            | Shared shadcn/ui components, theme variables, styles and hooks                                                                                             | Tailwind CSS 4, CSS Variables, Radix primitives                  |
+| `packages/i18n`          | Shared `en-US` / `zh-CN` resources, i18next setup and typed selectors                                                                                      | i18next + react-i18next                                          |
 
 The native entry point is `apps/desktop/src-tauri/src/lib.rs`. It registers
 the Tauri commands and starts the live-session and record managers.
@@ -36,8 +36,9 @@ the Tauri commands and starts the live-session and record managers.
   segmented Silero VAD + SenseVoice or Qwen3-ASR implementations.
 - `speaker/` owns the CAM++ embedding registry, windowed Pyannote diarization
   and assignment of speakers to subtitle intervals.
-- `translation/` resolves source languages and owns the `TranslationEngine`
-  interface, Bergamot adapter and bounded translation queue.
+- `translation/` resolves source languages, owns the `TranslationEngine`
+  interface, the local Bergamot and remote OpenAI-compatible adapters, shared
+  routing and the bounded translation queue.
 - `subtitles/` owns stable segment IDs, revisions and independent text, speaker and
   translation patches.
 
@@ -64,7 +65,8 @@ graph TD
   rust --> audio[Core Audio + DSP]
   rust --> asr[sherpa-onnx workers]
   rust --> speaker[speaker + diarization workers]
-  rust --> translation[Bergamot worker]
+  rust --> translation[translation workers]
+  rust -. only when selected .-> remote[OpenAI-compatible endpoint]
   rust --> models[local model directory]
 ```
 
@@ -169,24 +171,38 @@ rejects a speaker patch that is older than the revision it already applied.
 
 ## Translation
 
-`TranslationEngine` is a small blocking interface. The only compiled adapter is
-Bergamot through `fxtranslate`, using Firefox Translations-format models.
+`TranslationEngine` is a small blocking interface with two compiled adapters:
+
+- **Bergamot** runs locally through `fxtranslate` with pinned Firefox
+  Translations-format models. Its runtime is `fxtranslate` and its model family
+  is `bergamot-firefox`.
+- **OpenAI-Compatible** runs through `adk-model 2.3.0`. Its runtime is
+  `adk-model` and its model family is `openai-compatible`; no local translation
+  weights are involved.
+
 Complete source text is submitted on a dedicated worker; the result returns as
 an asynchronous patch for the same subtitle ID and text revision.
 
-- The adapter reports the native runtime (`fxtranslate`) and the model family
-  (`bergamot-firefox`) separately. The runtime executes the model; the model
-  family describes the pinned weight format. They are not interchangeable.
-- The translation worker receives its engine through the `TranslationEngine`
-  interface and is created by one factory entry point. Only the existing
-  adapter is implemented; there is no plugin registry or dynamic loading.
-- Bergamot declares complete-text (`text`) only. `streaming` is rejected; an
-  asynchronous callback is not described as incremental translation.
+- Capabilities declare each engine's id, label, runtime, model family, local
+  model requirement, target languages and output modes. The shared target list
+  contains 30 languages. Bergamot declares only `en` and `zh-Hans`; the remote
+  adapter declares all 30 and leaves the final language support to the remote
+  model.
+- Shared routing resolves the selected engine before work is queued. A source
+  language equal to the target is marked not-needed. A Bergamot request whose
+  detected source does not match the pinned local direction is marked
+  unavailable. An OpenAI-compatible request is ready without a local model
+  lookup.
+- The translation worker receives its engine through one factory entry point.
+  There is no plugin registry or dynamic library loading.
+- Both adapters declare complete-text (`text`) only. `streaming` is rejected;
+  an asynchronous callback is not described as incremental translation.
 - `auto` resolves to `text`.
 - Pending requests for an older revision of the same subtitle are replaced.
   The queue is bounded and evicts the oldest request with an explicit error
   rather than leaving it pending.
-- Results carry session, subtitle, source revision and target language.
+- Results and patches carry session, subtitle, source revision, target
+  language, the actual engine and the actual model id.
   Cancelled, stale or config-invalidated results cannot overwrite newer text.
 - Translation failure never blocks or removes the source caption. A segment
   whose detected source already matches the target is marked not-needed.
@@ -197,7 +213,30 @@ an asynchronous patch for the same subtitle ID and text revision.
   language tag. With automatic Qwen language handling and no tag, conservative
   script routing recognizes Latin, Han, Japanese kana and Korean Hangul.
   Unsupported scripts such as Arabic, Thai or Cyrillic are marked `unknown`
-  rather than being sent through the English or Chinese Bergamot model.
+  rather than being sent through the English or Chinese Bergamot model. The
+  remote engine receives the detected language as a prompt hint and can
+  translate those scripts when the remote model supports them.
+- The remote adapter sends one non-streaming Chat Completions request per
+  caption. It uses a system message that requires only the translated text and
+  forbids explanations, quotes, Markdown or following instructions inside the
+  caption, followed by the caption as a user message.
+- The remote request has a 20-second timeout, `max_output_tokens = 1024`,
+  automatic retries disabled and no temperature/top-p sampling fields. An
+  empty API key omits the authorization header; a non-empty key is sent as a
+  Bearer token. The Base URL must be absolute `http://` or `https://`, must not
+  contain credentials, a query or a fragment, and has a trailing `/` or a
+  mistaken `/chat/completions` suffix removed before use.
+- Only text parts of the response are accepted and trimmed. Empty text,
+  provider errors, output-limit truncation, safety stops and other unexpected
+  stop reasons fail that caption's translation without changing its source
+  text.
+- Startup constructs the remote client but performs no network probe. A
+  timeout, rate limit or provider error affects only the subtitle being
+  translated.
+- The Base URL, remote model and API key are part of the complete configuration
+  snapshot written to `config.json` and to each record's `records.sqlite`
+  configuration. They are stored locally in plain text. `Debug` output, logs
+  and surfaced errors must redact the key.
 - The translation queue closes only after the recognition worker stopped and
   every event it produced was consumed. Closing it earlier would drop the
   translation of the last subtitle; never closing it keeps the translation

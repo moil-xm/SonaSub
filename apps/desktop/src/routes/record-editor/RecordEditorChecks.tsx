@@ -1,5 +1,6 @@
 import { useTranslation } from '@sonasub/i18n';
 
+import { assessTranslationReadiness } from '@/lib/model-readiness';
 import type { AppConfig, Capabilities } from '@/lib/session';
 import type { RecordDevice } from '@/lib/records';
 
@@ -14,9 +15,7 @@ type RecordEditorChecksProps = {
 export function RecordEditorChecks({ capabilities, config, devices }: RecordEditorChecksProps) {
   const { t } = useTranslation();
   const asr = capabilities.asrModels.find((model) => model.id === config.recognition.modelId);
-  const translation = capabilities.translationModels.find(
-    (model) => model.id === config.translation.modelId,
-  );
+  const translation = assessTranslationReadiness(capabilities, config);
   const selectedDevices = new Set(config.audio.deviceIds);
   const availableDevices = devices.filter((device) => selectedDevices.has(device.id));
   const deviceReady = capabilities.audio.systemCapture && availableDevices.length > 0;
@@ -38,7 +37,7 @@ export function RecordEditorChecks({ capabilities, config, devices }: RecordEdit
     recognitionDetail = t(($) => $.records.editor.checksRecognitionMissing);
   }
   let translationDetail: string = t(($) => $.records.editor.checksTranslationReady);
-  if (!translation?.available) {
+  if (translation.issues.length > 0) {
     translationDetail = t(($) => $.records.editor.checksTranslationMissing);
   }
   let speakerDetail: string = t(($) => $.records.editor.checksSpeakerReady);
@@ -59,9 +58,9 @@ export function RecordEditorChecks({ capabilities, config, devices }: RecordEdit
         isReady={Boolean(asr?.available)}
       />
       <RecordCheckRow
-        label={t(($) => $.records.editor.translationModel)}
+        label={t(($) => $.records.editor.translationEngine)}
         detail={translationDetail}
-        isReady={Boolean(translation?.available)}
+        isReady={translation.issues.length === 0}
       />
       <RecordCheckRow
         label={t(($) => $.records.editor.identifySpeakers)}

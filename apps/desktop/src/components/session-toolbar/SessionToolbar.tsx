@@ -77,6 +77,14 @@ export function SessionToolbar() {
 
   const { status } = snapshot;
   const readiness = assessModelReadiness(capabilities, configView.config);
+  const selectedTranslationEngine = capabilities.translationEngines.find(
+    (engine) => engine.id === configView.config.translation.engine,
+  );
+  const selectedTranslation = capabilities.translationModels.find(
+    (model) =>
+      model.engine === configView.config.translation.engine &&
+      model.id === configView.config.translation.modelId,
+  );
   const isStarting = status.state === 'starting';
   const isRunning = status.state === 'running';
   const isStopping = status.state === 'stopping';
@@ -117,7 +125,14 @@ export function SessionToolbar() {
     }
   }
 
-  let translationRoute: string = t(($) => $.workbench.route.translationText);
+  let translationRoute: string =
+    selectedTranslation?.label ?? configView.config.translation.modelId;
+  if (selectedTranslationEngine?.id === 'openai-compatible') {
+    const model = configView.config.translation.openaiCompatible.model.trim();
+    translationRoute = model
+      ? `${selectedTranslationEngine.label} · ${model}`
+      : selectedTranslationEngine.label;
+  }
   if (isRunning) translationRoute = status.info.translation.modelLabel;
 
   let speakerRoute: string = t(($) => $.workbench.route.speakersOff);

@@ -14,10 +14,7 @@ use crate::{
     asr::{AsrEngine, AsrEvent, AsrFinal, AsrInput, AsrPartial},
     audio::{self, AudioChunk, CaptureEvent, CaptureOptions},
     config::{AppConfig, TranslationTrigger},
-    models::{
-        resolve_asr_mode, resolve_translation_mode, ModelPaths, TranslationModelSpec, ASR_MODELS,
-        BERGAMOT_ENGINE_ID, DIARIZATION_FILES, SPEAKER_FILES, TRANSLATION_MODELS,
-    },
+    models::{resolve_asr_mode, ModelPaths, ASR_MODELS, DIARIZATION_FILES, SPEAKER_FILES},
     pipeline::{
         audio_flow::AudioFlow,
         lifecycle,
@@ -30,7 +27,8 @@ use crate::{
     speaker::{DiarizationWindow, SpeakerEngine, SpeakerRegistry},
     subtitles::{SubtitlePatch, SubtitleStore},
     translation::{
-        prompt_language, source_language, PushOutcome, TranslationRequest, TranslationResult,
+        prompt_language, resolve_translation_config, resolve_translation_route, source_language,
+        PushOutcome, TranslationRequest, TranslationResult, TranslationRoute,
     },
 };
 
@@ -123,7 +121,6 @@ fn run_source(context: SourceContext, ready: mpsc::Sender<Result<(), String>>) {
 
 struct SourceRunner {
     context: SourceContext,
-    translation_spec: &'static TranslationModelSpec,
     capture_rx: Receiver<CaptureEvent>,
     _capture_keepalive: Option<Sender<CaptureEvent>>,
     capture_handle: Option<JoinHandle<()>>,
@@ -155,24 +152,7 @@ impl SourceRunner {
                 )
             })?;
         let asr_mode = resolve_asr_mode(selected_asr, context.config.recognition.mode)?;
-        resolve_translation_mode(context.config.translation.mode)?;
-        let translation_spec = TRANSLATION_MODELS
-            .iter()
-            .find(|model| model.id == context.config.translation.model_id)
-            .ok_or_else(|| {
-                format!(
-                    "Unknown translation model `{}`.",
-                    context.config.translation.model_id
-                )
-            })?;
-        if translation_spec.target_language != context.config.translation.target_language {
-            return Err(format!(
-                "Translation model `{}` targets `{}`, not `{}`.",
-                translation_spec.label,
-                translation_spec.target_language,
-                context.config.translation.target_language
-            ));
-        }
+        let translation = resolve_translation_config(&context.config.translation)?;
         let missing = context.models.missing(selected_asr.files);
         if !missing.is_empty() {
             return Err(format!(
@@ -181,15 +161,17 @@ impl SourceRunner {
                 missing.join(", ")
             ));
         }
-        let missing = context
-            .models
-            .missing(&crate::models::translation_files(translation_spec));
-        if !missing.is_empty() {
-            return Err(format!(
-                "Missing translation model files in {}: {}.",
-                context.models.root.display(),
-                missing.join(", ")
-            ));
+        if let Some(translation_spec) = translation.bergamot_spec {
+            let missing = context
+                .models
+                .missing(&crate::models::translation_files(translation_spec));
+            if !missing.is_empty() {
+                return Err(format!(
+                    "Missing translation model files in {}: {}.",
+                    context.models.root.display(),
+                    missing.join(", ")
+                ));
+            }
         }
         let speakers_enabled = context.config.speakers.enabled;
         let diarization_enabled = speakers_enabled && context.config.speakers.diarization_enabled;
@@ -244,7 +226,8 @@ impl SourceRunner {
         let workers = WorkerRuntime::spawn(
             Box::new(asr_engine),
             context.models.clone(),
-            translation_spec,
+            context.config.translation.clone(),
+            translation.bergamot_spec,
             speaker_engine,
             diarization_engine,
             registry,
@@ -274,7 +257,6 @@ impl SourceRunner {
         let now = Instant::now();
         Ok(Self {
             context: context.clone(),
-            translation_spec,
             capture_rx,
             _capture_keepalive: None,
             capture_handle: Some(capture_handle),
@@ -574,7 +556,7 @@ impl SourceRunner {
             result.request.text_revision,
             result.result,
             &result.request.target_language,
-            BERGAMOT_ENGINE_ID,
+            &result.request.engine,
             &result.request.model_id,
         ) {
             self.pending_patches.push(patch);
@@ -582,7 +564,10 @@ impl SourceRunner {
     }
 
     fn queue_translation(&mut self, segment_id: &str, text: String, language: &Option<String>) {
-        let target = self.context.config.translation.target_language.clone();
+        let target = crate::config::normalize_target_language(
+            &self.context.config.translation.target_language,
+        )
+        .to_owned();
         if !self.store.needs_translation(segment_id, &target) {
             return;
         }
@@ -599,29 +584,30 @@ impl SourceRunner {
             prompt_language(Some(&self.context.config.recognition.source_language))
         };
         let source_language = source_language(&text, configured_language.or(language.as_deref()));
-        if source_language == target {
-            if let Some(patch) =
-                self.store
-                    .mark_same_language(segment_id, &target, BERGAMOT_ENGINE_ID)
-            {
-                self.pending_patches.push(patch);
+        let engine = self.context.config.translation.engine.clone();
+        let route = resolve_translation_route(&self.context.config.translation, &source_language);
+        let route = match route {
+            Ok(route) => route,
+            Err(error) => TranslationRoute::Unavailable(error),
+        };
+        let (engine, model_id) = match route {
+            TranslationRoute::NotNeeded => {
+                if let Some(patch) = self.store.mark_same_language(segment_id, &target, &engine) {
+                    self.pending_patches.push(patch);
+                }
+                return;
             }
-            return;
-        }
-        if source_language != self.translation_spec.source_language {
-            if let Some(patch) = self.store.set_translation_unavailable(
-                segment_id,
-                format!(
-                    "The selected translation model only handles {} to {}; this segment remains source-only.",
-                    self.translation_spec.source_language, self.translation_spec.target_language
-                ),
-                &target,
-                BERGAMOT_ENGINE_ID,
-            ) {
-                self.pending_patches.push(patch);
+            TranslationRoute::Unavailable(error) => {
+                if let Some(patch) = self
+                    .store
+                    .set_translation_unavailable(segment_id, error, &target, &engine)
+                {
+                    self.pending_patches.push(patch);
+                }
+                return;
             }
-            return;
-        }
+            TranslationRoute::Ready { engine, model_id } => (engine.to_owned(), model_id),
+        };
         let request = TranslationRequest {
             session_id: self.context.source_run_id.clone(),
             segment_id: segment_id.to_owned(),
@@ -630,15 +616,13 @@ impl SourceRunner {
             text,
             source_language: source_language.to_owned(),
             target_language: target.clone(),
-            model_id: self.translation_spec.id.to_owned(),
+            engine: engine.clone(),
+            model_id: model_id.clone(),
         };
-        if let Some(patch) = self.store.mark_translation_pending(
-            segment_id,
-            &target,
-            BERGAMOT_ENGINE_ID,
-            "text",
-            self.translation_spec.id,
-        ) {
+        if let Some(patch) = self
+            .store
+            .mark_translation_pending(segment_id, &target, &engine, "text", &model_id)
+        {
             self.pending_patches.push(patch);
         }
         match self.workers.queue.push(request) {
@@ -648,7 +632,7 @@ impl SourceRunner {
                     &evicted.segment_id,
                     evicted.text_revision,
                     &evicted.target_language,
-                    BERGAMOT_ENGINE_ID,
+                    &evicted.engine,
                     &evicted.model_id,
                     "Translation queue was full; a newer subtitle superseded this request."
                         .to_owned(),
@@ -662,7 +646,7 @@ impl SourceRunner {
                     "The translation worker already stopped, so this subtitle stays source-only."
                         .to_owned(),
                     &rejected.target_language,
-                    BERGAMOT_ENGINE_ID,
+                    &rejected.engine,
                 ) {
                     self.pending_patches.push(patch);
                 }

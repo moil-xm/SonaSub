@@ -31,7 +31,9 @@ impl RecordStore {
     }
 
     pub fn save_record(&self, record: &StoredRecord) -> Result<(), String> {
-        let config_json = serde_json::to_string(&record.config)
+        let mut config = record.config.clone();
+        config.normalize()?;
+        let config_json = serde_json::to_string(&config)
             .map_err(|error| format!("Failed to serialize the record configuration: {error}"))?;
         let connection = self.connection();
         connection
@@ -101,11 +103,18 @@ impl RecordStore {
 
 fn stored_record_from_row(row: &Row<'_>) -> rusqlite::Result<StoredRecord> {
     let config_json: String = row.get(2)?;
-    let config = serde_json::from_str::<AppConfig>(&config_json).map_err(|error| {
+    let mut config = serde_json::from_str::<AppConfig>(&config_json).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(
             config_json.len(),
             rusqlite::types::Type::Text,
             Box::new(error),
+        )
+    })?;
+    config.normalize().map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            config_json.len(),
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
         )
     })?;
     let state: String = row.get(3)?;

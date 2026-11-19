@@ -50,7 +50,7 @@ export function SessionDiagnostics() {
   let runBoundary = '';
   if (status.state === 'running') runBoundary = status.info.runBoundary;
   const recentNotices = notices.toReversed().slice(0, 20);
-  const translationModes = capabilities?.translationModes ?? [];
+  const translationEngines = capabilities?.translationEngines ?? [];
   const asrModels = capabilities?.asrModels ?? [];
 
   return (
@@ -107,35 +107,40 @@ export function SessionDiagnostics() {
               <div className="flex items-center justify-between gap-4 px-4 py-3">
                 <dt className="text-muted-foreground">{t(($) => $.pipeline.engine)}</dt>
                 <dd className="min-w-0 truncate text-right">
-                  {capabilities?.translationEngine ?? '-'}
+                  {translationEngines.map((engine) => engine.label).join(' · ') || '-'}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4 px-4 py-3">
                 <dt className="text-muted-foreground">{t(($) => $.pipeline.runtime)}</dt>
                 <dd className="min-w-0 truncate text-right">
-                  {capabilities?.translationRuntime ?? '-'}
+                  {translationEngines.map((engine) => engine.runtime).join(' · ') || '-'}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4 px-4 py-3">
                 <dt className="text-muted-foreground">{t(($) => $.pipeline.modelFamily)}</dt>
                 <dd className="min-w-0 truncate text-right">
-                  {capabilities?.translationModelFamily ?? '-'}
+                  {translationEngines.map((engine) => engine.modelFamily).join(' · ') || '-'}
                 </dd>
               </div>
-              {translationModes.map((mode) => (
-                <div key={mode.mode} className="flex items-center justify-between gap-4 px-4 py-3">
-                  <dt className="text-muted-foreground">
-                    {t(($) => $.pipeline.route)}: {mode.mode}
-                  </dt>
-                  <dd className="min-w-0 truncate text-right">
-                    {mode.available
-                      ? t(($) => $.pipeline.supported)
-                      : mode.reasonCode === 'complete-text-only'
-                        ? t(($) => $.pipeline.completeTextOnly)
-                        : (mode.reason ?? t(($) => $.pipeline.supported))}
-                  </dd>
-                </div>
-              ))}
+              {translationEngines.flatMap((engine) =>
+                engine.modes.map((mode) => (
+                  <div
+                    key={`${engine.id}:${mode.mode}`}
+                    className="flex items-center justify-between gap-4 px-4 py-3"
+                  >
+                    <dt className="text-muted-foreground">
+                      {engine.label} {t(($) => $.pipeline.route)}: {mode.mode}
+                    </dt>
+                    <dd className="min-w-0 truncate text-right">
+                      {mode.available
+                        ? t(($) => $.pipeline.supported)
+                        : mode.reasonCode === 'complete-text-only'
+                          ? t(($) => $.pipeline.completeTextOnly)
+                          : (mode.reason ?? t(($) => $.pipeline.supported))}
+                    </dd>
+                  </div>
+                )),
+              )}
               {asrModels.map((model) => (
                 <div key={model.id} className="flex items-center justify-between gap-4 px-4 py-3">
                   <dt className="text-muted-foreground">

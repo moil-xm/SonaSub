@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     config::AppConfig,
-    models::{validate_asr_config, ModelPaths, BERGAMOT_ENGINE_ID, TRANSLATION_MODELS},
+    models::{validate_asr_config, ModelPaths},
 };
 
 use super::{
@@ -92,9 +92,9 @@ impl RecordManager {
         self.snapshot(record_id)
     }
 
-    pub fn create_record(&self, input: RecordInput) -> Result<RecordSnapshot, String> {
+    pub fn create_record(&self, mut input: RecordInput) -> Result<RecordSnapshot, String> {
         let _operation = self.operations();
-        validate_record_config(&input.config)?;
+        validate_record_config(&mut input.config)?;
         let id = Uuid::new_v4().to_string();
         let now = now_ms();
         let name = resolved_name(&input.name, &input.config);
@@ -139,10 +139,10 @@ impl RecordManager {
     pub fn update_record(
         &self,
         record_id: &str,
-        input: RecordInput,
+        mut input: RecordInput,
     ) -> Result<RecordSnapshot, String> {
         let _operation = self.operations();
-        validate_record_config(&input.config)?;
+        validate_record_config(&mut input.config)?;
         let mut runtime = self.runtime();
         let record = runtime
             .records
@@ -402,7 +402,8 @@ impl RecordManager {
     }
 }
 
-pub(super) fn validate_record_config(config: &AppConfig) -> Result<(), String> {
+pub(super) fn validate_record_config(config: &mut AppConfig) -> Result<(), String> {
+    config.normalize()?;
     config.validate()?;
     if config.audio.device_ids.is_empty() {
         return Err("Select at least one system audio device.".to_owned());
@@ -418,27 +419,7 @@ pub(super) fn validate_record_config(config: &AppConfig) -> Result<(), String> {
         config.recognition.mode,
         &config.recognition.source_language,
     )?;
-    let model = TRANSLATION_MODELS
-        .iter()
-        .find(|model| model.id == config.translation.model_id)
-        .ok_or_else(|| {
-            format!(
-                "Unknown translation model `{}`.",
-                config.translation.model_id
-            )
-        })?;
-    if config.translation.engine != BERGAMOT_ENGINE_ID {
-        return Err(format!(
-            "Unknown translation engine `{}`. The only compiled adapter is `{BERGAMOT_ENGINE_ID}`.",
-            config.translation.engine
-        ));
-    }
-    if model.target_language != config.translation.target_language {
-        return Err(format!(
-            "Translation model `{}` targets `{}`, not `{}`.",
-            model.label, model.target_language, config.translation.target_language
-        ));
-    }
+    crate::translation::resolve_translation_config(&config.translation)?;
     Ok(())
 }
 
@@ -470,7 +451,7 @@ mod tests {
         config.audio.device_ids = vec!["device".to_owned()];
         config.translation.target_language = "zh-Hans".to_owned();
         config.translation.model_id = "bergamotZhEn".to_owned();
-        assert!(validate_record_config(&config).is_err());
+        assert!(validate_record_config(&mut config).is_err());
     }
 
     #[test]
@@ -480,9 +461,9 @@ mod tests {
             config.audio.device_ids = vec!["device".to_owned()];
             config.recognition.model_id = model_id.to_owned();
             config.recognition.mode = AsrMode::Segmented;
-            validate_record_config(&config).unwrap();
+            validate_record_config(&mut config).unwrap();
             config.recognition.mode = AsrMode::Streaming;
-            assert!(validate_record_config(&config).is_err());
+            assert!(validate_record_config(&mut config).is_err());
         }
     }
 }

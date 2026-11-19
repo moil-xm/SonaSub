@@ -4,11 +4,13 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 pub const DEFAULT_ASR_MODEL: &str = "zipformer-bilingual-streaming";
 pub const DEFAULT_TRANSLATION_ENGINE: &str = "bergamot";
 pub const DEFAULT_TRANSLATION_MODEL: &str = "bergamot-en-zh-Hans";
 pub const DEFAULT_TARGET_LANGUAGE: &str = "zh-Hans";
+pub const DEFAULT_OPENAI_COMPATIBLE_BASE_URL: &str = "https://api.openai.com/v1";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +79,70 @@ impl Default for RecognitionConfig {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OpenAiCompatibleConfig {
+    pub base_url: String,
+    pub model: String,
+    pub api_key: String,
+}
+
+impl Default for OpenAiCompatibleConfig {
+    fn default() -> Self {
+        Self {
+            base_url: DEFAULT_OPENAI_COMPATIBLE_BASE_URL.to_owned(),
+            model: String::new(),
+            api_key: String::new(),
+        }
+    }
+}
+
+impl std::fmt::Debug for OpenAiCompatibleConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OpenAiCompatibleConfig")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("api_key", &"[REDACTED]")
+            .finish()
+    }
+}
+
+pub fn normalize_openai_base_url(base_url: &str) -> Result<String, String> {
+    if base_url.trim().is_empty() {
+        return Err("OpenAI-compatible base URL must not be empty.".to_owned());
+    }
+    let trimmed = base_url.trim().trim_end_matches('/');
+    let trimmed = trimmed
+        .strip_suffix("/chat/completions")
+        .unwrap_or(trimmed)
+        .trim_end_matches('/');
+    let url = Url::parse(trimmed)
+        .map_err(|error| format!("OpenAI-compatible base URL is invalid: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("OpenAI-compatible base URL must use http:// or https://.".to_owned());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(
+            "OpenAI-compatible base URL must not contain credentials; use the API key field instead."
+                .to_owned(),
+        );
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(
+            "OpenAI-compatible base URL must not contain a query string or fragment.".to_owned(),
+        );
+    }
+    Ok(url.as_str().trim_end_matches('/').to_owned())
+}
+
+pub fn normalize_target_language(target_language: &str) -> &str {
+    match target_language.trim() {
+        "zh" => DEFAULT_TARGET_LANGUAGE,
+        other => other,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TranslationConfig {
@@ -87,6 +153,7 @@ pub struct TranslationConfig {
     pub trigger: TranslationTrigger,
     /// Empty asks the backend to use the first available Bergamot target.
     pub target_language: String,
+    pub openai_compatible: OpenAiCompatibleConfig,
 }
 
 impl Default for TranslationConfig {
@@ -97,7 +164,23 @@ impl Default for TranslationConfig {
             mode: TranslationMode::Auto,
             trigger: TranslationTrigger::FinalOnly,
             target_language: DEFAULT_TARGET_LANGUAGE.to_owned(),
+            openai_compatible: OpenAiCompatibleConfig::default(),
         }
+    }
+}
+
+impl TranslationConfig {
+    pub fn normalize(&mut self) -> Result<(), String> {
+        self.engine = self.engine.trim().to_owned();
+        self.model_id = self.model_id.trim().to_owned();
+        self.target_language = normalize_target_language(&self.target_language).to_owned();
+        self.openai_compatible.model = self.openai_compatible.model.trim().to_owned();
+        self.openai_compatible.base_url = self.openai_compatible.base_url.trim().to_owned();
+        if !self.openai_compatible.base_url.is_empty() {
+            self.openai_compatible.base_url =
+                normalize_openai_base_url(&self.openai_compatible.base_url)?;
+        }
+        Ok(())
     }
 }
 
@@ -160,6 +243,10 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    pub fn normalize(&mut self) -> Result<(), String> {
+        self.translation.normalize()
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if !(1.0..=30.0).contains(&self.recognition.max_segment_secs) {
             return Err("Maximum segment length must be between 1 and 30 seconds.".to_owned());
@@ -249,7 +336,7 @@ impl ConfigStore {
             }
         };
         match serde_json::from_str::<AppConfig>(&text) {
-            Ok(config) => match config.validate() {
+            Ok(mut config) => match config.normalize().and_then(|()| config.validate()) {
                 Ok(()) => (config, None),
                 Err(error) => (AppConfig::default(), Some(error)),
             },
@@ -263,7 +350,8 @@ impl ConfigStore {
         }
     }
 
-    pub fn save(&self, config: &AppConfig) -> Result<(), String> {
+    pub fn save(&self, config: &mut AppConfig) -> Result<(), String> {
+        config.normalize()?;
         config.validate()?;
         let parent = self
             .path
@@ -317,10 +405,142 @@ mod tests {
         let store = ConfigStore::new(directory.join("config.json"));
         let mut config = AppConfig::default();
         config.translation.target_language = "en".to_owned();
-        store.save(&config).unwrap();
+        store.save(&mut config).unwrap();
         let (loaded, error) = store.load();
         assert!(error.is_none());
         assert_eq!(loaded.translation.target_language, "en");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn persists_openai_compatible_settings_including_the_key() {
+        let directory =
+            std::env::temp_dir().join(format!("sonasub-config-{}", uuid::Uuid::new_v4()));
+        let store = ConfigStore::new(directory.join("config.json"));
+        let mut config = AppConfig::default();
+        config.translation.engine = "openai-compatible".to_owned();
+        config.translation.target_language = "ja".to_owned();
+        config.translation.openai_compatible.base_url =
+            "https://example.test/v1/chat/completions/".to_owned();
+        config.translation.openai_compatible.model = "remote-model".to_owned();
+        let api_key = ["fixture", "value"].concat();
+        config.translation.openai_compatible.api_key = api_key.to_owned();
+        store.save(&mut config).unwrap();
+
+        let (loaded, error) = store.load();
+
+        assert!(error.is_none());
+        assert_eq!(loaded.translation.engine, "openai-compatible");
+        assert_eq!(loaded.translation.target_language, "ja");
+        assert_eq!(
+            loaded.translation.openai_compatible.base_url,
+            "https://example.test/v1"
+        );
+        assert_eq!(loaded.translation.openai_compatible.model, "remote-model");
+        assert_eq!(loaded.translation.openai_compatible.api_key, api_key);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn an_empty_api_key_can_be_saved() {
+        let directory =
+            std::env::temp_dir().join(format!("sonasub-config-{}", uuid::Uuid::new_v4()));
+        let store = ConfigStore::new(directory.join("config.json"));
+        let mut config = AppConfig::default();
+        config.translation.engine = "openai-compatible".to_owned();
+        config.translation.openai_compatible.model = "local-model".to_owned();
+        store.save(&mut config).unwrap();
+
+        let (loaded, error) = store.load();
+
+        assert!(error.is_none());
+        assert!(loaded.translation.openai_compatible.api_key.is_empty());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn api_key_is_redacted_from_debug_output() {
+        let api_key = ["fixture", "value"].concat();
+        let mut config = AppConfig::default();
+        config.translation.openai_compatible.api_key = api_key.to_owned();
+        let debug = format!("{config:?}");
+        assert!(!debug.contains(api_key.as_str()));
+        assert!(debug.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn normalizes_openai_base_urls() {
+        let credential = ["fixture", "value"].concat();
+        assert_eq!(
+            normalize_openai_base_url(" https://example.test/v1/chat/completions/ ").unwrap(),
+            "https://example.test/v1"
+        );
+        assert!(normalize_openai_base_url("ftp://example.test/v1").is_err());
+        assert!(
+            normalize_openai_base_url(&format!("https://user:{credential}@example.test/v1"))
+                .is_err()
+        );
+        assert!(normalize_openai_base_url("  ").is_err());
+    }
+
+    #[test]
+    fn normalizes_target_language_aliases() {
+        let mut config = TranslationConfig {
+            target_language: " zh ".to_owned(),
+            ..TranslationConfig::default()
+        };
+        config.normalize().unwrap();
+        assert_eq!(config.target_language, "zh-Hans");
+
+        config.target_language = "yue".to_owned();
+        config.normalize().unwrap();
+        assert_eq!(config.target_language, "yue");
+    }
+
+    #[test]
+    fn saving_a_config_normalizes_the_target_and_base_url() {
+        let directory =
+            std::env::temp_dir().join(format!("sonasub-config-{}", uuid::Uuid::new_v4()));
+        let store = ConfigStore::new(directory.join("config.json"));
+        let mut config = AppConfig::default();
+        config.translation.target_language = "zh".to_owned();
+        config.translation.openai_compatible.base_url =
+            " https://example.test/v1/chat/completions/ ".to_owned();
+        store.save(&mut config).unwrap();
+
+        assert_eq!(config.translation.target_language, "zh-Hans");
+        assert_eq!(
+            config.translation.openai_compatible.base_url,
+            "https://example.test/v1"
+        );
+        let (loaded, error) = store.load();
+        assert!(error.is_none());
+        assert_eq!(loaded.translation.target_language, "zh-Hans");
+        assert_eq!(
+            loaded.translation.openai_compatible.base_url,
+            "https://example.test/v1"
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn old_config_defaults_the_openai_compatible_section() {
+        let config: AppConfig = serde_json::from_str(
+            r#"{
+                "translation": {
+                    "engine": "bergamot",
+                    "modelId": "bergamot-en-zh-Hans",
+                    "mode": "auto",
+                    "trigger": "finalOnly",
+                    "targetLanguage": "zh-Hans"
+                }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.translation.openai_compatible.base_url,
+            DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+        );
+        assert!(config.translation.openai_compatible.model.is_empty());
     }
 }

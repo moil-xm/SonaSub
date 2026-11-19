@@ -1,7 +1,9 @@
 mod language;
+mod openai_compatible;
 
 pub use language::detect_translation_source;
 pub(crate) use language::{prompt_language, source_language};
+use openai_compatible::OpenAiCompatibleEngine;
 
 use std::{
     collections::VecDeque,
@@ -9,46 +11,50 @@ use std::{
     time::Instant,
 };
 
-use serde::Serialize;
-
-use crate::models::{ModelPaths, TranslationModelSpec, BERGAMOT_ENGINE_ID, LANGUAGE_LABEL_ZH};
+use crate::{
+    config::{
+        normalize_openai_base_url, normalize_target_language, TranslationConfig, TranslationMode,
+    },
+    models::{
+        resolve_translation_mode, ModelPaths, TranslationModelSpec, BERGAMOT_ENGINE_ID,
+        LANGUAGE_LABEL_ZH, OPENAI_COMPATIBLE_ENGINE_ID, SUPPORTED_LANGUAGES, TRANSLATION_MODELS,
+    },
+};
 
 pub const MAX_PENDING_REQUESTS: usize = 32;
 /// The native runtime that executes the translation models.
-pub const TRANSLATION_RUNTIME: &str = "fxtranslate";
+pub const BERGAMOT_RUNTIME: &str = "fxtranslate";
 /// The model family the compiled adapter reads.
-pub const TRANSLATION_MODEL_FAMILY: &str = "bergamot-firefox";
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TranslationCapabilities {
-    pub engine: String,
-    pub runtime: String,
-    pub model_family: String,
-    pub mode: String,
-    pub streaming: bool,
-    pub reason: Option<String>,
-}
+pub const BERGAMOT_MODEL_FAMILY: &str = "bergamot-firefox";
+pub const OPENAI_COMPATIBLE_RUNTIME: &str = "adk-model";
+pub const OPENAI_COMPATIBLE_MODEL_FAMILY: &str = "openai-compatible";
 
 pub trait TranslationEngine {
-    fn capabilities(&self) -> TranslationCapabilities;
-    fn translate(&mut self, text: &str) -> Result<String, String>;
+    fn translate(&mut self, request: &TranslationRequest) -> Result<String, String>;
 }
 
 /// The minimal factory entry point for translation adapters.
 ///
-/// Only the compiled adapter exists today. The factory keeps the worker
+/// The factory keeps the worker
 /// independent from the concrete engine without introducing a plugin market
 /// or a dynamic loader.
 pub fn create_engine(
-    engine_id: &str,
+    config: &TranslationConfig,
     paths: &ModelPaths,
-    spec: &'static TranslationModelSpec,
+    bergamot_spec: Option<&'static TranslationModelSpec>,
 ) -> Result<Box<dyn TranslationEngine>, String> {
-    match engine_id {
-        BERGAMOT_ENGINE_ID => Ok(Box::new(BergamotEngine::load(paths, spec)?)),
+    match config.engine.as_str() {
+        BERGAMOT_ENGINE_ID => {
+            let spec = bergamot_spec.ok_or_else(|| {
+                "The Bergamot translation engine requires a local model.".to_owned()
+            })?;
+            Ok(Box::new(BergamotEngine::load(paths, spec)?))
+        }
+        OPENAI_COMPATIBLE_ENGINE_ID => Ok(Box::new(OpenAiCompatibleEngine::new(
+            &config.openai_compatible,
+        )?)),
         other => Err(format!(
-            "Unknown translation engine `{other}`. The only compiled adapter is `{BERGAMOT_ENGINE_ID}`."
+            "Unknown translation engine `{other}`. Available engines: `{BERGAMOT_ENGINE_ID}`, `{OPENAI_COMPATIBLE_ENGINE_ID}`."
         )),
     }
 }
@@ -85,30 +91,11 @@ impl BergamotEngine {
         }
         Ok(Self { engine, spec })
     }
-
-    /// The capabilities of the adapter without loading a model.
-    pub fn capabilities_spec() -> TranslationCapabilities {
-        TranslationCapabilities {
-            engine: BERGAMOT_ENGINE_ID.to_owned(),
-            runtime: TRANSLATION_RUNTIME.to_owned(),
-            model_family: TRANSLATION_MODEL_FAMILY.to_owned(),
-            mode: "text".to_owned(),
-            streaming: false,
-            reason: Some(
-                "The fxtranslate runtime returns complete translated text for one submitted source string."
-                    .to_owned(),
-            ),
-        }
-    }
 }
 
 impl TranslationEngine for BergamotEngine {
-    fn capabilities(&self) -> TranslationCapabilities {
-        Self::capabilities_spec()
-    }
-
-    fn translate(&mut self, text: &str) -> Result<String, String> {
-        let translation = self.engine.translate(text);
+    fn translate(&mut self, request: &TranslationRequest) -> Result<String, String> {
+        let translation = self.engine.translate(&request.text);
         if translation.trim().is_empty() {
             return Err(format!(
                 "Bergamot returned an empty translation for {} to {}.",
@@ -119,14 +106,110 @@ impl TranslationEngine for BergamotEngine {
     }
 }
 
-/// The capabilities of a translation adapter without loading its model.
-pub fn adapter_capabilities(engine_id: &str) -> Result<TranslationCapabilities, String> {
-    match engine_id {
-        BERGAMOT_ENGINE_ID => Ok(BergamotEngine::capabilities_spec()),
+#[derive(Debug, Clone)]
+pub struct ResolvedTranslation {
+    pub engine: &'static str,
+    pub runtime: &'static str,
+    pub model_family: &'static str,
+    pub mode: TranslationMode,
+    pub model_id: String,
+    pub model_label: String,
+    pub target_language: String,
+    pub bergamot_spec: Option<&'static TranslationModelSpec>,
+}
+
+pub fn resolve_translation_config(
+    config: &TranslationConfig,
+) -> Result<ResolvedTranslation, String> {
+    let target_language = normalize_target_language(&config.target_language);
+    if !SUPPORTED_LANGUAGES
+        .iter()
+        .any(|(code, _)| *code == target_language)
+    {
+        return Err(format!(
+            "Unsupported translation target `{}`.",
+            config.target_language
+        ));
+    }
+    let mode = resolve_translation_mode(config.mode)?;
+    match config.engine.as_str() {
+        BERGAMOT_ENGINE_ID => {
+            let spec = TRANSLATION_MODELS
+                .iter()
+                .find(|model| model.id == config.model_id)
+                .ok_or_else(|| {
+                    format!("Unknown translation model `{}`.", config.model_id)
+                })?;
+            if spec.target_language != target_language {
+                return Err(format!(
+                    "Translation model `{}` targets `{}`, not `{}`.",
+                    spec.label, spec.target_language, target_language
+                ));
+            }
+            Ok(ResolvedTranslation {
+                engine: BERGAMOT_ENGINE_ID,
+                runtime: BERGAMOT_RUNTIME,
+                model_family: BERGAMOT_MODEL_FAMILY,
+                mode,
+                model_id: spec.id.to_owned(),
+                model_label: spec.label.to_owned(),
+                target_language: target_language.to_owned(),
+                bergamot_spec: Some(spec),
+            })
+        }
+        OPENAI_COMPATIBLE_ENGINE_ID => {
+            normalize_openai_base_url(&config.openai_compatible.base_url)?;
+            let model = config.openai_compatible.model.trim();
+            if model.is_empty() {
+                return Err("OpenAI-compatible model must not be empty.".to_owned());
+            }
+            Ok(ResolvedTranslation {
+                engine: OPENAI_COMPATIBLE_ENGINE_ID,
+                runtime: OPENAI_COMPATIBLE_RUNTIME,
+                model_family: OPENAI_COMPATIBLE_MODEL_FAMILY,
+                mode,
+                model_id: model.to_owned(),
+                model_label: model.to_owned(),
+                target_language: target_language.to_owned(),
+                bergamot_spec: None,
+            })
+        }
         other => Err(format!(
-            "Unknown translation engine `{other}`. The only compiled adapter is `{BERGAMOT_ENGINE_ID}`."
+            "Unknown translation engine `{other}`. Available engines: `{BERGAMOT_ENGINE_ID}`, `{OPENAI_COMPATIBLE_ENGINE_ID}`."
         )),
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum TranslationRoute {
+    NotNeeded,
+    Unavailable(String),
+    Ready {
+        engine: &'static str,
+        model_id: String,
+    },
+}
+
+pub fn resolve_translation_route(
+    config: &TranslationConfig,
+    source_language: &str,
+) -> Result<TranslationRoute, String> {
+    let resolved = resolve_translation_config(config)?;
+    if source_language == resolved.target_language {
+        return Ok(TranslationRoute::NotNeeded);
+    }
+    if let Some(spec) = resolved.bergamot_spec {
+        if spec.source_language != source_language {
+            return Ok(TranslationRoute::Unavailable(format!(
+                "The selected Bergamot model only handles {} to {}; this segment remains source-only.",
+                spec.source_language, spec.target_language
+            )));
+        }
+    }
+    Ok(TranslationRoute::Ready {
+        engine: resolved.engine,
+        model_id: resolved.model_id,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +221,7 @@ pub struct TranslationRequest {
     pub text: String,
     pub source_language: String,
     pub target_language: String,
+    pub engine: String,
     pub model_id: String,
 }
 
@@ -249,7 +333,7 @@ pub fn run_worker(
 ) {
     while let Some(request) = queue.pop() {
         let started = Instant::now();
-        let result = engine.translate(&request.text);
+        let result = engine.translate(&request);
         let latency_ms = started.elapsed().as_millis() as u64;
         on_result(TranslationResult {
             request,
@@ -264,5 +348,152 @@ pub fn target_label(target: &str) -> &str {
         LANGUAGE_LABEL_ZH
     } else {
         target
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        resolve_translation_config, resolve_translation_route, TranslationRoute,
+        BERGAMOT_MODEL_FAMILY, BERGAMOT_RUNTIME, OPENAI_COMPATIBLE_MODEL_FAMILY,
+        OPENAI_COMPATIBLE_RUNTIME,
+    };
+    use crate::{
+        config::{TranslationConfig, TranslationMode},
+        models::{
+            BERGAMOT_ENGINE_ID, OPENAI_COMPATIBLE_ENGINE_ID, SUPPORTED_LANGUAGES,
+            TRANSLATION_MODELS,
+        },
+    };
+
+    fn openai_config(target_language: &str) -> TranslationConfig {
+        let mut config = TranslationConfig {
+            engine: OPENAI_COMPATIBLE_ENGINE_ID.to_owned(),
+            target_language: target_language.to_owned(),
+            ..TranslationConfig::default()
+        };
+        config.openai_compatible.base_url = "https://example.test/v1/chat/completions/".to_owned();
+        config.openai_compatible.model = "remote-model".to_owned();
+        config
+    }
+
+    #[test]
+    fn the_default_translation_is_the_local_bergamot_direction() {
+        let resolved = resolve_translation_config(&TranslationConfig::default()).unwrap();
+        assert_eq!(resolved.engine, BERGAMOT_ENGINE_ID);
+        assert_eq!(resolved.runtime, BERGAMOT_RUNTIME);
+        assert_eq!(resolved.model_family, BERGAMOT_MODEL_FAMILY);
+        assert_eq!(resolved.mode, TranslationMode::Text);
+        assert_eq!(resolved.target_language, "zh-Hans");
+        assert_eq!(resolved.model_id, "bergamot-en-zh-Hans");
+        assert!(resolved.bergamot_spec.is_some());
+    }
+
+    #[test]
+    fn openai_compatible_resolves_remote_metadata_without_a_local_model() {
+        let resolved = resolve_translation_config(&openai_config("ja")).unwrap();
+        assert_eq!(resolved.engine, OPENAI_COMPATIBLE_ENGINE_ID);
+        assert_eq!(resolved.runtime, OPENAI_COMPATIBLE_RUNTIME);
+        assert_eq!(resolved.model_family, OPENAI_COMPATIBLE_MODEL_FAMILY);
+        assert_eq!(resolved.model_id, "remote-model");
+        assert_eq!(resolved.model_label, "remote-model");
+        assert!(resolved.bergamot_spec.is_none());
+    }
+
+    #[test]
+    fn bergamot_rejects_every_target_outside_its_two_local_models() {
+        for (code, _) in SUPPORTED_LANGUAGES {
+            if matches!(*code, "en" | "zh-Hans") {
+                continue;
+            }
+            let config = TranslationConfig {
+                target_language: (*code).to_owned(),
+                ..TranslationConfig::default()
+            };
+            assert!(
+                resolve_translation_config(&config).is_err(),
+                "Bergamot must reject target {code}"
+            );
+        }
+    }
+
+    #[test]
+    fn openai_compatible_accepts_all_registered_targets() {
+        for (code, _) in SUPPORTED_LANGUAGES {
+            let resolved = resolve_translation_config(&openai_config(code)).unwrap();
+            assert_eq!(resolved.target_language, *code);
+        }
+        assert_eq!(SUPPORTED_LANGUAGES.len(), 30);
+    }
+
+    #[test]
+    fn openai_compatible_requires_a_valid_absolute_base_url_and_model() {
+        let mut config = openai_config("ja");
+        config.openai_compatible.base_url = "ftp://example.test/v1".to_owned();
+        assert!(resolve_translation_config(&config).is_err());
+
+        config.openai_compatible.base_url = "https://example.test/v1".to_owned();
+        config.openai_compatible.model = "  ".to_owned();
+        assert!(resolve_translation_config(&config).is_err());
+    }
+
+    #[test]
+    fn matching_source_and_target_skip_translation() {
+        assert!(matches!(
+            resolve_translation_route(&TranslationConfig::default(), "zh-Hans").unwrap(),
+            TranslationRoute::NotNeeded
+        ));
+        assert!(matches!(
+            resolve_translation_route(&openai_config("yue"), "yue").unwrap(),
+            TranslationRoute::NotNeeded
+        ));
+    }
+
+    #[test]
+    fn the_chinese_alias_resolves_to_simplified_chinese_and_yue_stays_distinct() {
+        let config = TranslationConfig {
+            target_language: "zh".to_owned(),
+            ..TranslationConfig::default()
+        };
+        let resolved = resolve_translation_config(&config).unwrap();
+        assert_eq!(resolved.target_language, "zh-Hans");
+
+        let resolved = resolve_translation_config(&openai_config("yue")).unwrap();
+        assert_eq!(resolved.target_language, "yue");
+    }
+
+    #[test]
+    fn bergamot_reports_a_direction_it_cannot_translate() {
+        let route = resolve_translation_route(&TranslationConfig::default(), "ja").unwrap();
+        assert!(
+            matches!(route, TranslationRoute::Unavailable(reason) if reason.contains("en to zh-Hans"))
+        );
+    }
+
+    #[test]
+    fn bergamot_and_openai_ready_routes_carry_their_real_engine_and_model() {
+        let bergamot = resolve_translation_route(&TranslationConfig::default(), "en").unwrap();
+        assert!(matches!(
+            bergamot,
+            TranslationRoute::Ready { engine, model_id }
+                if engine == BERGAMOT_ENGINE_ID && model_id == "bergamot-en-zh-Hans"
+        ));
+
+        let openai = resolve_translation_route(&openai_config("yue"), "en").unwrap();
+        assert!(matches!(
+            openai,
+            TranslationRoute::Ready { engine, model_id }
+                if engine == OPENAI_COMPATIBLE_ENGINE_ID && model_id == "remote-model"
+        ));
+    }
+
+    #[test]
+    fn the_registry_keeps_both_bergamot_directions_available() {
+        assert!(TRANSLATION_MODELS
+            .iter()
+            .any(|model| model.target_language == "zh-Hans"));
+        assert!(TRANSLATION_MODELS
+            .iter()
+            .any(|model| model.target_language == "en"));
     }
 }

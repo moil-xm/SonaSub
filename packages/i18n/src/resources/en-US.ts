@@ -106,6 +106,10 @@ export const enUs = {
       asrLanguage:
         'The selected speech language cannot be applied by the selected recognition model.',
       vadModel: 'Segmented recognition needs the Silero VAD model, which is missing or incomplete.',
+      translationEngine: 'The selected translation engine is not registered.',
+      translationTarget: 'The selected translation engine does not declare this target language.',
+      translationConfig:
+        'OpenAI-Compatible needs an absolute http(s) Base URL and a model name. The API key may be empty for local endpoints.',
       translationModel:
         'No complete Bergamot model is available for the selected translation target.',
       speakerModel:
@@ -140,7 +144,7 @@ export const enUs = {
       pending: 'Translating after recognition…',
       stale: 'Source changed; revising the translation…',
       notNeeded: 'Source and target languages are the same.',
-      unavailable: 'No local translation direction is available.',
+      unavailable: 'No translation route is available for this caption.',
       error: 'Translation failed.',
     },
   },
@@ -224,7 +228,7 @@ export const enUs = {
       nameLabel: 'Record name',
       namePlaceholder: 'Leave empty to use the first device name',
       deviceSection: 'Where the sound comes from',
-      languageSection: 'Language and local models',
+      languageSection: 'Language and translation',
       speakerSection: 'Identify speakers',
       advancedSection: 'Advanced settings',
       checksSection: 'Before saving',
@@ -241,9 +245,16 @@ export const enUs = {
       autoDetect: 'Auto-detect',
       detectionAvailable: 'Chinese / English',
       recognitionModel: 'Recognition model',
+      translationEngine: 'Translation engine',
       translationModel: 'Translation model',
+      baseUrl: 'Base URL',
+      openAiModel: 'Remote model',
+      apiKey: 'API key',
+      remoteTranslationPrivacy:
+        'Caption text is sent to this OpenAI-compatible endpoint. The API key is stored locally in this record.',
       modelReady: 'Installed',
       modelMissing: 'Files missing',
+      translationConfigMissing: 'Remote configuration incomplete',
       manageModels: 'Manage models',
       identifySpeakers: 'Identify speakers',
       identifySpeakersHint: 'Adds speaker labels after recognition.',
@@ -276,8 +287,8 @@ export const enUs = {
       checksPlatformMissing: 'System capture is unavailable on this platform',
       checksRecognitionReady: 'Model installed',
       checksRecognitionMissing: 'Install the selected recognition model',
-      checksTranslationReady: 'Model installed',
-      checksTranslationMissing: 'Install the selected translation model',
+      checksTranslationReady: 'Translation ready',
+      checksTranslationMissing: 'Complete or install the selected translation setup',
       checksSpeakerReady: 'Speaker files installed',
       checksSpeakerMissing: 'Install speaker files or turn speaker labels off',
       save: 'Save',
@@ -342,16 +353,38 @@ export const enUs = {
       'This model detects the language of every utterance, so the source language stays on automatic.',
     segmentedNoPartialHint:
       'Segmented recognition waits for Silero VAD to close a speech segment. It produces final captions only and has no native streaming partials.',
-    translationSection: 'Local translation',
+    translationSection: 'Translation',
     translationHint:
-      '{{engine}} runs in this process as complete-text translation. Source text appears first and never waits for it.',
+      '{{engine}} returns complete-text translation. Source text appears first and never waits for it.',
+    translationEngine: 'Translation engine',
+    translationEngineHint:
+      'Bergamot runs locally. OpenAI-Compatible sends caption text to the configured endpoint.',
+    translationEngines: {
+      bergamot: 'Bergamot (local)',
+      openAiCompatible: 'OpenAI-Compatible',
+    },
     targetLanguage: 'Translation target',
     targetLanguageHint:
       'The target language is independent of the interface language. Each segment is translated from its detected source language.',
+    localTargetLanguageHint:
+      'Bergamot exposes only en and zh-Hans targets. Switch to OpenAI-Compatible for other languages.',
+    remoteTargetLanguageHint:
+      'The remote model must support the selected target language; unsupported choices surface when a caption is translated.',
+    baseUrl: 'Base URL',
+    baseUrlHint:
+      'Absolute http(s) URL, normally ending at /v1. A /chat/completions suffix is accepted and removed.',
+    openAiModel: 'Model',
+    openAiModelHint: 'Model ID sent to the chat-completions endpoint.',
+    openAiModelPlaceholder: 'Enter a model ID',
+    apiKey: 'API key',
+    apiKeyHint:
+      'Optional for local endpoints without authentication. Stored locally in plain text.',
+    remoteTranslationPrivacy:
+      'Caption text leaves this Mac when OpenAI-Compatible is selected. Do not use this engine for audio you cannot send to that endpoint.',
     translationMode: 'Translation output mode',
     translationModeHint: 'This adapter returns one complete translated string per request.',
     translationAutoHint:
-      'Auto resolves to complete-text translation because Bergamot exposes no incremental output.',
+      'Auto resolves to complete-text translation because neither adapter exposes incremental output.',
     translationModes: {
       auto: 'Auto',
       text: 'Complete text',

@@ -11,10 +11,7 @@ use crate::{
     asr::AsrEngine,
     audio::{self, CaptureOptions},
     config::{AsrMode, TranslationMode, TranslationTrigger},
-    models::{
-        resolve_asr_mode, resolve_translation_mode, ASR_MODELS, BERGAMOT_ENGINE_ID,
-        DIARIZATION_FILES, SPEAKER_FILES,
-    },
+    models::{resolve_asr_mode, ASR_MODELS, DIARIZATION_FILES, SPEAKER_FILES},
     pipeline::{
         audio_flow::AudioFlow,
         workers::{ShutdownState, WorkerRuntime},
@@ -53,13 +50,9 @@ impl Runner {
             })?;
         let asr_mode = resolve_asr_mode(selected_asr, context.config.recognition.mode)
             .map_err(StartupError::Failed)?;
-        let translation_mode = resolve_translation_mode(context.config.translation.mode)
-            .map_err(StartupError::Failed)?;
-        let translation_spec = context
-            .inner
-            .models
-            .translation_for_target(&context.config.translation.target_language)
-            .map_err(StartupError::Failed)?;
+        let translation =
+            crate::translation::resolve_translation_config(&context.config.translation)
+                .map_err(StartupError::Failed)?;
         let missing = context.inner.models.missing(selected_asr.files);
         if !missing.is_empty() {
             return Err(StartupError::Failed(format!(
@@ -68,14 +61,16 @@ impl Runner {
                 missing.join(", ")
             )));
         }
-        let translation_files = crate::models::translation_files(translation_spec);
-        let missing = context.inner.models.missing(&translation_files);
-        if !missing.is_empty() {
-            return Err(StartupError::Failed(format!(
-                "Missing Bergamot model files in {}: {}. See docs/models.md.",
-                context.inner.models.root.display(),
-                missing.join(", ")
-            )));
+        if let Some(translation_spec) = translation.bergamot_spec {
+            let translation_files = crate::models::translation_files(translation_spec);
+            let missing = context.inner.models.missing(&translation_files);
+            if !missing.is_empty() {
+                return Err(StartupError::Failed(format!(
+                    "Missing Bergamot model files in {}: {}. See docs/models.md.",
+                    context.inner.models.root.display(),
+                    missing.join(", ")
+                )));
+            }
         }
         let speakers_enabled = context.config.speakers.enabled;
         let diarization_enabled = speakers_enabled && context.config.speakers.diarization_enabled;
@@ -139,11 +134,17 @@ impl Runner {
             );
         }
 
-        stage(&context, "Loading Bergamot translation model")?;
+        let translation_stage = if translation.bergamot_spec.is_some() {
+            "Loading Bergamot translation model"
+        } else {
+            "Preparing OpenAI-compatible translation"
+        };
+        stage(&context, translation_stage)?;
         let workers = WorkerRuntime::spawn(
             Box::new(asr_engine),
             context.inner.models.clone(),
-            translation_spec,
+            context.config.translation.clone(),
+            translation.bergamot_spec,
             speaker_engine,
             diarization_engine,
             registry,
@@ -189,18 +190,16 @@ impl Runner {
             },
             max_segment_secs: context.config.recognition.max_segment_secs,
         };
-        let translation_capabilities =
-            crate::translation::adapter_capabilities(BERGAMOT_ENGINE_ID)?;
         let translation_info = TranslationInfo {
-            engine: translation_capabilities.engine.clone(),
-            runtime: translation_capabilities.runtime.clone(),
-            model_family: translation_capabilities.model_family.clone(),
-            model_id: translation_spec.id.to_owned(),
-            model_label: translation_spec.label.to_owned(),
-            mode: translation_mode_string(translation_mode).to_owned(),
-            target_language: context.config.translation.target_language.clone(),
+            engine: translation.engine.to_owned(),
+            runtime: translation.runtime.to_owned(),
+            model_family: translation.model_family.to_owned(),
+            model_id: translation.model_id.clone(),
+            model_label: translation.model_label.clone(),
+            mode: translation_mode_string(translation.mode).to_owned(),
+            target_language: translation.target_language.clone(),
             trigger: translation_trigger_string(context.config.translation.trigger).to_owned(),
-            streaming: translation_capabilities.streaming,
+            streaming: false,
         };
         let info = SessionInfo {
             session_id: context.session_id.clone(),

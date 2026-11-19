@@ -43,6 +43,11 @@ function config(): AppConfig {
       mode: 'auto',
       trigger: 'finalOnly',
       targetLanguage: 'zh-Hans',
+      openaiCompatible: {
+        baseUrl: 'https://api.openai.com/v1',
+        model: '',
+        apiKey: '',
+      },
     },
     speakers: {
       enabled: false,

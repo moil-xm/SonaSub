@@ -15,6 +15,8 @@ pub const ASR_QWEN3_17B_ID: &str = "qwen3-asr-1.7b-int8";
 
 pub const BERGAMOT_ENGINE_ID: &str = "bergamot";
 
+pub const OPENAI_COMPATIBLE_ENGINE_ID: &str = "openai-compatible";
+
 const QWEN3_ASR_LANGUAGES: &[&str] = &[
     "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th", "vi", "ja",
     "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro",
@@ -302,8 +304,38 @@ pub const DIARIZATION_FILES: &[ModelFile] = &[ModelFile {
     sha256: Some("d582f4b4c6b48205de7e0643c57df0df5615a3c176189be3fc461e9d18827b5d"),
 }];
 
-pub const SUPPORTED_LANGUAGES: &[(&str, &str)] =
-    &[("zh-Hans", "Simplified Chinese"), ("en", "English")];
+pub const SUPPORTED_LANGUAGES: &[(&str, &str)] = &[
+    ("zh-Hans", "Simplified Chinese"),
+    ("en", "English"),
+    ("yue", "Cantonese"),
+    ("ar", "Arabic"),
+    ("de", "German"),
+    ("fr", "French"),
+    ("es", "Spanish"),
+    ("pt", "Portuguese"),
+    ("id", "Indonesian"),
+    ("it", "Italian"),
+    ("ko", "Korean"),
+    ("ru", "Russian"),
+    ("th", "Thai"),
+    ("vi", "Vietnamese"),
+    ("ja", "Japanese"),
+    ("tr", "Turkish"),
+    ("hi", "Hindi"),
+    ("ms", "Malay"),
+    ("nl", "Dutch"),
+    ("sv", "Swedish"),
+    ("da", "Danish"),
+    ("fi", "Finnish"),
+    ("pl", "Polish"),
+    ("cs", "Czech"),
+    ("fil", "Filipino"),
+    ("fa", "Persian"),
+    ("el", "Greek"),
+    ("hu", "Hungarian"),
+    ("mk", "Macedonian"),
+    ("ro", "Romanian"),
+];
 
 pub const LANGUAGE_LABEL_ZH: &str = "简体中文";
 
@@ -363,7 +395,7 @@ pub fn resolve_translation_mode(requested: TranslationMode) -> Result<Translatio
     match requested {
         TranslationMode::Auto | TranslationMode::Text => Ok(TranslationMode::Text),
         TranslationMode::Streaming => Err(
-            "The Bergamot adapter supports complete-text translation only; incremental translation is not available."
+            "Translation adapters support complete-text translation only; incremental translation is not available."
                 .to_owned(),
         ),
     }
@@ -456,5 +488,12 @@ mod tests {
     fn language_detection_handles_mixed_scripts() {
         assert_eq!(detect_translation_source("今天天气很好。"), "zh-Hans");
         assert_eq!(detect_translation_source("The weather is nice."), "en");
+    }
+
+    #[test]
+    fn supported_targets_cover_the_qwen3_language_set() {
+        assert_eq!(SUPPORTED_LANGUAGES.len(), 30);
+        assert!(SUPPORTED_LANGUAGES.iter().any(|(code, _)| *code == "yue"));
+        assert!(SUPPORTED_LANGUAGES.iter().any(|(code, _)| *code == "ja"));
     }
 }

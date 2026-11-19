@@ -4,6 +4,8 @@ export type TranslationMode = 'auto' | 'streaming' | 'text';
 
 export type TranslationTrigger = 'finalOnly' | 'stableSegment';
 
+export type TranslationEngineId = 'bergamot' | 'openai-compatible';
+
 export type SessionAction = 'start' | 'stop' | 'restart';
 
 export type SessionStatus =
@@ -22,7 +24,7 @@ export type AsrInfo = {
 };
 
 export type TranslationInfo = {
-  engine: string;
+  engine: TranslationEngineId;
   runtime: string;
   modelFamily: string;
   modelId: string;
@@ -83,8 +85,18 @@ export type AsrModelCapability = ModelStatus & {
 export type TranslationModelCapability = ModelStatus & {
   sourceLanguage: string;
   targetLanguage: string;
-  engine: string;
+  engine: TranslationEngineId;
   supportedModes: string[];
+};
+
+export type TranslationEngineCapability = {
+  id: TranslationEngineId;
+  label: string;
+  runtime: string;
+  modelFamily: string;
+  requiresLocalModel: boolean;
+  targetLanguages: string[];
+  modes: ModeCapability[];
 };
 
 export type ModeCapability = {
@@ -123,12 +135,7 @@ export type Capabilities = {
   asrModels: AsrModelCapability[];
   translationModels: TranslationModelCapability[];
   translationTargets: LanguageOption[];
-  translationEngine: string;
-  /** The native runtime that executes the translation models. */
-  translationRuntime: string;
-  /** The model family the compiled adapter reads. */
-  translationModelFamily: string;
-  translationModes: ModeCapability[];
+  translationEngines: TranslationEngineCapability[];
   diarization: ModelStatus;
   speakerEmbedding: ModelStatus;
   vad: ModelStatus;
@@ -151,11 +158,16 @@ export type RecognitionConfig = {
 };
 
 export type TranslationConfig = {
-  engine: string;
+  engine: TranslationEngineId;
   modelId: string;
   mode: TranslationMode;
   trigger: TranslationTrigger;
   targetLanguage: string;
+  openaiCompatible: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+  };
 };
 
 export type SpeakerConfig = {
@@ -207,7 +219,7 @@ export type TranslationState = {
   text: string | null;
   status: TranslationStatus;
   revision: number;
-  engine: string;
+  engine: TranslationEngineId;
   mode: 'text';
   modelId: string;
   error: string | null;

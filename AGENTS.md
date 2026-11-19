@@ -1,6 +1,6 @@
 # SonaSub
 
-Open-source real-time subtitling project. The desktop app captures macOS system audio and runs sherpa-onnx recognition, speaker analysis and Bergamot translation locally in Rust; React controls the session through Tauri IPC and events. pnpm workspace + Vite+ manage the JS/TS toolchain, while Tauri and WXT keep their own build entries.
+Open-source real-time subtitling project. The desktop app captures macOS system audio and runs sherpa-onnx recognition and speaker analysis locally in Rust; translation is local Bergamot by default or an optional OpenAI-compatible endpoint. React controls the session through Tauri IPC and events. pnpm workspace + Vite+ manage the JS/TS toolchain, while Tauri and WXT keep their own build entries.
 
 ## Language
 
@@ -107,7 +107,7 @@ Add a Skill only when a stable, repeated, project-specific judgment rule exists;
 
 ## Current Scope
 
-- The native desktop pipeline is implemented: macOS system-output capture, streaming and segmented ASR, windowed speaker analysis, Bergamot translation, subtitle scheduling and the live caption UI.
+- The native desktop pipeline is implemented: macOS system-output capture, streaming and segmented ASR, windowed speaker analysis, local Bergamot translation, optional OpenAI-compatible translation, subtitle scheduling and the live caption UI.
 - The Chrome extension still contains only a popup. Tab capture and extension-to-desktop communication are future work, not a hidden fallback path.
 - System capture is implemented and verified for macOS 14.4+ arm64. Other platforms and architectures must be reported as unverified rather than silently using another audio source.
 - Native workers run in the desktop process; a native crash is not isolated from the UI.

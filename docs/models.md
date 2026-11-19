@@ -59,7 +59,9 @@ downloads archives itself in Rust and has no Node.js runtime.
 | Translation zh-Hans → en | Bergamot v3.1                   | Firefox Translations model attachments                        | `bergamot/zh-Hans-en/{model.bin,vocab.spm,lex.bin}`                                              |
 
 The sherpa-onnx runtime is pinned through the official `sherpa-onnx` Rust crate
-v2.0.1. The native Bergamot adapter is `fxtranslate 0.5.0`.
+v2.0.1. The native Bergamot adapter is `fxtranslate 0.5.0`. The optional
+OpenAI-compatible adapter uses `adk-model 2.3.0` and adds no model weights to
+the installer; its model name is resolved by the remote endpoint.
 
 ## Native Runtime
 
@@ -98,18 +100,27 @@ The official v2.0.1 runtime must return speaker segments for this input.
   `language` option on the Qwen offline stream. SonaSub therefore keeps Qwen
   on automatic language detection, rejects a persisted forced language, and
   disables the language control in the frontend.
-- SenseVoice recognizes Chinese, English, Japanese, Korean and Cantonese, but
-  translation is limited to the two pinned Bergamot directions. Other source
-  languages remain source-only with an explicit `unavailable` translation
-  state. The same restriction applies to Qwen. Conservative script routing
-  handles Chinese, English, Japanese kana and Korean Hangul when Qwen has no
-  language tag; other scripts are marked `unknown` instead of being routed
-  incorrectly through Bergamot.
+- SenseVoice recognizes Chinese, English, Japanese, Korean and Cantonese.
+  Bergamot translation is limited to the two pinned directions (`en` and
+  `zh-Hans` targets). Other targets remain source-only with an explicit
+  `unavailable` translation state when Bergamot is selected. Conservative
+  script routing handles Chinese, English, Japanese kana and Korean Hangul when
+  Qwen has no language tag; other scripts are marked `unknown` instead of being
+  routed incorrectly through Bergamot.
+- OpenAI-Compatible selection skips local translation-model checks. It exposes
+  all 30 registered target languages, accepts a custom Base URL and model, and
+  allows an empty API key for unauthenticated local endpoints. It does not
+  discover models, test the connection at startup or maintain conversation
+  history.
 - Bergamot returns one complete translated string for a submitted source
   string. The adapter declares `text` only; `streaming` is not supported.
 - The translation adapter separates the native runtime (`fxtranslate`) from
   the model family (`bergamot-firefox`). The runtime executes the pinned
   weights; the model family names their Firefox Translations format.
+- The remote adapter reports `adk-model` as its runtime and
+  `openai-compatible` as its model family. It sends one Chat Completions
+  request per caption with a 20-second timeout and retries disabled, so a slow
+  or failing endpoint cannot create hidden duplicate requests.
 - CAM++ labels finalized subtitle segments. Pyannote analysis runs over
   bounded audio windows and associates local clusters with session-wide
   speakers through embeddings; it is windowed quasi-real-time diarization,
@@ -120,10 +131,11 @@ The official v2.0.1 runtime must return speaker segments for this input.
 
 ## Integrity And Startup
 
-The app checks that every required file exists and reaches the model's minimum
-size before starting a session. It does not hash hundreds of megabytes on the
-UI thread at startup. Full SHA-256 verification is performed by
-`pnpm prepare:models` and by the ignored native test:
+When Bergamot is selected, the app checks that every required local translation
+file exists and reaches the model's minimum size before starting a session. It
+does not hash hundreds of megabytes on the UI thread at startup. Full SHA-256
+verification is performed by `pnpm prepare:models` and by the ignored native
+test:
 
 ```bash
 cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
@@ -132,10 +144,26 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
 
 If files are missing, the readiness panel lists the affected model and the
 session start fails with the absolute expected path instead of selecting a
-different engine.
+different engine. OpenAI-Compatible instead validates that the Base URL is an
+absolute `http://` or `https://` address and that a model name is present. An
+empty API key is valid. Startup constructs the client without making a network
+request.
 
 Rust compilation fails if the official crate cannot obtain or link its
 version-matched native runtime.
+
+### Remote translation and local credentials
+
+OpenAI-Compatible sends the finalized caption text to the configured Base URL.
+The Base URL, remote model and API key are saved as plain text in the
+application `config.json` and in each record's `records.sqlite` configuration
+snapshot. The key is redacted from `Debug` output, logs and surfaced errors.
+There is no environment-variable fallback.
+
+The engine can use any OpenAI-compatible Chat Completions endpoint, but the
+remote model decides which of the 30 target languages it actually supports.
+SonaSub does not bundle remote model weights, discover models or verify the
+endpoint during startup.
 
 ## Installation In The App
 

@@ -3,7 +3,7 @@ name = "sonasub-desktop"
 version = "0.0.0"
 description = "SonaSub desktop application"
 edition = "2021"
-rust-version = "1.90"
+rust-version = "1.95"
 publish = false
 
 [lib]
@@ -24,6 +24,11 @@ sherpa-onnx = "=2.0.1"
 flexaudio = "=0.8.1"
 flexaudio-os-macos = "=0.8.1"
 fxtranslate = "=0.5.0"
+adk-core = "=2.3.0"
+adk-model = { version = "=2.3.0", default-features = false, features = ["openai"] }
+futures = "0.3.34"
+tokio = { version = "1.54.1", features = ["net", "rt", "time"] }
+url = "2.5.8"
 uuid = { version = "1.29.2", features = ["v4"] }
 sysinfo = "0.40.3"
 sha2 = "0.10.9"

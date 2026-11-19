@@ -1,5 +1,7 @@
 use std::time::Instant;
 
+use rusqlite::params;
+
 use crate::{
     config::AppConfig,
     subtitles::{SubtitleSegment, TranslationState, TranslationStatus},
@@ -58,6 +60,145 @@ fn segment_for(
 
 fn segment() -> SubtitleSegment {
     segment_for("run-a", "device-a", 1, 10_000, "hello")
+}
+
+#[test]
+fn an_old_record_config_without_openai_compatible_still_loads() {
+    let directory = std::env::temp_dir().join(format!("sonasub-records-{}", uuid::Uuid::new_v4()));
+    let store = RecordStore::open(directory.join("records.sqlite")).unwrap();
+    let config_json = r#"{
+        "audio": {"deviceIds": ["device-a"]},
+        "translation": {
+            "engine": "bergamot",
+            "modelId": "bergamot-en-zh-Hans",
+            "mode": "auto",
+            "trigger": "finalOnly",
+            "targetLanguage": "zh-Hans"
+        }
+    }"#;
+    store
+        .connection()
+        .execute(
+            "INSERT INTO records (
+                id, name, config_json, state, created_at_ms, updated_at_ms,
+                started_at_ms, ended_at_ms, last_error
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                "record",
+                "Record",
+                config_json,
+                RecordState::Paused.as_str(),
+                1_i64,
+                2_i64,
+                Option::<i64>::None,
+                Option::<i64>::None,
+                Option::<String>::None,
+            ],
+        )
+        .unwrap();
+
+    let record = store.load_record("record").unwrap().unwrap();
+
+    assert_eq!(record.config.translation.engine, "bergamot");
+    assert_eq!(record.config.translation.model_id, "bergamot-en-zh-Hans");
+    assert_eq!(
+        record.config.translation.openai_compatible.base_url,
+        "https://api.openai.com/v1"
+    );
+    assert!(record.config.translation.openai_compatible.model.is_empty());
+    assert!(record
+        .config
+        .translation
+        .openai_compatible
+        .api_key
+        .is_empty());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_record_config_keeps_openai_compatible_settings() {
+    let directory = std::env::temp_dir().join(format!("sonasub-records-{}", uuid::Uuid::new_v4()));
+    let store = RecordStore::open(directory.join("records.sqlite")).unwrap();
+    let mut config = config();
+    config.translation.engine = "openai-compatible".to_owned();
+    config.translation.target_language = "ja".to_owned();
+    config.translation.openai_compatible.base_url = "https://example.test/v1".to_owned();
+    config.translation.openai_compatible.model = "remote-model".to_owned();
+    let api_key = ["record", "value"].concat();
+    config.translation.openai_compatible.api_key = api_key.clone();
+    store
+        .save_record(&StoredRecord {
+            summary: super::super::types::RecordSummary {
+                id: "record".to_owned(),
+                name: "Record".to_owned(),
+                state: RecordState::Paused,
+                device_ids: vec!["device-a".to_owned()],
+                active_device_ids: Vec::new(),
+                has_active_source: false,
+                last_error: None,
+                created_at_ms: 1,
+                updated_at_ms: 2,
+                revision: 0,
+            },
+            config,
+            started_at_ms: None,
+            ended_at_ms: None,
+        })
+        .unwrap();
+
+    let loaded = store.load_record("record").unwrap().unwrap();
+
+    assert_eq!(loaded.config.translation.engine, "openai-compatible");
+    assert_eq!(
+        loaded.config.translation.openai_compatible.model,
+        "remote-model"
+    );
+    assert_eq!(loaded.config.translation.openai_compatible.api_key, api_key);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_record_config_is_normalized_when_saved_and_loaded() {
+    let directory = std::env::temp_dir().join(format!("sonasub-records-{}", uuid::Uuid::new_v4()));
+    let store = RecordStore::open(directory.join("records.sqlite")).unwrap();
+    let mut config = config();
+    config.translation.engine = "openai-compatible".to_owned();
+    config.translation.target_language = " zh ".to_owned();
+    config.translation.openai_compatible.base_url =
+        " https://example.test/v1/chat/completions/ ".to_owned();
+    config.translation.openai_compatible.model = " remote-model ".to_owned();
+    store
+        .save_record(&StoredRecord {
+            summary: super::super::types::RecordSummary {
+                id: "record".to_owned(),
+                name: "Record".to_owned(),
+                state: RecordState::Paused,
+                device_ids: vec!["device-a".to_owned()],
+                active_device_ids: Vec::new(),
+                has_active_source: false,
+                last_error: None,
+                created_at_ms: 1,
+                updated_at_ms: 2,
+                revision: 0,
+            },
+            config,
+            started_at_ms: None,
+            ended_at_ms: None,
+        })
+        .unwrap();
+
+    let loaded = store.load_record("record").unwrap().unwrap();
+
+    assert_eq!(loaded.config.translation.target_language, "zh-Hans");
+    assert_eq!(
+        loaded.config.translation.openai_compatible.base_url,
+        "https://example.test/v1"
+    );
+    assert_eq!(
+        loaded.config.translation.openai_compatible.model,
+        "remote-model"
+    );
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]

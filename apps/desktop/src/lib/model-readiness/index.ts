@@ -1,2 +1,3 @@
 export { assessModelReadiness } from './model-readiness';
-export type { ModelReadiness, ReadinessIssue } from './model-readiness.type';
+export { assessTranslationReadiness } from './model-readiness';
+export type { ModelReadiness, ReadinessIssue, TranslationReadiness } from './model-readiness.type';

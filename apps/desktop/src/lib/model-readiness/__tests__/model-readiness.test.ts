@@ -52,10 +52,26 @@ function capabilities(qwen: AsrModelCapability): Capabilities {
       },
     ],
     translationTargets: [{ code: 'zh-Hans', label: 'Simplified Chinese' }],
-    translationEngine: 'bergamot',
-    translationRuntime: 'fxtranslate',
-    translationModelFamily: 'bergamot-firefox',
-    translationModes: [],
+    translationEngines: [
+      {
+        id: 'bergamot',
+        label: 'Bergamot (local)',
+        runtime: 'fxtranslate',
+        modelFamily: 'bergamot-firefox',
+        requiresLocalModel: true,
+        targetLanguages: ['zh-Hans', 'en'],
+        modes: [],
+      },
+      {
+        id: 'openai-compatible',
+        label: 'OpenAI-Compatible',
+        runtime: 'adk-model',
+        modelFamily: 'openai-compatible',
+        requiresLocalModel: false,
+        targetLanguages: ['zh-Hans', 'en', 'ja'],
+        modes: [],
+      },
+    ],
     diarization: readyModel('pyannote', 'Pyannote'),
     speakerEmbedding: readyModel('campplus', 'CAM++'),
     vad: readyModel('silero-vad', 'Silero VAD'),
@@ -82,6 +98,11 @@ function config(): AppConfig {
       mode: 'text',
       trigger: 'finalOnly',
       targetLanguage: 'zh-Hans',
+      openaiCompatible: {
+        baseUrl: 'https://api.openai.com/v1',
+        model: '',
+        apiKey: '',
+      },
     },
     speakers: {
       enabled: false,
@@ -116,5 +137,63 @@ describe('Qwen3 model readiness', () => {
     const result = assessModelReadiness(capabilities(qwenCapability()), value);
     expect(result.canStart).toBe(false);
     expect(result.issues).toContain('asrLanguage');
+  });
+
+  it('accepts a blank API key for a configured OpenAI-compatible endpoint', () => {
+    const value = config();
+    value.translation.engine = 'openai-compatible';
+    value.translation.targetLanguage = 'ja';
+    value.translation.openaiCompatible.model = 'translation-model';
+    const result = assessModelReadiness(capabilities(qwenCapability()), value);
+    expect(result.canStart).toBe(true);
+    expect(result.issues).toEqual([]);
+  });
+
+  it('does not require a local Bergamot model for OpenAI-compatible translation', () => {
+    const value = config();
+    value.translation.engine = 'openai-compatible';
+    value.translation.targetLanguage = 'ja';
+    value.translation.openaiCompatible.model = 'translation-model';
+    const capabilitiesWithMissingBergamot = capabilities(qwenCapability());
+    capabilitiesWithMissingBergamot.translationModels[0]!.available = false;
+    const result = assessModelReadiness(capabilitiesWithMissingBergamot, value);
+    expect(result.canStart).toBe(true);
+    expect(result.issues).not.toContain('translationModel');
+  });
+
+  it('requires a valid base URL for OpenAI-compatible translation', () => {
+    const value = config();
+    value.translation.engine = 'openai-compatible';
+    value.translation.targetLanguage = 'ja';
+    value.translation.openaiCompatible.model = 'translation-model';
+    value.translation.openaiCompatible.baseUrl = 'api.openai.com/v1';
+    const result = assessModelReadiness(capabilities(qwenCapability()), value);
+    expect(result.canStart).toBe(false);
+    expect(result.issues).toContain('translationConfig');
+  });
+
+  it('requires a model name for OpenAI-compatible translation', () => {
+    const value = config();
+    value.translation.engine = 'openai-compatible';
+    value.translation.targetLanguage = 'ja';
+    const result = assessModelReadiness(capabilities(qwenCapability()), value);
+    expect(result.canStart).toBe(false);
+    expect(result.issues).toContain('translationConfig');
+  });
+
+  it('requires an installed local model for Bergamot translation', () => {
+    const capabilitiesWithMissingBergamot = capabilities(qwenCapability());
+    capabilitiesWithMissingBergamot.translationModels[0]!.available = false;
+    const result = assessModelReadiness(capabilitiesWithMissingBergamot, config());
+    expect(result.canStart).toBe(false);
+    expect(result.issues).toContain('translationModel');
+  });
+
+  it('rejects a target outside the selected engine capability', () => {
+    const value = config();
+    value.translation.targetLanguage = 'ja';
+    const result = assessModelReadiness(capabilities(qwenCapability()), value);
+    expect(result.canStart).toBe(false);
+    expect(result.issues).toContain('translationTarget');
   });
 });

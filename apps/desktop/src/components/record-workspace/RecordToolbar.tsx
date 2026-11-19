@@ -49,9 +49,20 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
   const selectedAsr = capabilities.asrModels.find(
     (model) => model.id === config.recognition.modelId,
   );
-  const selectedTranslation = capabilities.translationModels.find(
-    (model) => model.id === config.translation.modelId,
+  const selectedTranslationEngine = capabilities.translationEngines.find(
+    (engine) => engine.id === config.translation.engine,
   );
+  const selectedTranslation = capabilities.translationModels.find(
+    (model) =>
+      model.engine === config.translation.engine && model.id === config.translation.modelId,
+  );
+  let translationLabel = selectedTranslation?.label ?? config.translation.modelId;
+  if (selectedTranslationEngine?.id === 'openai-compatible') {
+    const model = config.translation.openaiCompatible.model.trim();
+    translationLabel = model
+      ? `${selectedTranslationEngine.label} · ${model}`
+      : selectedTranslationEngine.label;
+  }
   const isActionPending = action.isPending || addDevice.isPending || removeDevice.isPending;
   const actionError = action.error ?? addDevice.error ?? removeDevice.error;
   let shouldShowActionError = Boolean(actionError);
@@ -211,7 +222,7 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
           />
           <RecordMetric
             label={t(($) => $.records.workspace.translation)}
-            value={selectedTranslation?.label ?? config.translation.modelId}
+            value={translationLabel}
           />
           <RecordMetric label={t(($) => $.records.workspace.speakers)} value={speakerLabel} />
         </dl>

@@ -59,6 +59,18 @@ pub struct TranslationModelCapability {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TranslationEngineCapability {
+    pub id: String,
+    pub label: String,
+    pub runtime: String,
+    pub model_family: String,
+    pub requires_local_model: bool,
+    pub target_languages: Vec<String>,
+    pub modes: Vec<ModeCapability>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LanguageOption {
     pub code: String,
     pub label: String,
@@ -86,12 +98,7 @@ pub struct Capabilities {
     pub asr_models: Vec<AsrModelCapability>,
     pub translation_models: Vec<TranslationModelCapability>,
     pub translation_targets: Vec<LanguageOption>,
-    pub translation_engine: String,
-    /// The native runtime that executes the translation models.
-    pub translation_runtime: String,
-    /// The model family the compiled adapter reads.
-    pub translation_model_family: String,
-    pub translation_modes: Vec<ModeCapability>,
+    pub translation_engines: Vec<TranslationEngineCapability>,
     pub diarization: ModelStatus,
     pub speaker_embedding: ModelStatus,
     pub vad: ModelStatus,

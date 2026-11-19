@@ -62,7 +62,7 @@ fn normalize_language(language: &str) -> &str {
         .trim()
         .trim_start_matches("<|")
         .trim_end_matches("|>");
-    if language.starts_with("zh") || language == "yue" {
+    if language.starts_with("zh") {
         "zh-Hans"
     } else if language.starts_with("en") {
         "en"
@@ -85,11 +85,14 @@ mod tests {
         assert_eq!(source_language("123", None), "unknown");
         assert_eq!(source_language("123", Some("<|zh|>")), "zh-Hans");
         assert_eq!(source_language("こんにちは", Some("ja")), "ja");
+        assert_eq!(source_language("你好", Some("yue")), "yue");
     }
 
     #[test]
     fn explicit_language_survives_qwen3_text_cleaning() {
         assert_eq!(prompt_language(Some("ja")), Some("ja"));
+        assert_eq!(prompt_language(Some("zh")), Some("zh-Hans"));
+        assert_eq!(prompt_language(Some("yue")), Some("yue"));
         assert_eq!(prompt_language(Some("auto")), None);
     }
 }

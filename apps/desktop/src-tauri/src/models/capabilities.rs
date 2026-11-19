@@ -2,11 +2,12 @@ use super::{
     paths::ModelPaths,
     registry::{
         translation_files, AsrModelKind, ASR_MODELS, BERGAMOT_ENGINE_ID, DIARIZATION_FILES,
-        SPEAKER_FILES, SUPPORTED_LANGUAGES, TRANSLATION_MODELS, VAD_FILES,
+        OPENAI_COMPATIBLE_ENGINE_ID, SPEAKER_FILES, SUPPORTED_LANGUAGES, TRANSLATION_MODELS,
+        VAD_FILES,
     },
     status::{
         AsrModelCapability, AudioCapabilities, Capabilities, LanguageOption, ModeCapability,
-        TranslationModelCapability,
+        TranslationEngineCapability, TranslationModelCapability,
     },
 };
 
@@ -55,43 +56,55 @@ impl ModelPaths {
                 supported_modes: vec!["text".to_owned()],
             })
             .collect();
+        let translation_targets = SUPPORTED_LANGUAGES
+            .iter()
+            .map(|(code, label)| LanguageOption {
+                code: (*code).to_owned(),
+                label: (*label).to_owned(),
+            })
+            .collect::<Vec<_>>();
+        let bergamot_targets = SUPPORTED_LANGUAGES
+            .iter()
+            .filter(|(code, _)| {
+                TRANSLATION_MODELS
+                    .iter()
+                    .any(|model| model.target_language == *code)
+            })
+            .map(|(code, _)| (*code).to_owned())
+            .collect();
+        let all_targets = SUPPORTED_LANGUAGES
+            .iter()
+            .map(|(code, _)| (*code).to_owned())
+            .collect();
         Capabilities {
             models_dir: self.root.display().to_string(),
             platform: platform_label(),
             audio: audio_capabilities(),
             asr_models,
             translation_models,
-            translation_targets: SUPPORTED_LANGUAGES
-                .iter()
-                .map(|(code, label)| LanguageOption {
-                    code: (*code).to_owned(),
-                    label: (*label).to_owned(),
-                })
-                .collect(),
-            translation_engine: BERGAMOT_ENGINE_ID.to_owned(),
-            translation_runtime: crate::translation::TRANSLATION_RUNTIME.to_owned(),
-            translation_model_family: crate::translation::TRANSLATION_MODEL_FAMILY.to_owned(),
-            translation_modes: vec![
-                ModeCapability {
-                    mode: "auto".to_owned(),
-                    available: true,
-                    reason: None,
-                    reason_code: None,
+            translation_targets,
+            translation_engines: vec![
+                TranslationEngineCapability {
+                    id: BERGAMOT_ENGINE_ID.to_owned(),
+                    label: "Bergamot (local)".to_owned(),
+                    runtime: crate::translation::BERGAMOT_RUNTIME.to_owned(),
+                    model_family: crate::translation::BERGAMOT_MODEL_FAMILY.to_owned(),
+                    requires_local_model: true,
+                    target_languages: bergamot_targets,
+                    modes: translation_modes(Some(
+                        "The fxtranslate runtime returns complete translated text for one submitted source string; it does not expose incremental output.",
+                    )),
                 },
-                ModeCapability {
-                    mode: "text".to_owned(),
-                    available: true,
-                    reason: None,
-                    reason_code: None,
-                },
-                ModeCapability {
-                    mode: "streaming".to_owned(),
-                    available: false,
-                    reason: Some(
-                        "The fxtranslate runtime returns complete translated text for one submitted source string; it does not expose incremental output."
-                            .to_owned(),
-                    ),
-                    reason_code: Some("complete-text-only".to_owned()),
+                TranslationEngineCapability {
+                    id: OPENAI_COMPATIBLE_ENGINE_ID.to_owned(),
+                    label: "OpenAI-Compatible".to_owned(),
+                    runtime: crate::translation::OPENAI_COMPATIBLE_RUNTIME.to_owned(),
+                    model_family: crate::translation::OPENAI_COMPATIBLE_MODEL_FAMILY.to_owned(),
+                    requires_local_model: false,
+                    target_languages: all_targets,
+                    modes: translation_modes(Some(
+                        "The OpenAI-compatible adapter returns one complete translated response per caption; it does not expose incremental output.",
+                    )),
                 },
             ],
             diarization: self.model_status(
@@ -117,6 +130,29 @@ impl ModelPaths {
             ),
         }
     }
+}
+
+fn translation_modes(streaming_reason: Option<&str>) -> Vec<ModeCapability> {
+    vec![
+        ModeCapability {
+            mode: "auto".to_owned(),
+            available: true,
+            reason: None,
+            reason_code: None,
+        },
+        ModeCapability {
+            mode: "text".to_owned(),
+            available: true,
+            reason: None,
+            reason_code: None,
+        },
+        ModeCapability {
+            mode: "streaming".to_owned(),
+            available: false,
+            reason: streaming_reason.map(ToOwned::to_owned),
+            reason_code: Some("complete-text-only".to_owned()),
+        },
+    ]
 }
 
 fn platform_label() -> String {
@@ -151,7 +187,10 @@ mod tests {
         let paths = ModelPaths::new(std::env::temp_dir());
         let capabilities = paths.capabilities();
         let streaming = capabilities
-            .translation_modes
+            .translation_engines
+            .first()
+            .expect("the first translation engine is reported")
+            .modes
             .iter()
             .find(|mode| mode.mode == "streaming")
             .expect("the streaming route is reported");
@@ -175,5 +214,26 @@ mod tests {
             assert!(!model.supports_source_language);
             assert_eq!(model.source_languages.len(), 30);
         }
+    }
+
+    #[test]
+    fn translation_engines_declare_their_real_target_scope() {
+        let paths = ModelPaths::new(std::env::temp_dir());
+        let capabilities = paths.capabilities();
+        let bergamot = capabilities
+            .translation_engines
+            .iter()
+            .find(|engine| engine.id == "bergamot")
+            .expect("Bergamot is reported");
+        assert!(bergamot.requires_local_model);
+        assert_eq!(bergamot.target_languages, vec!["zh-Hans", "en"]);
+
+        let openai = capabilities
+            .translation_engines
+            .iter()
+            .find(|engine| engine.id == "openai-compatible")
+            .expect("OpenAI-compatible is reported");
+        assert!(!openai.requires_local_model);
+        assert_eq!(openai.target_languages.len(), 30);
     }
 }

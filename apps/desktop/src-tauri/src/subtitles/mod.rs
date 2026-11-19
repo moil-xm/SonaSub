@@ -638,6 +638,7 @@ mod tests {
             text: "hello".to_owned(),
             source_language: "en".to_owned(),
             target_language: "zh-Hans".to_owned(),
+            engine: "bergamot".to_owned(),
             model_id: "model".to_owned(),
         };
         store.apply_partial(partial(1, "hello there", 2));
@@ -652,6 +653,68 @@ mod tests {
                 "model"
             )
             .is_none());
+    }
+
+    #[test]
+    fn translation_patches_keep_the_request_engine_and_model() {
+        let mut store = SubtitleStore::new("s".to_owned(), 100);
+        store.apply_partial(partial(1, "hello", 1));
+
+        let pending = store
+            .mark_translation_pending("s:1", "ja", "openai-compatible", "text", "remote-model")
+            .expect("pending translation patch");
+        let SubtitlePatch::Translation {
+            id: _,
+            translation: Some(state),
+        } = pending
+        else {
+            panic!("expected a translation patch");
+        };
+        assert_eq!(state.engine, "openai-compatible");
+        assert_eq!(state.model_id, "remote-model");
+        assert_eq!(state.status, TranslationStatus::Pending);
+
+        let ready = store
+            .set_translation(
+                "s:1",
+                1,
+                Ok("こんにちは".to_owned()),
+                "ja",
+                "openai-compatible",
+                "remote-model",
+            )
+            .expect("ready translation patch");
+        let SubtitlePatch::Translation {
+            id: _,
+            translation: Some(state),
+        } = ready
+        else {
+            panic!("expected a translation patch");
+        };
+        assert_eq!(state.engine, "openai-compatible");
+        assert_eq!(state.model_id, "remote-model");
+        assert_eq!(state.status, TranslationStatus::Ready);
+
+        let error = store
+            .set_translation_error(
+                "s:1",
+                1,
+                "ja",
+                "openai-compatible",
+                "remote-model",
+                "request failed".to_owned(),
+            )
+            .expect("error translation patch");
+        let SubtitlePatch::Translation {
+            id: _,
+            translation: Some(state),
+        } = error
+        else {
+            panic!("expected a translation patch");
+        };
+        assert_eq!(state.engine, "openai-compatible");
+        assert_eq!(state.model_id, "remote-model");
+        assert_eq!(state.status, TranslationStatus::Error);
     }
 
     #[test]

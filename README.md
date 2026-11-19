@@ -4,9 +4,9 @@
 
 Open-source real-time subtitling for system audio. SonaSub captures the macOS
 output device, runs streaming or segmented speech recognition with
-sherpa-onnx, associates speakers, translates with Bergamot and renders live
-captions. The complete runtime is native Rust and the packaged desktop app
-contains no Node.js.
+sherpa-onnx, associates speakers, translates locally with Bergamot or through
+an optional OpenAI-compatible endpoint, and renders live captions. The complete
+runtime is native Rust and the packaged desktop app contains no Node.js.
 
 Source text appears as soon as recognition produces it; speaker labels and
 translation are independent asynchronous updates on the same subtitle segment.
@@ -21,12 +21,16 @@ or microphone fallbacks.
 - Segmented Silero VAD + Qwen3-ASR 0.6B/1.7B INT8 recognition for 30 languages
   and 22 Chinese dialects, with final captions only.
 - CAM++ speaker embeddings and bounded-window Pyannote diarization.
-- Native Bergamot translation for en -> zh-Hans and zh-Hans -> en.
+- Local Bergamot translation for en -> zh-Hans and zh-Hans -> en.
+- Optional OpenAI-Compatible translation with a custom Base URL, model and API
+  key for 30 target languages. Caption text leaves the Mac only when this
+  engine is selected.
 - Rust subtitle scheduling with stable IDs, revisions and independent text,
   speaker and translation patches.
 - React live-caption workbench with model/mode configuration, model readiness,
   session controls, notices and telemetry.
-- Offline core pipeline once all models are present.
+- Offline recognition and Bergamot translation once all required models are
+  present; the OpenAI-compatible engine needs access to its endpoint.
 
 The Chrome extension remains a separate Manifest V3 project with only a popup.
 Tab capture is future work and is not used as a hidden audio fallback.
@@ -40,14 +44,15 @@ Tab capture is future work and is not used as a hidden audio fallback.
 - Routing/state: TanStack Router / Query / Form, Zustand, Day.js
 - Native speech: official `sherpa-onnx` Rust API v2.0.1
 - Native system audio: `flexaudio 0.8.1` / `flexaudio-os-macos 0.8.1`
-- Native translation: `fxtranslate 0.5.0` with pinned Bergamot models
+- Local translation: `fxtranslate 0.5.0` with pinned Bergamot models
+- Remote translation: `adk-model 2.3.0` OpenAI-compatible client
 - Extension: WXT + React + TypeScript (Manifest V3)
 
 ## Requirements
 
 - Node.js 24 LTS (`^24.11.0`) and pnpm 12 for development and model preparation.
   Node.js is not used by the packaged desktop app.
-- Rust stable >= 1.90 with `rustfmt` and `clippy`.
+- Rust stable >= 1.95 with `rustfmt` and `clippy`.
 - macOS 14.4 or later on Apple Silicon (arm64); Xcode Command Line Tools.
 - `curl`, `tar` and `zstd` for model preparation (`brew install zstd` if needed).
 
@@ -145,8 +150,10 @@ The preferences panel controls:
 - ASR mode (`auto` / `streaming` / `segmented`), model and source language;
 - maximum segment length, VAD threshold, silence/speech minimums and the
   stable-segment wait;
-- translation mode (`auto` / `streaming` / `text`), trigger
+- translation engine (`bergamot` / `openai-compatible`), mode
+  (`auto` / `streaming` / `text`), trigger
   (`finalOnly` / `stableSegment`) and target language;
+- OpenAI-Compatible Base URL, remote model and API key;
 - speaker embedding/diarization, window length, speaker capacity and matching
   threshold;
 - subtitle history limit.
@@ -157,6 +164,19 @@ complete-text translation only; `streaming` is not available. Configuration is
 saved atomically, locked while a session is active and applied by the next
 start or restart.
 
+Bergamot exposes only its two pinned directions (`en` and `zh-Hans` targets);
+the other target languages are shown as disabled and require
+OpenAI-Compatible. The remote adapter accepts all 30 registered target
+languages, but the remote model ultimately decides which ones it supports.
+Its Base URL must be an absolute `http://` or `https://` URL. A trailing `/`
+and a mistaken `/chat/completions` suffix are removed before the request; an
+empty API key is allowed for unauthenticated local endpoints.
+
+The OpenAI-compatible Base URL, model and API key are stored as plain text in
+the local `config.json` and in each record's `records.sqlite` configuration
+snapshot. Debug output, logs and surfaced errors redact the key. There is no
+environment-variable fallback.
+
 ## Architecture
 
 ```
@@ -165,7 +185,7 @@ apps/desktop                 React workbench + src-tauri Rust application
   src-tauri/src/audio/       Core Audio system capture and 48k -> 16k DSP
   src-tauri/src/asr/         Streaming Zipformer, segmented SenseVoice and Qwen3
   src-tauri/src/speaker/     CAM++ registry and windowed diarization
-  src-tauri/src/translation/ TranslationEngine boundary and Bergamot worker
+  src-tauri/src/translation/ TranslationEngine boundary, Bergamot and remote adapters
   src-tauri/src/subtitles/   Stable IDs, revisions and patch scheduling
   src-tauri/src/session/     Live caption lifecycle, state and events
   src-tauri/src/records/     Saved recordings, device runs and SQLite storage

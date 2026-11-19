@@ -65,7 +65,7 @@ impl RecordManager {
                 | RecordState::WaitingForDevice
                 | RecordState::Failed => {}
             }
-            validate_record_config(&record.config)?;
+            validate_record_config(&mut record.config)?;
             if record.config.audio.device_ids.is_empty() {
                 return Err("Select at least one system audio device.".to_owned());
             }

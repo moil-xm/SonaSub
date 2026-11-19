@@ -3,9 +3,9 @@
 [English](README.md) | **简体中文**
 
 开源的系统音频实时字幕工具。SonaSub 采集 macOS 系统输出，使用
-sherpa-onnx 完成流式或分段语音识别、说话人关联，使用 Bergamot 完成本地
-翻译，并在桌面界面实时显示字幕。完整运行时为原生 Rust，安装包不包含
-Node.js。
+sherpa-onnx 完成流式或分段语音识别与说话人关联，使用 Bergamot 完成本地
+翻译，或通过可选的 OpenAI-Compatible 端点翻译，并在桌面界面实时显示字幕。
+完整运行时为原生 Rust，安装包不包含 Node.js。
 
 原文字幕在识别产生后立即显示；说话人标签和译文作为异步结果，独立更新到
 同一条字幕上。项目不包含模拟结果、回退引擎、伪造的流式翻译或麦克风兜底。
@@ -18,11 +18,14 @@ Node.js。
 - Silero VAD + Qwen3-ASR 0.6B/1.7B INT8 分段识别，覆盖 30 种语言和
   22 种汉语方言，仅生成最终字幕。
 - CAM++ 说话人嵌入，以及有界窗口的 Pyannote Diarization。
-- 原生 Bergamot 翻译，支持 en -> zh-Hans 与 zh-Hans -> en。
+- 本地 Bergamot 翻译，支持 en -> zh-Hans 与 zh-Hans -> en。
+- 可选 OpenAI-Compatible 翻译：自定义 Base URL、模型与 API Key，开放 30 个
+  目标语言。只有选择该引擎时，字幕文本才会离开这台 Mac。
 - Rust 字幕调度：稳定 ID、修订号，以及原文、说话人、译文独立 Patch。
 - React 实时字幕工作台：模型与模式配置、模型就绪提示、会话控制、通知与
   运行指标。
-- 模型齐全后，核心链路可断网运行。
+- 模型齐全且选择 Bergamot 时，核心链路可断网运行；远端引擎需要能访问
+  所配置的端点。
 
 Chrome 扩展仍是独立的 Manifest V3 工程，目前只有 popup。标签页采集属于
 后续工作，不会被当作隐藏的音频兜底来源。
@@ -35,14 +38,15 @@ Chrome 扩展仍是独立的 Manifest V3 工程，目前只有 popup。标签页
 - 路由与状态：TanStack Router / Query / Form、Zustand、Day.js
 - 原生语音：官方 `sherpa-onnx` Rust API v2.0.1
 - 原生系统音频：`flexaudio 0.8.1` / `flexaudio-os-macos 0.8.1`
-- 原生翻译：`fxtranslate 0.5.0` + 固定版本 Bergamot 模型
+- 本地翻译：`fxtranslate 0.5.0` + 固定版本 Bergamot 模型
+- 远端翻译：`adk-model 2.3.0` OpenAI-Compatible 客户端
 - 扩展：WXT + React + TypeScript（Manifest V3）
 
 ## 环境要求
 
 - Node.js 24 LTS（`^24.11.0`）与 pnpm 12，仅用于开发和模型准备；打包后的
   桌面应用不依赖 Node.js。
-- Rust 稳定版 >= 1.90，含 `rustfmt` 与 `clippy`。
+- Rust 稳定版 >= 1.95，含 `rustfmt` 与 `clippy`。
 - macOS 14.4 或更高版本（Apple Silicon / arm64）；Xcode Command Line Tools。
 - 模型准备需要 `curl`、`tar` 与 `zstd`（可用 `brew install zstd` 安装）。
 
@@ -130,14 +134,26 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
 - 系统输出设备；
 - ASR 模式（`auto` / `streaming` / `segmented`）、模型与源语言；
 - 最大分段长度、VAD 阈值、最小静音/语音时长、稳定等待时间；
-- 翻译模式（`auto` / `streaming` / `text`）、触发策略
+- 翻译引擎（`bergamot` / `openai-compatible`）、模式
+  （`auto` / `streaming` / `text`）、触发策略
   （`finalOnly` / `stableSegment`）与目标语言；
+- OpenAI-Compatible 的 Base URL、远端模型与 API Key；
 - 说话人嵌入/Diarization、窗口长度、最大人数与匹配阈值；
 - 字幕历史上限。
 
 `auto` 由当前模型与已编译适配器决定；不支持的显式模式会被拒绝并在界面
 禁用。Bergamot 只能返回完整文本，因此 `streaming` 不可用。配置原子写入，
 会话运行期间锁定，下次启动或重启时生效。
+
+Bergamot 只开放两个固定方向（`en` 与 `zh-Hans` 目标），其余目标会在界面中
+禁用并需要切换到 OpenAI-Compatible。远端适配器接受 30 个已注册目标语言，
+最终能力由远端模型决定。Base URL 必须是完整的 `http://` 或 `https://` 地址；
+末尾 `/` 和误填的 `/chat/completions` 后缀会在请求前移除。本地无鉴权端点
+可以留空 API Key。
+
+OpenAI-Compatible 的 Base URL、模型与 API Key 以明文保存在本地
+`config.json` 和每条记录的 `records.sqlite` 配置快照中。调试输出、日志与
+错误信息会脱敏 API Key；不提供环境变量回退。
 
 ## 架构
 
@@ -147,7 +163,7 @@ apps/desktop                 React 工作台 + src-tauri Rust 应用
   src-tauri/src/audio/       Core Audio 系统采集与 48k -> 16k DSP
   src-tauri/src/asr/         流式 Zipformer、分段 SenseVoice 与 Qwen3
   src-tauri/src/speaker/     CAM++ 注册表与窗口化 Diarization
-  src-tauri/src/translation/ TranslationEngine 边界与 Bergamot Worker
+  src-tauri/src/translation/ TranslationEngine 边界、Bergamot 与远端适配器
   src-tauri/src/subtitles/   稳定 ID、修订号与 Patch 调度
   src-tauri/src/session/     实时字幕会话的生命周期、状态与事件
   src-tauri/src/records/     录制记录、各设备的采集任务与 SQLite 存储

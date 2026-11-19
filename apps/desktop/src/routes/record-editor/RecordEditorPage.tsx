@@ -57,18 +57,29 @@ function newRecordConfig(
     }
   }
 
-  const translation = capabilities.translationModels.find(
-    (model) => model.id === config.translation.modelId,
+  const translationEngine = capabilities.translationEngines.find(
+    (engine) => engine.id === config.translation.engine,
   );
-  if (!translation) {
-    const fallback =
-      capabilities.translationModels.find(
-        (model) => model.targetLanguage === config.translation.targetLanguage,
-      ) ?? capabilities.translationModels[0];
+  if (!translationEngine) {
+    const fallback = capabilities.translationEngines.find((engine) => engine.id === 'bergamot');
     if (fallback) {
-      config.translation.modelId = fallback.id;
-      config.translation.engine = fallback.engine;
-      config.translation.targetLanguage = fallback.targetLanguage;
+      config.translation.engine = fallback.id;
+      config.translation.targetLanguage = 'zh-Hans';
+    }
+  }
+  if (config.translation.engine === 'bergamot') {
+    const translation = capabilities.translationModels.find(
+      (model) => model.id === config.translation.modelId,
+    );
+    if (!translation) {
+      const fallback =
+        capabilities.translationModels.find(
+          (model) => model.targetLanguage === config.translation.targetLanguage,
+        ) ?? capabilities.translationModels[0];
+      if (fallback) {
+        config.translation.modelId = fallback.id;
+        config.translation.targetLanguage = fallback.targetLanguage;
+      }
     }
   }
   return config;

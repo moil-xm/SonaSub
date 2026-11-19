@@ -21,9 +21,18 @@ export function RecordEditorSummary({
 }: RecordEditorSummaryProps) {
   const { t } = useTranslation();
   const asr = capabilities.asrModels.find((model) => model.id === config.recognition.modelId);
-  const translation = capabilities.translationModels.find(
-    (model) => model.id === config.translation.modelId,
+  const translationEngine = capabilities.translationEngines.find(
+    (engine) => engine.id === config.translation.engine,
   );
+  const translation = capabilities.translationModels.find(
+    (model) =>
+      model.engine === config.translation.engine && model.id === config.translation.modelId,
+  );
+  let translationLabel = translation?.label ?? config.translation.modelId;
+  if (translationEngine?.id === 'openai-compatible') {
+    const model = config.translation.openaiCompatible.model.trim();
+    translationLabel = model ? `${translationEngine.label} · ${model}` : translationEngine.label;
+  }
   const firstDevice = devices.find((device) => device.id === config.audio.deviceIds[0]);
   let displayName = name.trim();
   if (!displayName) displayName = firstDevice?.name ?? t(($) => $.records.editor.namePlaceholder);
@@ -66,7 +75,7 @@ export function RecordEditorSummary({
             <span className="text-right">{asr?.label ?? config.recognition.modelId}</span>
           </SummaryRow>
           <SummaryRow label={t(($) => $.records.editor.summaryTranslation)}>
-            <span className="text-right">{translation?.label ?? config.translation.modelId}</span>
+            <span className="text-right">{translationLabel}</span>
           </SummaryRow>
           <SummaryRow label={t(($) => $.records.editor.summarySpeakers)}>
             <span className="text-right">{speakerSummary}</span>

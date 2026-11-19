@@ -1,4 +1,8 @@
-import type { AsrModelCapability, TranslationModelCapability } from '../session';
+import type {
+  AsrModelCapability,
+  TranslationEngineCapability,
+  TranslationModelCapability,
+} from '../session';
 
 export type ReadinessIssue =
   | 'unsupportedPlatform'
@@ -7,6 +11,9 @@ export type ReadinessIssue =
   | 'asrMode'
   | 'asrLanguage'
   | 'vadModel'
+  | 'translationEngine'
+  | 'translationTarget'
+  | 'translationConfig'
   | 'translationModel'
   | 'speakerModel'
   | 'diarizationModel';
@@ -16,5 +23,11 @@ export type ModelReadiness = {
   issues: ReadinessIssue[];
   selectedAsr: AsrModelCapability | null;
   selectedMode: 'streaming' | 'segmented' | null;
+  selectedTranslationModels: TranslationModelCapability[];
+};
+
+export type TranslationReadiness = {
+  issues: ReadinessIssue[];
+  selectedEngine: TranslationEngineCapability | null;
   selectedTranslationModels: TranslationModelCapability[];
 };

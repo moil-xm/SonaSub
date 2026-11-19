@@ -1,6 +1,6 @@
 import type { AppConfig, Capabilities } from '../session';
 
-import type { ModelReadiness, ReadinessIssue } from './model-readiness.type';
+import type { ModelReadiness, ReadinessIssue, TranslationReadiness } from './model-readiness.type';
 
 export function assessModelReadiness(
   capabilities: Capabilities,
@@ -13,9 +13,7 @@ export function assessModelReadiness(
     if (config.recognition.mode === 'auto') selectedMode = selectedAsr.kind;
     else selectedMode = config.recognition.mode;
   }
-  const selectedTranslationModels = capabilities.translationModels.filter(
-    (model) => model.targetLanguage === config.translation.targetLanguage,
-  );
+  const translation = assessTranslationReadiness(capabilities, config);
   const issues: ReadinessIssue[] = [];
 
   if (!capabilities.audio.systemCapture) issues.push('unsupportedPlatform');
@@ -32,9 +30,7 @@ export function assessModelReadiness(
     }
     if (selectedMode === 'segmented' && !capabilities.vad.available) issues.push('vadModel');
   }
-  if (!selectedTranslationModels.some((model) => model.available)) {
-    issues.push('translationModel');
-  }
+  issues.push(...translation.issues);
   if (config.speakers.enabled && !capabilities.speakerEmbedding.available) {
     issues.push('speakerModel');
   }
@@ -51,6 +47,49 @@ export function assessModelReadiness(
     issues,
     selectedAsr,
     selectedMode,
+    selectedTranslationModels: translation.selectedTranslationModels,
+  };
+}
+
+export function assessTranslationReadiness(
+  capabilities: Capabilities,
+  config: AppConfig,
+): TranslationReadiness {
+  const selectedEngine =
+    capabilities.translationEngines.find((engine) => engine.id === config.translation.engine) ??
+    null;
+  const selectedTranslationModels = capabilities.translationModels.filter(
+    (model) =>
+      model.engine === config.translation.engine &&
+      model.targetLanguage === config.translation.targetLanguage,
+  );
+  const issues: ReadinessIssue[] = [];
+
+  if (!selectedEngine) issues.push('translationEngine');
+  if (selectedEngine && !selectedEngine.targetLanguages.includes(config.translation.targetLanguage))
+    issues.push('translationTarget');
+  if (selectedEngine?.requiresLocalModel) {
+    if (!selectedTranslationModels.some((model) => model.available))
+      issues.push('translationModel');
+  }
+  if (selectedEngine && !selectedEngine.requiresLocalModel) {
+    const baseUrl = config.translation.openaiCompatible.baseUrl.trim();
+    const model = config.translation.openaiCompatible.model.trim();
+    if (!isHttpUrl(baseUrl) || !model) issues.push('translationConfig');
+  }
+
+  return {
+    issues,
+    selectedEngine,
     selectedTranslationModels,
   };
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }

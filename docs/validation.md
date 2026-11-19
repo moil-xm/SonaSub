@@ -12,10 +12,10 @@ simulated result.
 | --------- | ---------------------------------------------------------- |
 | Platform  | macOS 27.2, arm64                                          |
 | Hardware  | Apple M2 Max                                               |
-| Rust      | 1.97.0, project `rust-version = 1.90`                      |
+| Rust      | 1.97.0, project `rust-version = 1.95`                      |
 | Node.js   | 24.22.1                                                    |
 | pnpm      | 12.15.0 (`packageManager` in `package.json`)               |
-| App build | `pnpm --filter @sonasub/desktop tauri build --debug`       |
+| App build | `pnpm --filter @sonasub/desktop tauri:build --no-sign`     |
 | Models    | `~/Library/Application Support/dev.sonasub.desktop/models` |
 | Audio     | 16 kHz mono test clips in `/tmp/sonasub-research/audio`    |
 
@@ -29,16 +29,51 @@ static runtime during compilation; no separate native preparation step exists.
 | `pnpm fmt`                                                    | pass — 173 files formatted                    |
 | `pnpm check` (Vite+ format, lint, type check)                 | pass — 173 formatted, 136 lint/type clean     |
 | `pnpm typecheck`                                              | pass — 136 files, no type errors              |
-| `pnpm test`                                                   | pass — 7 files, 32 tests                      |
+| `pnpm test`                                                   | pass — 7 files, 38 tests                      |
 | `pnpm build` (desktop + extension)                            | pass — existing >500 kB chunk warning remains |
 | `pnpm check:rust` (`cargo fmt --check`, `clippy -D warnings`) | pass                                          |
-| `cargo test --locked -- --test-threads=1`                     | pass — 68 passed, 13 ignored                  |
+| `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` | pass — 100 passed, 13 ignored |
 | `node --check scripts/prepare-models.mjs`                     | pass                                          |
 | `pnpm install --frozen-lockfile`                              | pass                                          |
 | `git diff --check`                                            | pass                                          |
 
 The 13 ignored Rust tests are the real-model tests. They are **not** part
 of the automatic suite and are reported separately below.
+
+## OpenAI-Compatible Translation Change
+
+The optional remote translation engine was checked with the following commands
+from the repository root. `CARGO_NET_OFFLINE=true` was used after the new
+crates were fetched because the registry download stalled in this environment.
+
+| Command                                                       | Result |
+| ------------------------------------------------------------- | ------ |
+| `pnpm check`                                                  | pass — 173 formatted, 136 lint/type clean |
+| `pnpm test`                                                   | pass — 7 files, 38 tests |
+| `pnpm build`                                                  | pass — existing >500 kB desktop chunk warning remains |
+| `CARGO_NET_OFFLINE=true pnpm check:rust`                      | pass — `cargo fmt --check` and `clippy -D warnings` |
+| `cargo test --locked --offline --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` | pass — 100 passed, 13 ignored |
+| `git diff --check`                                            | pass |
+| `CARGO_NET_OFFLINE=true pnpm --filter @sonasub/desktop tauri:build --no-sign` | pass — unsigned release `.app`, 47.40 MiB |
+
+The Rust suite covers old config/record compatibility, default and remote
+configuration persistence, empty API keys, secret-redacted `Debug`, 30
+translation targets, Bergamot's two targets, `zh`/`yue` handling, engine-aware
+routing, same-language skipping, patch engine/model retention, and loopback
+HTTP stub cases for custom paths, request shape, Bearer present/absent, text
+extraction, empty output, HTTP errors, truncation, safety stops and timeout.
+The frontend suite covers engine-aware readiness and Bergamot target limits.
+
+The release bundle contains only `Info.plist`, the icon and the executable.
+It contains no Node.js runtime or model weights, and `otool -L` lists only
+system frameworks and libraries. A binary string scan found configuration
+field names but no concrete API key or credential value.
+
+Real Bergamot model translation was previously validated with the pinned
+weights, but the ignored real-model suite was not rerun after this change.
+Real OpenAI-compatible translation is **unverified**: no user-provided remote
+endpoint and API key were available. The loopback stub verifies the wire
+format and failure handling, not a production provider.
 
 ## Real-Model Tests
 

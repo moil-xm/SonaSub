@@ -1,10 +1,10 @@
 use super::Runner;
 use crate::{
-    config::TranslationTrigger,
-    models::{BERGAMOT_ENGINE_ID, TRANSLATION_MODELS},
+    config::{normalize_target_language, TranslationTrigger},
     subtitles::StableCandidate,
     translation::{
-        prompt_language, source_language, PushOutcome, TranslationRequest, TranslationResult,
+        prompt_language, resolve_translation_route, source_language, PushOutcome,
+        TranslationRequest, TranslationResult, TranslationRoute,
     },
 };
 
@@ -28,7 +28,7 @@ impl Runner {
                 result.request.text_revision,
                 result.result,
                 &result.request.target_language,
-                BERGAMOT_ENGINE_ID,
+                &result.request.engine,
                 &result.request.model_id,
             )
         };
@@ -43,7 +43,7 @@ impl Runner {
         text: String,
         language: &Option<String>,
     ) {
-        let target = self.config.translation.target_language.clone();
+        let target = normalize_target_language(&self.config.translation.target_language).to_owned();
         let needs = {
             let runtime = self.inner.runtime();
             runtime.store.needs_translation(segment_id, &target)
@@ -67,37 +67,38 @@ impl Runner {
             prompt_language(Some(&self.config.recognition.source_language))
         };
         let source_language = source_language(&text, configured_language.or(language.as_deref()));
-        if source_language == target {
-            let patch = {
-                let mut runtime = self.inner.runtime();
-                runtime
-                    .store
-                    .mark_same_language(segment_id, &target, BERGAMOT_ENGINE_ID)
-            };
-            if let Some(patch) = patch {
-                self.pending_patches.push(patch);
+        let engine = self.config.translation.engine.clone();
+        let route = resolve_translation_route(&self.config.translation, &source_language);
+        let route = match route {
+            Ok(route) => route,
+            Err(error) => TranslationRoute::Unavailable(error),
+        };
+        let (engine, model_id) = match route {
+            TranslationRoute::NotNeeded => {
+                let patch = {
+                    let mut runtime = self.inner.runtime();
+                    runtime
+                        .store
+                        .mark_same_language(segment_id, &target, &engine)
+                };
+                if let Some(patch) = patch {
+                    self.pending_patches.push(patch);
+                }
+                return;
             }
-            return;
-        }
-        let model = TRANSLATION_MODELS.iter().find(|model| {
-            model.target_language == target && model.source_language == source_language
-        });
-        let Some(model) = model else {
-            let patch = {
-                let mut runtime = self.inner.runtime();
-                runtime.store.set_translation_unavailable(
-                    segment_id,
-                    format!(
-                        "No local Bergamot direction for {source_language} to {target}; this segment remains source-only."
-                    ),
-                    &target,
-                    BERGAMOT_ENGINE_ID,
-                )
-            };
-            if let Some(patch) = patch {
-                self.pending_patches.push(patch);
+            TranslationRoute::Unavailable(error) => {
+                let patch = {
+                    let mut runtime = self.inner.runtime();
+                    runtime
+                        .store
+                        .set_translation_unavailable(segment_id, error, &target, &engine)
+                };
+                if let Some(patch) = patch {
+                    self.pending_patches.push(patch);
+                }
+                return;
             }
-            return;
+            TranslationRoute::Ready { engine, model_id } => (engine.to_owned(), model_id),
         };
         let request = TranslationRequest {
             session_id: self.session_id.clone(),
@@ -107,17 +108,14 @@ impl Runner {
             text,
             source_language: source_language.to_owned(),
             target_language: target.clone(),
-            model_id: model.id.to_owned(),
+            engine: engine.clone(),
+            model_id: model_id.clone(),
         };
         let patch = {
             let mut runtime = self.inner.runtime();
-            runtime.store.mark_translation_pending(
-                segment_id,
-                &target,
-                BERGAMOT_ENGINE_ID,
-                "text",
-                model.id,
-            )
+            runtime
+                .store
+                .mark_translation_pending(segment_id, &target, &engine, "text", &model_id)
         };
         if let Some(patch) = patch {
             self.pending_patches.push(patch);
@@ -131,7 +129,7 @@ impl Runner {
                         &evicted.segment_id,
                         evicted.text_revision,
                         &evicted.target_language,
-                        BERGAMOT_ENGINE_ID,
+                        &evicted.engine,
                         &evicted.model_id,
                         "Translation queue was full; a newer subtitle superseded this request."
                             .to_owned(),
@@ -149,7 +147,7 @@ impl Runner {
                         "The translation worker already stopped, so this subtitle stays source-only."
                             .to_owned(),
                         &rejected.target_language,
-                        BERGAMOT_ENGINE_ID,
+                        &rejected.engine,
                     )
                 };
                 if let Some(patch) = patch {

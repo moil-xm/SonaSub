@@ -14,11 +14,11 @@ use sonasub_desktop_lib::{
     config::{AsrMode, RecognitionConfig},
     models::{
         translation_files, ModelPaths, ASR_MODELS, ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID,
-        ASR_SEGMENTED_ID, ASR_STREAMING_ID, BERGAMOT_ENGINE_ID, DIARIZATION_FILES, SPEAKER_FILES,
-        TRANSLATION_MODELS, VAD_FILES,
+        ASR_SEGMENTED_ID, ASR_STREAMING_ID, DIARIZATION_FILES, SPEAKER_FILES, TRANSLATION_MODELS,
+        VAD_FILES,
     },
     speaker::{DiarizationEngine, SpeakerRegistry},
-    translation::{BergamotEngine, TranslationEngine},
+    translation::{BergamotEngine, TranslationEngine, TranslationRequest},
 };
 
 fn models() -> ModelPaths {
@@ -622,18 +622,34 @@ fn bergamot_translates_both_configured_directions() {
         .find(|model| model.source_language == "zh-Hans" && model.target_language == "en")
         .unwrap();
     let mut engine = BergamotEngine::load(&paths, en_zh).unwrap();
-    assert_eq!(engine.capabilities().engine, BERGAMOT_ENGINE_ID);
-    assert!(!engine.capabilities().streaming);
-    let translated = engine
-        .translate("The weather is nice today.")
-        .expect("English to Chinese");
+    let request = TranslationRequest {
+        session_id: "native-pipeline".to_owned(),
+        segment_id: "en-zh".to_owned(),
+        text_revision: 1,
+        config_revision: 1,
+        text: "The weather is nice today.".to_owned(),
+        source_language: "en".to_owned(),
+        target_language: "zh-Hans".to_owned(),
+        engine: "bergamot".to_owned(),
+        model_id: en_zh.id.to_owned(),
+    };
+    let translated = engine.translate(&request).expect("English to Chinese");
     eprintln!("en -> zh-Hans: {translated}");
     assert!(translated.chars().any(is_han));
     drop(engine);
     let mut engine = BergamotEngine::load(&paths, zh_en).unwrap();
-    let translated = engine
-        .translate("今天天气很好。")
-        .expect("Chinese to English");
+    let request = TranslationRequest {
+        session_id: "native-pipeline".to_owned(),
+        segment_id: "zh-en".to_owned(),
+        text_revision: 1,
+        config_revision: 1,
+        text: "今天天气很好。".to_owned(),
+        source_language: "zh-Hans".to_owned(),
+        target_language: "en".to_owned(),
+        engine: "bergamot".to_owned(),
+        model_id: zh_en.id.to_owned(),
+    };
+    let translated = engine.translate(&request).expect("Chinese to English");
     eprintln!("zh-Hans -> en: {translated}");
     assert!(translated
         .chars()

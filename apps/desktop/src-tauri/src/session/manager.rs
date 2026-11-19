@@ -20,10 +20,7 @@ use super::{
 use crate::{
     audio,
     config::{AppConfig, ConfigStore},
-    models::{
-        resolve_translation_mode, validate_asr_config, ModelPaths, BERGAMOT_ENGINE_ID,
-        SUPPORTED_LANGUAGES, TRANSLATION_MODELS,
-    },
+    models::{validate_asr_config, ModelPaths},
     pipeline::metrics::SessionMetrics,
     subtitles::SubtitleStore,
 };
@@ -147,7 +144,7 @@ impl SessionManager {
         snapshot(&self.inner)
     }
 
-    pub fn save_config(&self, config: AppConfig) -> Result<ConfigView, String> {
+    pub fn save_config(&self, mut config: AppConfig) -> Result<ConfigView, String> {
         let _operation = self
             .inner
             .operations
@@ -165,8 +162,8 @@ impl SessionManager {
                 );
             }
         }
-        validate_configuration(&config)?;
-        self.inner.config_store.save(&config)?;
+        validate_configuration(&mut config)?;
+        self.inner.config_store.save(&mut config)?;
         let revision = self
             .inner
             .config_revision
@@ -240,7 +237,7 @@ impl SessionManager {
             SessionStatus::Idle | SessionStatus::Failed { .. } => {}
         }
 
-        let (config, config_revision, history_limit) = {
+        let (mut config, config_revision, history_limit) = {
             let runtime = self.inner.runtime();
             (
                 runtime.config.clone(),
@@ -248,7 +245,7 @@ impl SessionManager {
                 runtime.config.ui.history_limit,
             )
         };
-        validate_configuration(&config)?;
+        validate_configuration(&mut config)?;
         if !audio::is_supported() {
             return Err(audio::unsupported_capture_error());
         }
@@ -457,38 +454,15 @@ impl SessionManager {
     }
 }
 
-fn validate_configuration(config: &AppConfig) -> Result<(), String> {
+fn validate_configuration(config: &mut AppConfig) -> Result<(), String> {
+    config.normalize()?;
     config.validate()?;
-    if config.translation.engine != BERGAMOT_ENGINE_ID {
-        return Err(format!(
-            "Unknown translation engine `{}`. The only compiled adapter is `{BERGAMOT_ENGINE_ID}`.",
-            config.translation.engine
-        ));
-    }
     validate_asr_config(
         &config.recognition.model_id,
         config.recognition.mode,
         &config.recognition.source_language,
     )?;
-    if !SUPPORTED_LANGUAGES
-        .iter()
-        .any(|(code, _)| *code == config.translation.target_language)
-    {
-        return Err(format!(
-            "Unsupported translation target `{}`.",
-            config.translation.target_language
-        ));
-    }
-    if !TRANSLATION_MODELS
-        .iter()
-        .any(|model| model.target_language == config.translation.target_language)
-    {
-        return Err(format!(
-            "No Bergamot model targets `{}`.",
-            config.translation.target_language
-        ));
-    }
-    resolve_translation_mode(config.translation.mode)?;
+    crate::translation::resolve_translation_config(&config.translation)?;
     Ok(())
 }
 
@@ -506,9 +480,9 @@ mod tests {
             let mut config = AppConfig::default();
             config.recognition.model_id = model_id.to_owned();
             config.recognition.mode = AsrMode::Segmented;
-            validate_configuration(&config).unwrap();
+            validate_configuration(&mut config).unwrap();
             config.recognition.mode = AsrMode::Streaming;
-            assert!(validate_configuration(&config).is_err());
+            assert!(validate_configuration(&mut config).is_err());
         }
     }
 }
