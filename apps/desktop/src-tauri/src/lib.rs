@@ -3,6 +3,7 @@ pub mod audio;
 pub mod config;
 pub mod models;
 mod pipeline;
+pub mod providers;
 pub mod records;
 pub mod session;
 pub mod speaker;
@@ -27,6 +28,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             session::get_capabilities,
+            providers::list_providers_command,
+            providers::save_provider_command,
+            providers::fetch_provider_models,
+            providers::test_provider_command,
             models::list_model_installs,
             models::get_model_download_settings,
             models::set_model_download_directory,

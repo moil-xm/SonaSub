@@ -2,7 +2,7 @@ import { createRootRoute, createRoute } from '@tanstack/react-router';
 
 import { AppLayout } from './components/app-layout';
 import { DiagnosticsPage } from './routes/diagnostics';
-import { ModelsPage } from './routes/models';
+import { ProvidersPage, SpeechRecognitionPage, TranslationModelsPage } from './routes/models';
 import { OverviewPage } from './routes/overview';
 import { EditRecordPage, NewRecordPage } from './routes/record-editor';
 import { SessionSettingsPage } from './routes/session-settings';
@@ -51,7 +51,19 @@ const diagnosticsRoute = createRoute({
 const modelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/models',
-  component: ModelsPage,
+  component: SpeechRecognitionPage,
+});
+
+const translationModelsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/models/translation',
+  component: TranslationModelsPage,
+});
+
+const providersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/models/providers',
+  component: ProvidersPage,
 });
 
 const settingsRoute = createRoute({
@@ -73,6 +85,8 @@ export const routeTree = rootRoute.addChildren([
   sessionSettingsRoute,
   diagnosticsRoute,
   modelsRoute,
+  translationModelsRoute,
+  providersRoute,
   settingsRoute,
   aboutRoute,
 ]);

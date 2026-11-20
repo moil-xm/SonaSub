@@ -72,6 +72,9 @@ export function AppLayout() {
   const isSessionPage = pathname === '/session';
   const isDiagnosticsPage = pathname === '/diagnostics';
   const isModelsPage = pathname === '/models';
+  const isTranslationModelsPage = pathname === '/models/translation';
+  const isProvidersPage = pathname === '/models/providers';
+  const isModelsSection = isModelsPage || isTranslationModelsPage || isProvidersPage;
   const isSettingsPage = pathname === '/settings' || pathname === '/about';
 
   let sectionLabel: string = t(($) => $.navigation.groups.workbench);
@@ -84,9 +87,11 @@ export function AppLayout() {
     sectionLabel = t(($) => $.navigation.groups.configuration);
     pageLabel = t(($) => $.navigation.diagnostics);
   }
-  if (isModelsPage) {
+  if (isModelsSection) {
     sectionLabel = t(($) => $.navigation.groups.configuration);
     pageLabel = t(($) => $.navigation.models);
+    if (isTranslationModelsPage) pageLabel = t(($) => $.navigation.translationModels);
+    if (isProvidersPage) pageLabel = t(($) => $.navigation.llmProviders);
   }
   if (isSettingsPage) {
     sectionLabel = t(($) => $.navigation.settings);
@@ -188,11 +193,34 @@ export function AppLayout() {
           <Link
             to="/models"
             aria-current={currentPage(isModelsPage)}
-            className={navigationItemClass(isModelsPage)}
+            className={navigationItemClass(isModelsSection)}
           >
             <Icon icon={packageIcon} className="size-4 shrink-0" />
             <span className="truncate">{t(($) => $.navigation.models)}</span>
           </Link>
+          <div className="ml-6 border-l border-border pl-2">
+            <Link
+              to="/models"
+              aria-current={currentPage(isModelsPage)}
+              className={settingsSubItemClass(isModelsPage)}
+            >
+              {t(($) => $.navigation.speechRecognition)}
+            </Link>
+            <Link
+              to="/models/translation"
+              aria-current={currentPage(isTranslationModelsPage)}
+              className={settingsSubItemClass(isTranslationModelsPage)}
+            >
+              {t(($) => $.navigation.translationModels)}
+            </Link>
+            <Link
+              to="/models/providers"
+              aria-current={currentPage(isProvidersPage)}
+              className={settingsSubItemClass(isProvidersPage)}
+            >
+              {t(($) => $.navigation.llmProviders)}
+            </Link>
+          </div>
         </nav>
 
         <div className="shrink-0 border-t border-border px-2.5 py-2">

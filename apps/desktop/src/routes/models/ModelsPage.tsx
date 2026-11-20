@@ -33,6 +33,10 @@ import { LanguageName } from '@/components/session-config-form';
 
 type ModelCopyKey = keyof TranslationResource['models'];
 
+type ModelsPageProps = {
+  category?: ModelCategory;
+};
+
 const MODEL_COPY: Record<string, ModelCopyKey> = {
   'zipformer-bilingual-streaming': 'streamingZipformer',
   'sense-voice-int8': 'senseVoice',
@@ -346,7 +350,7 @@ function ModelCard({ group, capability }: ModelCardProps) {
   );
 }
 
-export function ModelsPage() {
+export function ModelsPage({ category }: ModelsPageProps = {}) {
   const { t } = useTranslation();
   const { data: groups, isPending, isError } = useQuery(modelInstallsOptions);
   const { data: capabilities } = useQuery(sessionCapabilitiesOptions);
@@ -355,23 +359,25 @@ export function ModelsPage() {
   const installedCount =
     groups?.filter((group) => group.files.every((file) => file.present)).length ?? 0;
   const totalCount = groups?.length ?? 0;
-  const sections: { category: ModelCategory; title: string; description: string }[] = [
-    {
-      category: 'recognition',
-      title: t(($) => $.models.recognitionSection),
-      description: t(($) => $.models.recognitionSectionHint),
-    },
-    {
-      category: 'translation',
-      title: t(($) => $.models.translationSection),
-      description: t(($) => $.models.translationSectionHint),
-    },
-    {
-      category: 'supporting',
-      title: t(($) => $.models.supportingSection),
-      description: t(($) => $.models.supportingSectionHint),
-    },
-  ];
+  const sections: { category: ModelCategory; title: string; description: string }[] = (
+    [
+      {
+        category: 'recognition',
+        title: t(($) => $.models.recognitionSection),
+        description: t(($) => $.models.recognitionSectionHint),
+      },
+      {
+        category: 'translation',
+        title: t(($) => $.models.translationSection),
+        description: t(($) => $.models.translationSectionHint),
+      },
+      {
+        category: 'supporting',
+        title: t(($) => $.models.supportingSection),
+        description: t(($) => $.models.supportingSectionHint),
+      },
+    ] as { category: ModelCategory; title: string; description: string }[]
+  ).filter((section) => category === undefined || section.category === category);
 
   async function handleChooseDirectory() {
     const directory = await open({ directory: true, multiple: false });

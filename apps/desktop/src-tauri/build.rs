@@ -2,6 +2,10 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "get_capabilities",
+            "list_providers_command",
+            "save_provider_command",
+            "fetch_provider_models",
+            "test_provider_command",
             "list_model_installs",
             "get_model_download_settings",
             "set_model_download_directory",
