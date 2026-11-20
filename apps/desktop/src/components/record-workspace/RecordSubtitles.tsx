@@ -2,16 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import arrowUpIcon from '@iconify-icons/lucide/arrow-up';
 import captionsIcon from '@iconify-icons/lucide/captions';
+import downloadIcon from '@iconify-icons/lucide/download';
 import loaderCircleIcon from '@iconify-icons/lucide/loader-circle';
 import radioIcon from '@iconify-icons/lucide/radio';
+import triangleAlertIcon from '@iconify-icons/lucide/triangle-alert';
 import { useTranslation } from '@sonasub/i18n';
+import { Alert, AlertDescription, AlertTitle } from '@sonasub/ui/components/alert';
 import { Button } from '@sonasub/ui/components/button';
-import { useInfiniteQuery } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 
 import { SubtitleRow } from '@/components/live-subtitles';
-import type { RecordState, RecordSubtitlePage, SubtitleCursor } from '@/lib/records';
-import { sortRecordSegments } from '@/lib/records';
+import { getErrorMessage } from '@/lib/error';
+import { isRecordActiveState, useExportRecord } from '@/lib/records';
+import type { RecordExportSummary, RecordState } from '@/lib/records';
 import type { SubtitleSegment } from '@/lib/session';
 
 const FOLLOW_THRESHOLD_PX = 48;
@@ -24,6 +27,10 @@ type RecordSubtitlesProps = {
   totalCount: number;
 };
 
+type ExportStatus =
+  | { kind: 'success'; summary: RecordExportSummary }
+  | { kind: 'error'; message: string };
+
 export function RecordSubtitles({
   initialSegments,
   recordId,
@@ -34,54 +41,17 @@ export function RecordSubtitles({
   const { t } = useTranslation();
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isFollowing, setIsFollowing] = useState(true);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const oldest = initialSegments[0];
-  let initialCursor: SubtitleCursor | null = null;
-  if (oldest) {
-    initialCursor = { occurrenceMs: oldest.occurrenceMs, id: oldest.id };
-  }
-  const history = useInfiniteQuery({
-    queryKey: [
-      'records',
-      recordId,
-      'history',
-      initialCursor?.occurrenceMs ?? 0,
-      initialCursor?.id ?? '',
-    ],
-    queryFn: ({ pageParam }) =>
-      invoke<RecordSubtitlePage>('list_record_subtitles', {
-        recordId,
-        before: pageParam,
-        limit: 100,
-      }),
-    initialPageParam: initialCursor,
-    getNextPageParam: (lastPage) => {
-      if (!lastPage.hasMore) return undefined;
-      return lastPage.nextBefore ?? undefined;
-    },
-    enabled: isHistoryOpen,
-    networkMode: 'always',
-    retry: false,
-  });
+  const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
+  const exportRecord = useExportRecord();
+  const segments = initialSegments;
+  const isExportDisabled = isRecordActiveState(state) || state === 'notStarted';
 
   useEffect(() => {
-    if (!isFollowing || initialSegments.length === 0) return;
+    if (!isFollowing || segments.length === 0) return;
     const viewport = viewportRef.current;
     if (!viewport) return;
     viewport.scrollTop = viewport.scrollHeight;
-  }, [initialSegments, isFollowing]);
-
-  const olderPages = history.data?.pages.toReversed() ?? [];
-  const olderItems = olderPages.flatMap((page) => page.items);
-  const byId = new Map<string, SubtitleSegment>();
-  for (const segment of olderItems) byId.set(segment.id, segment);
-  for (const segment of initialSegments) byId.set(segment.id, segment);
-  const segments = sortRecordSegments([...byId.values()]);
-  const hasStoredHistory = totalCount > initialSegments.length;
-  const hasMore = history.hasNextPage || !isHistoryOpen;
-  const isLoadingHistory = history.isFetching;
-  let loadOlderLabel: string = t(($) => $.records.workspace.loadOlder);
-  if (isLoadingHistory) loadOlderLabel = t(($) => $.records.workspace.loadingOlder);
+  }, [segments, isFollowing]);
 
   function handleScroll() {
     const viewport = viewportRef.current;
@@ -97,12 +67,20 @@ export function RecordSubtitles({
     viewport.scrollTop = viewport.scrollHeight;
   }
 
-  function loadOlder() {
-    if (!isHistoryOpen) {
-      setIsHistoryOpen(true);
-      return;
+  async function handleExport() {
+    setExportStatus(null);
+    try {
+      const destination = await open({
+        directory: true,
+        multiple: false,
+        title: t(($) => $.records.workspace.exportDialogTitle),
+      });
+      if (!destination) return;
+      const summary = await exportRecord.mutateAsync({ recordId, destination });
+      setExportStatus({ kind: 'success', summary });
+    } catch (error) {
+      setExportStatus({ kind: 'error', message: getErrorMessage(error) });
     }
-    void history.fetchNextPage();
   }
 
   let emptyTitle: string = t(($) => $.records.workspace.emptyTitle);
@@ -127,6 +105,13 @@ export function RecordSubtitles({
     emptyDescription = t(($) => $.records.workspace.ended);
   }
 
+  let exportHint: string | undefined;
+  if (state === 'notStarted') {
+    exportHint = t(($) => $.records.workspace.exportDisabledEmpty);
+  } else if (isRecordActiveState(state)) {
+    exportHint = t(($) => $.records.workspace.exportDisabledActive);
+  }
+
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
       <header className="flex h-[46px] shrink-0 items-center justify-between gap-3 border-b px-4">
@@ -134,41 +119,82 @@ export function RecordSubtitles({
           <Icon icon={captionsIcon} className="size-4 shrink-0 text-muted-foreground" />
           <h2 className="truncate text-[13px] font-medium">{t(($) => $.captions.title)}</h2>
           <span className="text-[11.5px] text-muted-foreground">
-            {t(($) => $.records.workspace.count, { count: totalCount })}
+            {totalCount > segments.length
+              ? t(($) => $.records.workspace.windowCount, {
+                  shown: segments.length,
+                  total: totalCount,
+                })
+              : t(($) => $.records.workspace.count, { count: totalCount })}
           </span>
         </div>
-        {state === 'running' && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-success/40 px-2 py-0.5 text-[10.5px] font-medium text-success">
-            <Icon icon={radioIcon} className="size-3 animate-pulse" />
-            {t(($) => $.workbench.status.running)}
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {state === 'running' && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/40 px-2 py-0.5 text-[10.5px] font-medium text-success">
+              <Icon icon={radioIcon} className="size-3 animate-pulse" />
+              {t(($) => $.workbench.status.running)}
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isExportDisabled || exportRecord.isPending}
+            title={exportHint}
+            onClick={() => void handleExport()}
+          >
+            {exportRecord.isPending ? (
+              <Icon icon={loaderCircleIcon} className="animate-spin" />
+            ) : (
+              <Icon icon={downloadIcon} />
+            )}
+            {t(($) => $.records.workspace.export)}
+          </Button>
+        </div>
       </header>
+
+      {exportStatus && (
+        <div className="shrink-0 border-b border-border/70 px-4 py-2">
+          {exportStatus.kind === 'error' ? (
+            <Alert variant="destructive">
+              <Icon icon={triangleAlertIcon} />
+              <AlertTitle>{t(($) => $.records.workspace.exportFailed)}</AlertTitle>
+              <AlertDescription>{exportStatus.message}</AlertDescription>
+            </Alert>
+          ) : (
+            <Alert>
+              <Icon icon={downloadIcon} />
+              <AlertTitle>{t(($) => $.records.workspace.exportSuccessTitle)}</AlertTitle>
+              <AlertDescription>
+                <span className="block break-all">
+                  {t(($) => $.records.workspace.exportSuccess, {
+                    directory: exportStatus.summary.directory,
+                  })}
+                </span>
+                <span className="block">
+                  {t(($) => $.records.workspace.exportCounts, {
+                    audio: exportStatus.summary.audioFiles,
+                    original: exportStatus.summary.originalLrcFiles,
+                    translation: exportStatus.summary.translationLrcFiles,
+                  })}
+                </span>
+                {exportStatus.summary.audioDisabled && (
+                  <span className="block">{t(($) => $.records.workspace.exportAudioDisabled)}</span>
+                )}
+                {exportStatus.summary.missingAudioRuns > 0 && (
+                  <span className="block">
+                    {t(($) => $.records.workspace.exportMissingAudio, {
+                      count: exportStatus.summary.missingAudioRuns,
+                    })}
+                  </span>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+      )}
 
       <div className="relative min-h-0 flex-1">
         <div ref={viewportRef} className="h-full overflow-y-auto" onScroll={handleScroll}>
-          {(hasStoredHistory || isHistoryOpen) && (
-            <div className="flex justify-center border-b border-border/70 px-4 py-2">
-              {hasMore && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={isLoadingHistory}
-                  onClick={loadOlder}
-                >
-                  {isLoadingHistory && <Icon icon={loaderCircleIcon} className="animate-spin" />}
-                  {loadOlderLabel}
-                </Button>
-              )}
-              {!hasMore && history.data && (
-                <span className="py-1 text-[11px] text-muted-foreground">
-                  {t(($) => $.records.workspace.allLoaded)}
-                </span>
-              )}
-            </div>
-          )}
-
           {segments.length === 0 && (
             <div className="flex h-full min-h-[300px] flex-col items-center justify-center px-6 text-center">
               <div className="mb-3 grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">

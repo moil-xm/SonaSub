@@ -32,6 +32,7 @@ function config(): AppConfig {
         { kind: 'systemOutput', id: 'device-a' },
         { kind: 'systemOutput', id: 'device-b' },
       ],
+      saveAudio: true,
     },
     recognition: {
       mode: 'auto',

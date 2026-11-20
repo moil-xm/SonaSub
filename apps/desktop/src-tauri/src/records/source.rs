@@ -1,5 +1,6 @@
 use std::{
     mem,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
@@ -32,6 +33,7 @@ use crate::{
     },
 };
 
+use super::recording::{AudioRecorder, AudioWriteOutcome};
 use super::types::{RecordNotice, RecordStats, SourceEndReason};
 
 const UI_BATCH_INTERVAL: Duration = Duration::from_millis(80);
@@ -47,6 +49,7 @@ pub struct SourceContext {
     pub device_name: String,
     pub config: AppConfig,
     pub models: ModelPaths,
+    pub audio_dir: PathBuf,
     pub elapsed_base_ms: u64,
     pub occurrence_base_ms: u64,
     pub history_limit: usize,
@@ -126,6 +129,8 @@ struct SourceRunner {
     workers: WorkerRuntime,
     store: SubtitleStore,
     audio: AudioFlow,
+    audio_recorder: Option<AudioRecorder>,
+    audio_error_notified: bool,
     pending_patches: Vec<SubtitlePatch>,
     last_patch_emit: Instant,
     last_stats_emit: Instant,
@@ -269,6 +274,24 @@ impl SourceRunner {
         // Model loading happens before capture starts. Anchor record ordering
         // to the moment audio actually begins, not to the spawn request.
         context.occurrence_base_ms = now_ms();
+        let audio_recorder = if context.config.audio.save_audio {
+            let audio_path = context
+                .audio_dir
+                .join(&context.record_id)
+                .join(format!("{}.wav", context.source_run_id));
+            match AudioRecorder::start(&audio_path, capture_info.sample_rate, capture_info.channels)
+            {
+                Ok(recorder) => Some(recorder),
+                Err(error) => {
+                    context.stop.store(true, Ordering::SeqCst);
+                    let _ = capture_handle.join();
+                    workers.shutdown();
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
         let now = Instant::now();
         Ok(Self {
             context: context.clone(),
@@ -287,6 +310,8 @@ impl SourceRunner {
                 context.history_limit,
             ),
             audio,
+            audio_recorder,
+            audio_error_notified: false,
             pending_patches: Vec::new(),
             last_patch_emit: now,
             last_stats_emit: now,
@@ -354,6 +379,16 @@ impl SourceRunner {
         if let Some(handle) = self.capture_handle.take() {
             let _ = handle.join();
         }
+        if let Some(recorder) = self.audio_recorder.take() {
+            if let Err(error) = recorder.finish() {
+                if !self.audio_error_notified {
+                    self.notice(
+                        "error",
+                        format!("Audio recording could not be finalized: {error}"),
+                    );
+                }
+            }
+        }
         let workers = mem::replace(&mut self.workers, WorkerRuntime::empty());
         workers.join();
         SourceOutcome {
@@ -397,6 +432,23 @@ impl SourceRunner {
         }
         self.metrics.add_audio(outcome.native_frames, 0);
         self.metrics.set_level(chunk.peak, chunk.rms);
+        let write_outcome = self
+            .audio_recorder
+            .as_ref()
+            .map(|recorder| recorder.write(chunk));
+        match write_outcome {
+            Some(AudioWriteOutcome::Dropped) => self.notice(
+                "warning",
+                "Audio recording is behind; a short interval was written as silence.".to_owned(),
+            ),
+            Some(AudioWriteOutcome::Failed(error)) => {
+                if !self.audio_error_notified {
+                    self.audio_error_notified = true;
+                    self.notice("error", error);
+                }
+            }
+            Some(AudioWriteOutcome::Written) | None => {}
+        }
         let asr_frames = outcome.samples.len() as u64;
         self.send_asr(
             AsrInput::Audio {

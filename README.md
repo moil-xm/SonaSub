@@ -82,9 +82,10 @@ pnpm dev:desktop:app
 
 The first system-output capture asks for macOS Screen & System Audio Recording
 permission. Microphone capture asks for Microphone permission separately.
-CPAL cannot turn an output device that also exposes input channels into a
-system loopback stream on macOS; such devices are shown as capture-unavailable
-instead of silently opening the microphone.
+On macOS, an output device that also exposes input channels (for example a USB
+headset) is captured through a SonaSub-managed Core Audio process tap and
+private aggregate device. Selecting it captures its output mix; SonaSub does
+not open the microphone direction or silently substitute another source.
 
 The official `sherpa-onnx` crate downloads and statically links a runtime that
 matches v2.0.1 during the Rust build. It is not a separate service or bundled

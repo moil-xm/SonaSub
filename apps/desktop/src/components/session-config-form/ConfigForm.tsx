@@ -893,7 +893,7 @@ export function ConfigForm({
                       id="history-limit"
                       type="number"
                       min={50}
-                      max={2_000}
+                      max={1_000}
                       step={50}
                       value={field.state.value}
                       disabled={isDisabled}

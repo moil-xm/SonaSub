@@ -13,6 +13,7 @@ pub const DEFAULT_TRANSLATION_ENGINE: &str = "bergamot";
 pub const DEFAULT_TRANSLATION_MODEL: &str = "bergamot-en-zh-Hans";
 pub const DEFAULT_TARGET_LANGUAGE: &str = "zh-Hans";
 pub const DEFAULT_OPENAI_COMPATIBLE_BASE_URL: &str = "https://api.openai.com/v1";
+pub const MAX_HISTORY_LIMIT: usize = 1_000;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,7 +58,7 @@ impl Default for AudioSourceSelection {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AudioConfig {
     /// The single source used by the live subtitle session.
@@ -65,6 +66,18 @@ pub struct AudioConfig {
     /// Capture sources used by a record. Each entry runs as an independent
     /// source with its own ASR stream and timeline.
     pub record: Vec<AudioDeviceRef>,
+    /// Whether a record writes each capture source to its own WAV file.
+    pub save_audio: bool,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            live: AudioSourceSelection::default(),
+            record: Vec::new(),
+            save_audio: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,7 +246,9 @@ pub struct UiConfig {
 
 impl Default for UiConfig {
     fn default() -> Self {
-        Self { history_limit: 400 }
+        Self {
+            history_limit: MAX_HISTORY_LIMIT,
+        }
     }
 }
 
@@ -263,6 +278,7 @@ impl Default for AppConfig {
 
 impl AppConfig {
     pub fn normalize(&mut self) -> Result<(), String> {
+        self.ui.history_limit = self.ui.history_limit.clamp(50, MAX_HISTORY_LIMIT);
         self.translation.normalize()
     }
 
@@ -291,8 +307,10 @@ impl AppConfig {
         if self.speakers.max_speakers == 0 || self.speakers.max_speakers > 16 {
             return Err("Maximum speaker count must be between 1 and 16.".to_owned());
         }
-        if self.ui.history_limit < 50 || self.ui.history_limit > 2000 {
-            return Err("Subtitle history limit must be between 50 and 2000.".to_owned());
+        if self.ui.history_limit < 50 || self.ui.history_limit > MAX_HISTORY_LIMIT {
+            return Err(format!(
+                "Subtitle history limit must be between 50 and {MAX_HISTORY_LIMIT}."
+            ));
         }
         Ok(())
     }
@@ -407,7 +425,16 @@ mod tests {
 
     #[test]
     fn defaults_are_valid() {
-        AppConfig::default().validate().unwrap();
+        let config = AppConfig::default();
+        config.validate().unwrap();
+        assert_eq!(config.ui.history_limit, MAX_HISTORY_LIMIT);
+        assert!(config.audio.save_audio);
+    }
+
+    #[test]
+    fn old_audio_config_defaults_save_audio_to_true() {
+        let config: AppConfig = serde_json::from_str(r#"{"audio":{"record":[]}}"#).unwrap();
+        assert!(config.audio.save_audio);
     }
 
     #[test]

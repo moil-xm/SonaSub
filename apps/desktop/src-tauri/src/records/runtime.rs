@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    path::PathBuf,
     sync::{atomic::AtomicBool, mpsc, Arc, Mutex},
     thread::JoinHandle,
     time::{SystemTime, UNIX_EPOCH},
@@ -24,6 +25,7 @@ pub(super) struct RecordManagerInner {
     pub(super) app: AppHandle,
     pub(super) models: ModelPaths,
     pub(super) store: RecordStore,
+    pub(super) audio_dir: PathBuf,
     pub(super) runtime: Mutex<RecordRuntimeState>,
     pub(super) operations: Mutex<()>,
     pub(super) event_tx: Sender<SourceEvent>,

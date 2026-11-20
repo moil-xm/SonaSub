@@ -2,6 +2,14 @@ use cpal::traits::{DeviceTrait, HostTrait};
 
 use super::{AudioDevice, AudioSourceKind};
 
+#[cfg(target_os = "macos")]
+use super::macos_tap;
+
+#[cfg(target_os = "macos")]
+pub(crate) type CaptureKeepalive = Option<macos_tap::OutputTap>;
+#[cfg(not(target_os = "macos"))]
+pub(crate) type CaptureKeepalive = Option<()>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CaptureMode {
     Microphone,
@@ -23,6 +31,8 @@ pub(crate) struct CapturePlan {
     pub(crate) device_name: String,
     pub(crate) config: cpal::SupportedStreamConfig,
     pub(crate) mode: CaptureMode,
+    /// Core Audio objects that must outlive the stream (macOS process taps).
+    pub(crate) keepalive: CaptureKeepalive,
 }
 
 pub(crate) fn resolve(
@@ -89,11 +99,32 @@ pub(crate) fn resolve(
             if !device.supports_output() {
                 return Err(format!("`{}` is not an audio output device.", device_name));
             }
-            if cfg!(target_os = "macos") && device.supports_input() {
-                return Err(format!(
-                    "CPAL cannot request system loopback for `{}` because the device also exposes input channels; CPAL would open its microphone instead. Select an output-only device.",
-                    device_name
-                ));
+            #[cfg(target_os = "macos")]
+            if device.supports_input() {
+                // CPAL opens the microphone of an input-capable device, so the
+                // loopback has to be built here and captured as an aggregate.
+                let device_uid = device.id().map(|id| id.id().to_owned()).map_err(|error| {
+                    format!("Could not identify `{device_name}` for loopback: {error}")
+                })?;
+                let tap = macos_tap::OutputTap::create(&device_uid).map_err(|error| {
+                    format!("Could not open system loopback for `{device_name}`: {error}")
+                })?;
+                let aggregate = find_aggregate(&host, tap.aggregate_uid()).ok_or_else(|| {
+                    format!(
+                        "The system loopback device for `{device_name}` did not appear in Core Audio."
+                    )
+                })?;
+                let config = aggregate.default_input_config().map_err(|error| {
+                    format!("Could not read the loopback format of `{device_name}`: {error}")
+                })?;
+                return Ok(CapturePlan {
+                    device: aggregate,
+                    device_id,
+                    device_name,
+                    config,
+                    mode: CaptureMode::SystemLoopback,
+                    keepalive: Some(tap),
+                });
             }
             (
                 device.default_output_config().map_err(|error| {
@@ -119,7 +150,30 @@ pub(crate) fn resolve(
         device_name,
         config,
         mode,
+        keepalive: capture_keepalive(),
     })
+}
+
+#[cfg(target_os = "macos")]
+fn capture_keepalive() -> CaptureKeepalive {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn capture_keepalive() -> CaptureKeepalive {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn find_aggregate(host: &cpal::Host, uid: &str) -> Option<cpal::Device> {
+    let id = cpal::DeviceId::new(host.id(), uid);
+    for _ in 0..20 {
+        if let Some(device) = host.device_by_id(&id) {
+            return Some(device);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    None
 }
 
 pub fn list(kind: AudioSourceKind) -> Result<Vec<AudioDevice>, String> {
@@ -151,29 +205,26 @@ pub fn list(kind: AudioSourceKind) -> Result<Vec<AudioDevice>, String> {
         if !seen.insert(id.clone()) {
             continue;
         }
+        #[cfg(target_os = "macos")]
+        if id
+            .strip_prefix("coreaudio:")
+            .is_some_and(|uid| uid.starts_with(macos_tap::AGGREGATE_UID_PREFIX))
+        {
+            // Private loopback aggregates are ours, not user-selectable devices.
+            continue;
+        }
         let name = device_label(&device);
         let config = match kind {
             AudioSourceKind::SystemOutput => device.default_output_config().ok(),
             AudioSourceKind::Microphone => device.default_input_config().ok(),
-        };
-        let (capture_supported, capture_reason) = match kind {
-            AudioSourceKind::Microphone => (true, None),
-            AudioSourceKind::SystemOutput if cfg!(target_os = "macos") && device.supports_input() => (
-                false,
-                Some(
-                    "This output also exposes input channels; CPAL would open its microphone instead of system loopback."
-                        .to_owned(),
-                ),
-            ),
-            AudioSourceKind::SystemOutput => (true, None),
         };
         result.push(AudioDevice {
             id: id.clone(),
             kind,
             name,
             is_default: default_id.as_deref() == Some(id.as_str()),
-            capture_supported,
-            capture_reason,
+            capture_supported: true,
+            capture_reason: None,
             sample_rate: config
                 .as_ref()
                 .map(cpal::SupportedStreamConfig::sample_rate),

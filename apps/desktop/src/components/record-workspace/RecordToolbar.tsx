@@ -60,6 +60,7 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
   const isRunning = summary.state === 'running';
   const isPaused = summary.state === 'paused';
   const isEnded = summary.state === 'ended';
+  const canDelete = !isActive;
   const selectedAsr = capabilities.asrModels.find(
     (model) => model.id === config.recognition.modelId,
   );
@@ -120,7 +121,7 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
   return (
     <div className="shrink-0 space-y-2.5">
       <section className="overflow-hidden rounded-xl border bg-card">
-        <div className="flex flex-col gap-4 px-4 py-4 md:px-5 min-[1060px]:flex-row min-[1060px]:items-start min-[1060px]:justify-between">
+        <div className="flex flex-col gap-4 px-4 py-4 md:px-5 min-[1060px]:flex-row min-[1060px]:items-center min-[1060px]:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] font-medium text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
@@ -190,50 +191,48 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
               </Button>
             )}
             {isEnded && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={createRecord.isPending}
-                  onClick={() => void handleCopy()}
-                >
-                  {createRecord.isPending && (
-                    <Icon icon={loaderCircleIcon} className="animate-spin" />
-                  )}
-                  {!createRecord.isPending && <Icon icon={copyIcon} />}
-                  {t(($) => $.records.workspace.createCopy)}
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm" disabled={deleteRecord.isPending}>
-                      {deleteRecord.isPending ? (
-                        <Icon icon={loaderCircleIcon} className="animate-spin" />
-                      ) : (
-                        <Icon icon={trashIcon} />
-                      )}
-                      {t(($) => $.records.workspace.delete)}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        {t(($) => $.records.workspace.deleteTitle)}
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t(($) => $.records.workspace.deleteDescription)}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>
-                        {t(($) => $.records.workspace.deleteCancel)}
-                      </AlertDialogCancel>
-                      <AlertDialogAction variant="destructive" onClick={handleDelete}>
-                        {t(($) => $.records.workspace.deleteConfirm)}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={createRecord.isPending}
+                onClick={() => void handleCopy()}
+              >
+                {createRecord.isPending && (
+                  <Icon icon={loaderCircleIcon} className="animate-spin" />
+                )}
+                {!createRecord.isPending && <Icon icon={copyIcon} />}
+                {t(($) => $.records.workspace.createCopy)}
+              </Button>
+            )}
+            {canDelete && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={deleteRecord.isPending}>
+                    {deleteRecord.isPending ? (
+                      <Icon icon={loaderCircleIcon} className="animate-spin" />
+                    ) : (
+                      <Icon icon={trashIcon} />
+                    )}
+                    {t(($) => $.records.workspace.delete)}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t(($) => $.records.workspace.deleteTitle)}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t(($) => $.records.workspace.deleteDescription)}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>
+                      {t(($) => $.records.workspace.deleteCancel)}
+                    </AlertDialogCancel>
+                    <AlertDialogAction variant="destructive" onClick={handleDelete}>
+                      {t(($) => $.records.workspace.deleteConfirm)}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
           </div>
         </div>

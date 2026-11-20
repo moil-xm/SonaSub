@@ -259,10 +259,10 @@ fn records_sources_and_subtitles_survive_a_reopen() {
             .unwrap(),
         2_000
     );
-    let page = store.list_subtitles("record", None, 50).unwrap();
-    assert_eq!(page.items.len(), 1);
+    let segments = store.list_recent_segments("record", 50).unwrap();
+    assert_eq!(segments.len(), 1);
     assert_eq!(
-        page.items[0].translation.as_ref().unwrap().text.as_deref(),
+        segments[0].translation.as_ref().unwrap().text.as_deref(),
         Some("你好")
     );
     std::fs::remove_dir_all(directory).unwrap();
@@ -298,9 +298,8 @@ fn identical_local_ids_from_different_source_runs_coexist() {
         .upsert_subtitle(&segment_for("run-b", "device-b", 1, 2_000, "from B"))
         .unwrap();
 
-    let page = store.list_subtitles("record", None, 50).unwrap();
-    let texts = page
-        .items
+    let segments = store.list_export_segments("record").unwrap();
+    let texts = segments
         .iter()
         .map(|segment| segment.text.as_str())
         .collect::<Vec<_>>();
@@ -309,7 +308,7 @@ fn identical_local_ids_from_different_source_runs_coexist() {
 }
 
 #[test]
-fn complete_history_can_be_paged_after_the_live_window_is_trimmed() {
+fn complete_history_remains_available_for_export_after_the_live_window_is_trimmed() {
     let directory = std::env::temp_dir().join(format!("sonasub-records-{}", uuid::Uuid::new_v4()));
     let path = directory.join("records.sqlite");
     let store = RecordStore::open(path.clone()).unwrap();
@@ -347,23 +346,12 @@ fn complete_history_can_be_paged_after_the_live_window_is_trimmed() {
     drop(store);
 
     let store = RecordStore::open(path).unwrap();
-    let mut before = None;
-    let mut pages = Vec::new();
-    loop {
-        let page = store.list_subtitles("record", before.as_ref(), 2).unwrap();
-        pages.push(
-            page.items
-                .iter()
-                .map(|segment| segment.local_id)
-                .collect::<Vec<_>>(),
-        );
-        if !page.has_more {
-            break;
-        }
-        before = page.next_before;
-    }
-    pages.reverse();
-    let ids = pages.into_iter().flatten().collect::<Vec<_>>();
+    let ids = store
+        .list_export_segments("record")
+        .unwrap()
+        .iter()
+        .map(|segment| segment.local_id)
+        .collect::<Vec<_>>();
     assert_eq!(ids, (0..7).collect::<Vec<_>>());
     std::fs::remove_dir_all(directory).unwrap();
 }
@@ -464,11 +452,7 @@ fn subtitle_batch_rolls_back_when_one_segment_cannot_be_saved() {
         .upsert_subtitles(&[valid, invalid], Some("run-a"), 0)
         .unwrap_err();
     assert!(error.contains("Failed to save subtitle"));
-    assert!(store
-        .list_subtitles("record", None, 50)
-        .unwrap()
-        .items
-        .is_empty());
+    assert!(store.list_recent_segments("record", 50).unwrap().is_empty());
     assert_eq!(
         store
             .device_elapsed_ms("record", &device("device-a"))
@@ -531,8 +515,8 @@ fn subtitle_batch_updates_elapsed_in_the_same_transaction() {
     drop(store);
 
     let store = RecordStore::open(path).unwrap();
-    let page = store.list_subtitles("record", None, 50).unwrap();
-    assert_eq!(page.items.len(), 2);
+    let segments = store.list_recent_segments("record", 50).unwrap();
+    assert_eq!(segments.len(), 2);
     assert_eq!(
         store
             .device_elapsed_ms("record", &device("device-a"))

@@ -167,6 +167,7 @@ export type AudioConfig = {
     deviceId: string | null;
   };
   record: AudioDeviceRef[];
+  saveAudio: boolean;
 };
 
 export type RecognitionConfig = {

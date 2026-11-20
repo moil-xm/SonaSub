@@ -228,19 +228,15 @@ pub struct RecordNoticeEvent {
     pub notice: RecordNotice,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SubtitleCursor {
-    pub occurrence_ms: u64,
-    pub id: String,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RecordSubtitlePage {
-    pub items: Vec<SubtitleSegment>,
-    pub has_more: bool,
-    pub next_before: Option<SubtitleCursor>,
+pub struct RecordExportSummary {
+    pub directory: String,
+    pub audio_files: usize,
+    pub original_lrc_files: usize,
+    pub translation_lrc_files: usize,
+    pub audio_disabled: bool,
+    pub missing_audio_runs: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

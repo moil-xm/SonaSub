@@ -132,6 +132,7 @@ impl RecordManager {
                 device_name: name.clone(),
                 config,
                 models: self.inner.models.clone(),
+                audio_dir: self.inner.audio_dir.clone(),
                 elapsed_base_ms,
                 occurrence_base_ms: now_ms(),
                 history_limit,

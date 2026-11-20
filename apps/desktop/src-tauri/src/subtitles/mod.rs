@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     asr::{AsrFinal, AsrPartial},
     audio::AudioSourceKind,
+    config::MAX_HISTORY_LIMIT,
     speaker::{SpeakerInfo, SPEAKER_SOURCE_DIARIZATION},
     translation::TranslationRequest,
 };
@@ -133,7 +134,7 @@ impl SubtitleStore {
             occurrence_base_ms: 0,
             segments: HashMap::new(),
             order: VecDeque::new(),
-            history_limit: history_limit.max(50),
+            history_limit: history_limit.clamp(50, MAX_HISTORY_LIMIT),
         }
     }
 
@@ -159,7 +160,7 @@ impl SubtitleStore {
             occurrence_base_ms,
             segments: HashMap::new(),
             order: VecDeque::new(),
-            history_limit: history_limit.max(50),
+            history_limit: history_limit.clamp(50, MAX_HISTORY_LIMIT),
         }
     }
 
@@ -521,7 +522,7 @@ impl SubtitleStore {
     /// Applies a new history limit and drops the subtitles that no longer
     /// fit, so the backend store and the frontend cache agree.
     pub fn set_history_limit(&mut self, limit: usize) {
-        self.history_limit = limit.max(50);
+        self.history_limit = limit.clamp(50, MAX_HISTORY_LIMIT);
         self.trim();
     }
 

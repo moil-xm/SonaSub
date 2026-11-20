@@ -34,6 +34,7 @@ description: Use when finishing a SonaSub change and deciding which checks to ru
 4. Record what the environment cannot complete (GUI, permission, missing model, other platform) with the reason, never "should work".
 5. Native pipeline verification must be real:
    - start a session with system-output loopback, then separately verify microphone input;
+   - if available, repeat system-output capture on a macOS device that exposes both output and input channels;
    - verify both streaming and segmented ASR;
    - verify source text arrives before translation and speaker updates;
    - verify both configured Bergamot directions;

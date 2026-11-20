@@ -96,6 +96,7 @@ function config(): AppConfig {
     audio: {
       live: { kind: 'systemOutput', deviceId: null },
       record: [],
+      saveAudio: true,
     },
     recognition: {
       mode: 'auto',

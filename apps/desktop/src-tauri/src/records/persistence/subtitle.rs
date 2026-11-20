@@ -4,16 +4,12 @@ use rusqlite::{params, Connection, Row};
 
 use crate::{
     audio::AudioSourceKind,
+    config::MAX_HISTORY_LIMIT,
     speaker::SpeakerInfo,
     subtitles::{SubtitleSegment, TranslationState},
 };
 
-use super::{
-    super::types::{RecordSubtitlePage, SubtitleCursor},
-    get_u64,
-    source_run::touch_source_elapsed_on,
-    store::RecordStore,
-};
+use super::{get_u64, source_run::touch_source_elapsed_on, store::RecordStore};
 
 impl RecordStore {
     pub fn upsert_subtitle(&self, segment: &SubtitleSegment) -> Result<(), String> {
@@ -52,7 +48,7 @@ impl RecordStore {
         record_id: &str,
         limit: usize,
     ) -> Result<Vec<SubtitleSegment>, String> {
-        let limit = limit.clamp(1, 2_000);
+        let limit = limit.clamp(1, MAX_HISTORY_LIMIT);
         let connection = self.connection();
         let mut statement = connection
             .prepare(
@@ -84,77 +80,24 @@ impl RecordStore {
         Ok(segments)
     }
 
-    pub fn list_subtitles(
-        &self,
-        record_id: &str,
-        before: Option<&SubtitleCursor>,
-        limit: usize,
-    ) -> Result<RecordSubtitlePage, String> {
-        let limit = limit.clamp(1, 500);
-        let request_limit = limit.saturating_add(1);
+    pub fn list_export_segments(&self, record_id: &str) -> Result<Vec<SubtitleSegment>, String> {
         let connection = self.connection();
-        let select = "SELECT id, source_run_id AS session_id, record_id, source_run_id,
-                             source_kind, device_id, device_name, local_id, device_time_secs,
-                             start_secs, end_secs, occurrence_ms, text, revision,
-                             is_final, speaker_json, speaker_revision, translation_json,
-                             source_language, created_at_ms, updated_at_ms
-                      FROM subtitles";
-        let mut segments = if let Some(cursor) = before {
-            let sql = format!(
-                "{select}
-                 WHERE record_id = ?1
-                   AND (occurrence_ms < ?2 OR (occurrence_ms = ?2 AND id < ?3))
-                 ORDER BY occurrence_ms DESC, id DESC
-                 LIMIT ?4"
-            );
-            let mut statement = connection
-                .prepare(&sql)
-                .map_err(|error| format!("Failed to prepare subtitle history: {error}"))?;
-            let rows = statement
-                .query_map(
-                    params![
-                        record_id,
-                        cursor.occurrence_ms as i64,
-                        cursor.id,
-                        request_limit as i64
-                    ],
-                    segment_from_row,
-                )
-                .map_err(|error| format!("Failed to read subtitle history: {error}"))?;
-            collect_segments(rows)?
-        } else {
-            let sql = format!(
-                "{select}
-                 WHERE record_id = ?1
-                 ORDER BY occurrence_ms DESC, id DESC
-                 LIMIT ?2"
-            );
-            let mut statement = connection
-                .prepare(&sql)
-                .map_err(|error| format!("Failed to prepare subtitle history: {error}"))?;
-            let rows = statement
-                .query_map(params![record_id, request_limit as i64], segment_from_row)
-                .map_err(|error| format!("Failed to read subtitle history: {error}"))?;
-            collect_segments(rows)?
-        };
-        let has_more = segments.len() > limit;
-        if has_more {
-            segments.truncate(limit);
-        }
-        segments.reverse();
-        let next_before = if has_more {
-            segments.first().map(|segment| SubtitleCursor {
-                occurrence_ms: segment.occurrence_ms,
-                id: segment.id.clone(),
-            })
-        } else {
-            None
-        };
-        Ok(RecordSubtitlePage {
-            items: segments,
-            has_more,
-            next_before,
-        })
+        let mut statement = connection
+            .prepare(
+                "SELECT id, source_run_id AS session_id, record_id, source_run_id,
+                        source_kind, device_id, device_name, local_id, device_time_secs,
+                        start_secs, end_secs, occurrence_ms, text, revision,
+                        is_final, speaker_json, speaker_revision, translation_json,
+                        source_language, created_at_ms, updated_at_ms
+                 FROM subtitles
+                 WHERE record_id = ?1 AND is_final = 1 AND length(trim(text)) > 0
+                 ORDER BY occurrence_ms ASC, id ASC",
+            )
+            .map_err(|error| format!("Failed to prepare the record export: {error}"))?;
+        let rows = statement
+            .query_map(params![record_id], segment_from_row)
+            .map_err(|error| format!("Failed to read the record export: {error}"))?;
+        collect_segments(rows)
     }
 
     pub fn subtitle_count(&self, record_id: &str) -> Result<u64, String> {

@@ -24,7 +24,7 @@ use super::{
     subtitles::RecordSubtitleStore,
     types::{
         RecordInput, RecordListItem, RecordNotice, RecordSnapshot, RecordState, RecordStats,
-        RecordSubtitlePage, RecordSummary, RecordSummaryEvent, StoredRecord, SubtitleCursor,
+        RecordSummary, RecordSummaryEvent, StoredRecord,
     },
 };
 
@@ -50,12 +50,20 @@ impl RecordManager {
         };
         let store = RecordStore::open(data_dir.join("records.sqlite"))?;
         store.recover_active_records(now_ms())?;
+        let audio_dir = data_dir.join("record-audio");
+        std::fs::create_dir_all(&audio_dir).map_err(|error| {
+            format!(
+                "Failed to create the record audio directory {}: {error}",
+                audio_dir.display()
+            )
+        })?;
         let records = load_records(&store)?;
         let (event_tx, event_rx) = bounded(RECORD_EVENT_QUEUE_DEPTH);
         let inner = Arc::new(RecordManagerInner {
             app,
             models: ModelPaths::new(model_root),
             store,
+            audio_dir,
             runtime: Mutex::new(RecordRuntimeState { records }),
             operations: Mutex::new(()),
             event_tx,
@@ -152,9 +160,11 @@ impl RecordManager {
             );
         }
         let name = resolved_name(&input.name, &input.config);
+        let history_limit = input.config.ui.history_limit;
         record.summary.name = name;
         record.summary.devices = input.config.audio.record.clone();
         record.config = input.config;
+        record.segments.set_history_limit(history_limit);
         record.summary.updated_at_ms = now_ms();
         record.summary.revision = record.summary.revision.saturating_add(1);
         record.summary_revision = record.summary_revision.saturating_add(1);
@@ -235,18 +245,15 @@ impl RecordManager {
             let mut runtime = self.runtime();
             runtime.records.remove(record_id);
         }
-        Ok(())
-    }
-
-    pub fn subtitles(
-        &self,
-        record_id: &str,
-        before: Option<SubtitleCursor>,
-        limit: usize,
-    ) -> Result<RecordSubtitlePage, String> {
-        self.inner
-            .store
-            .list_subtitles(record_id, before.as_ref(), limit)
+        let audio_path = self.inner.audio_dir.join(record_id);
+        match std::fs::remove_dir_all(&audio_path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "The record was deleted, but its audio files at {} could not be removed: {error}",
+                audio_path.display()
+            )),
+        }
     }
 
     pub fn shutdown(&self) {

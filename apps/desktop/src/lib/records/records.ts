@@ -10,6 +10,7 @@ import type { AudioDeviceRef, SubtitleSegment } from '@/lib/session';
 import type {
   RecordAction,
   RecordDevice,
+  RecordExportSummary,
   RecordInput,
   RecordListItem,
   RecordNoticeEvent,
@@ -217,6 +218,15 @@ export function useDeleteRecord() {
       void queryClient.invalidateQueries({ queryKey: recordsOptions.queryKey });
       void queryClient.invalidateQueries({ queryKey: recordDevicesOptions.queryKey });
     },
+  });
+}
+
+export function useExportRecord() {
+  return useMutation({
+    mutationKey: ['records', 'export'],
+    networkMode: 'always',
+    mutationFn: ({ recordId, destination }: { recordId: string; destination: string }) =>
+      invoke<RecordExportSummary>('export_record', { recordId, destination }),
   });
 }
 

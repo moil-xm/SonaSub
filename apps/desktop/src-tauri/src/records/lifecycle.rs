@@ -287,6 +287,7 @@ impl RecordManager {
             device_name: source.device_name.clone(),
             config: config.clone(),
             models: self.inner.models.clone(),
+            audio_dir: self.inner.audio_dir.clone(),
             elapsed_base_ms: source.elapsed_base_ms,
             occurrence_base_ms: source.started_at_ms,
             history_limit,

@@ -29,8 +29,8 @@
     "allow-resume-record",
     "allow-stop-record",
     "allow-delete-record",
+    "allow-export-record",
     "allow-add-record-device",
-    "allow-remove-record-device",
-    "allow-list-record-subtitles"
+    "allow-remove-record-device"
   ]
 }

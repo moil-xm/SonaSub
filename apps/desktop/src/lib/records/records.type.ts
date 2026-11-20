@@ -126,15 +126,13 @@ export type RecordDevice = {
   occupiedRecordName: string | null;
 };
 
-export type SubtitleCursor = {
-  occurrenceMs: number;
-  id: string;
-};
-
-export type RecordSubtitlePage = {
-  items: SubtitleSegment[];
-  hasMore: boolean;
-  nextBefore: SubtitleCursor | null;
+export type RecordExportSummary = {
+  directory: string;
+  audioFiles: number;
+  originalLrcFiles: number;
+  translationLrcFiles: number;
+  audioDisabled: boolean;
+  missingAudioRuns: number;
 };
 
 export type RecordAction = 'start' | 'pause' | 'resume' | 'stop';

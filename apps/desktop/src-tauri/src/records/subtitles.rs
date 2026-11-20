@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::subtitles::{SubtitlePatch, SubtitleSegment};
+use crate::{
+    config::MAX_HISTORY_LIMIT,
+    subtitles::{SubtitlePatch, SubtitleSegment},
+};
 
 #[derive(Default)]
 pub struct RecordSubtitleStore {
@@ -12,7 +15,7 @@ pub struct RecordSubtitleStore {
 impl RecordSubtitleStore {
     pub fn new(history_limit: usize) -> Self {
         Self {
-            history_limit: history_limit.max(50),
+            history_limit: history_limit.clamp(50, MAX_HISTORY_LIMIT),
             ..Self::default()
         }
     }
@@ -98,7 +101,7 @@ impl RecordSubtitleStore {
     }
 
     pub fn set_history_limit(&mut self, history_limit: usize) {
-        self.history_limit = history_limit.max(50);
+        self.history_limit = history_limit.clamp(50, MAX_HISTORY_LIMIT);
         self.trim();
     }
 
@@ -185,6 +188,24 @@ mod tests {
         let snapshot = store.snapshot();
         assert_eq!(snapshot[0].id, "source-a:1");
         assert_eq!(snapshot[1].id, "source-b:1");
+    }
+
+    #[test]
+    fn caps_the_live_list_at_one_thousand_segments() {
+        let mut store = RecordSubtitleStore::new(5_000);
+        for index in 0..1_005 {
+            store.apply(vec![SubtitlePatch::Finalize {
+                segment: segment(&format!("source:{index}"), index as u64, 1),
+            }]);
+        }
+
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.len(), MAX_HISTORY_LIMIT);
+        assert_eq!(snapshot[0].id, "source:5");
+        assert_eq!(
+            snapshot.last().map(|segment| segment.id.as_str()),
+            Some("source:1004")
+        );
     }
 
     #[test]

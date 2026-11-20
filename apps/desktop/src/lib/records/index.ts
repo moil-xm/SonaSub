@@ -9,6 +9,7 @@ export {
   useAddRecordDevice,
   useCreateRecord,
   useDeleteRecord,
+  useExportRecord,
   useRecordAction,
   useRecordEvents,
   useRemoveRecordDevice,

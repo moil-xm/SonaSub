@@ -110,5 +110,5 @@ Add a Skill only when a stable, repeated, project-specific judgment rule exists;
 - The native desktop pipeline is implemented: CPAL system-output loopback and microphone capture on macOS/Windows, streaming and segmented ASR, windowed speaker analysis, local Bergamot translation, optional OpenAI-compatible translation, subtitle scheduling and the live caption UI.
 - The Chrome extension still contains only a popup. Tab capture and extension-to-desktop communication are future work, not a hidden fallback path.
 - macOS system loopback requires macOS 14.6+ and has been exercised on arm64; Windows WASAPI is compiled in CI but real Windows audio capture remains unverified. Linux is unsupported. Never substitute another source silently.
-- CPAL cannot request loopback from a macOS output device that also exposes input channels; such devices must remain visibly capture-unavailable.
+- macOS output devices that also expose input channels are captured through a SonaSub-managed Core Audio process tap and private aggregate device; never let CPAL open their microphone direction or silently substitute another source.
 - Native workers run in the desktop process; a native crash is not isolated from the UI.

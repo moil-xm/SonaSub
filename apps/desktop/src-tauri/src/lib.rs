@@ -48,9 +48,9 @@ pub fn run() {
             records::resume_record,
             records::stop_record,
             records::delete_record,
+            records::export_record,
             records::add_record_device,
             records::remove_record_device,
-            records::list_record_subtitles,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build SonaSub desktop application");

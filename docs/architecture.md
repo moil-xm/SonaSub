@@ -22,9 +22,9 @@ the Tauri commands and starts the live-session and record managers.
 - `session/` controls the live caption session. `manager.rs` serializes start,
   stop and configuration changes. `runner/` drives capture and inference,
   and `state.rs` owns the revisions used in snapshots and events.
-- `records/` manages saved recordings, device assignments and per-device
-  capture runs. `persistence/` owns the SQLite schema and record, source-run
-  and subtitle persistence.
+- `records/` manages saved recordings, device assignments, per-device capture
+  runs, optional per-run WAV audio and LRC export. `persistence/` owns the
+  SQLite schema and record, source-run and subtitle persistence.
 - `pipeline/` contains the worker threads, bounded inference queues and metrics
   used by both live sessions and recording sources. `audio_flow.rs` owns the
   shared resampling, audio-history and discontinuity state; `lifecycle.rs`
@@ -81,9 +81,13 @@ graph TD
 ## Capture And Timeline
 
 CPAL owns the capture stream on macOS and Windows. macOS output uses CPAL's
-Core Audio process-tap loopback and requires macOS 14.6 or later. Windows
-output uses WASAPI loopback; ASIO is not compiled in. Microphone capture uses
-the normal input direction on both platforms.
+Core Audio process-tap loopback and requires macOS 14.6 or later. For an output
+device that also exposes input channels, SonaSub creates its own private Core
+Audio process tap and aggregate device, then hands that aggregate to CPAL as an
+ordinary input device. This prevents CPAL's input path from opening the
+device's microphone instead of capturing its output. Windows output uses
+WASAPI loopback; ASIO is not compiled in. Microphone capture uses the normal
+input direction on both platforms.
 
 The stream is opened from the device's current default input or output
 configuration. The app does not assume 48 kHz, stereo or `f32`; it supports the
@@ -103,9 +107,14 @@ capture channel are drained through the same path; the resampler tail is then
 carried on the recognition stop control message and processed before the ASR
 flush, so it cannot be skipped behind a full audio queue. Audio still queued
 for a slow recognition worker is not replayed during shutdown.
-An output device that also exposes input channels cannot be selected as a
-system loopback source on macOS, because CPAL would open its microphone
-direction; the UI marks that device as capture-unavailable.
+
+Recorded sources use the same native callback stream for two destinations.
+ASR and diarization consume the resampled 16 kHz mono path. When **Save audio**
+is enabled for a record, the source also writes each capture run to its own
+32-bit float WAV at the callback's sample rate and channel layout. The WAV is
+written by a bounded background writer so disk I/O never blocks capture; a
+full writer queue is represented as silence in the WAV and produces a runtime
+notice, keeping the file's timeline aligned with its captions.
 
 - A gap, dropped chunk, reported device change or discontinuity resets the resampler
   and audio history, emits an ASR discontinuity, and starts the next subtitle
@@ -293,11 +302,12 @@ newer event keeps the newer value for that channel. Within the subtitle list
 the text, the speaker assignment and the translation each carry their own
 revision, so a late patch cannot overwrite a newer value.
 
-Patches are batched at 80 ms; statistics are emitted at 750 ms. History is
-bounded by configuration (400 segments by default, 50–2000 allowed). The
-backend store and the frontend cache apply the same limit, so neither the
-subtitle history nor the rendered list grows without bound. Notices are
-capped at 100 and duplicate adjacent notices within two seconds are
+Patches are batched at 80 ms; statistics are emitted at 750 ms. The live
+window is bounded by configuration (1000 segments by default and maximum,
+minimum 50). The backend store and the frontend cache apply the same limit, so
+the rendered list never shows more than the latest 1000 captions. Final rows
+remain in SQLite and can be exported after they leave the live window. Notices
+are capped at 100 and duplicate adjacent notices within two seconds are
 suppressed.
 
 ## Session Lifecycle
@@ -350,12 +360,35 @@ Tauri commands:
 - `stop_session`
 - `restart_session`
 
+Record commands:
+
+- `list_records`, `list_record_devices`, `get_record`
+- `create_record`, `update_record`, `delete_record`
+- `start_record`, `pause_record`, `resume_record`, `stop_record`
+- `add_record_device`, `remove_record_device`
+- `export_record`, which accepts a record id and an absolute destination
+  directory.
+
+`export_record` is rejected while the record is active. It creates a unique
+folder under the destination, copies every available per-source-run WAV, then
+writes two LRC files per run when that side has content:
+`<source>-<run>.original.lrc` and `<source>-<run>.translation.lrc`. LRC
+timestamps are relative to that run's WAV, so pausing and resuming a record
+produces independent, self-contained audio/subtitle pairs.
+
 Tauri events:
 
 - `session://status`
 - `session://subtitles`
 - `session://stats`
 - `session://notice`
+
+Record events:
+
+- `record://summary`
+- `record://subtitles`
+- `record://stats`
+- `record://notice`
 
 React queries and mutations use `networkMode: 'always'` because this is local
 IPC, not network I/O. Event listeners are removed on unmount. Zustand remains
@@ -388,7 +421,8 @@ Important fields:
   (`finalOnly` / `stableSegment`) and target language;
 - speaker embedding/diarization switches, window, maximum speakers and
   similarity threshold;
-- live audio source and device, record source list and subtitle history limit.
+- live audio source and device, record source list, whether record audio is
+  saved, and the subtitle history limit.
 
 Capabilities are computed from the model registry, the compiled adapters and
 the current platform. A user preference cannot turn an unsupported mode into a

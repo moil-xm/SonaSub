@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Icon } from '@iconify/react';
 import arrowRightIcon from '@iconify-icons/lucide/arrow-right';
+import audioLinesIcon from '@iconify-icons/lucide/audio-lines';
 import chevronRightIcon from '@iconify-icons/lucide/chevron-right';
 import loaderCircleIcon from '@iconify-icons/lucide/loader-circle';
 import triangleAlertIcon from '@iconify-icons/lucide/triangle-alert';
@@ -286,6 +287,28 @@ export function RecordEditorForm({
                   </>
                 )}
               </form.Field>
+              <form.Field name="audio.saveAudio">
+                {(field) => (
+                  <div className="mt-3 flex items-center gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
+                    <span className="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground">
+                      <Icon icon={audioLinesIcon} className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-semibold">
+                        {t(($) => $.records.editor.saveAudio)}
+                      </span>
+                      <span className="block text-[10.5px] text-muted-foreground">
+                        {t(($) => $.records.editor.saveAudioHint)}
+                      </span>
+                    </span>
+                    <Switch
+                      id="record-save-audio"
+                      checked={field.state.value}
+                      onCheckedChange={field.handleChange}
+                    />
+                  </div>
+                )}
+              </form.Field>
             </RecordEditorSection>
 
             <RecordEditorSection index={2} title={t(($) => $.records.editor.languageSection)}>
@@ -527,7 +550,7 @@ export function RecordEditorForm({
                       <Input
                         type="number"
                         min={50}
-                        max={2000}
+                        max={1000}
                         step={50}
                         value={field.state.value}
                         onChange={(event) =>

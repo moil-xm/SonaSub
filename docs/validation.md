@@ -15,7 +15,7 @@ simulated result.
 | Rust      | 1.97.0, project `rust-version = 1.95`                      |
 | Node.js   | 24.22.1                                                    |
 | pnpm      | 12.15.0 (`packageManager` in `package.json`)               |
-| App build | `pnpm --filter @sonasub/desktop tauri:build --no-sign`     |
+| App build | `pnpm --filter @sonasub/desktop tauri:build --bundles app` |
 | Models    | `~/Library/Application Support/dev.sonasub.desktop/models` |
 | Audio     | 16 kHz mono test clips in `/tmp/sonasub-research/audio`    |
 
@@ -26,13 +26,13 @@ static runtime during compilation; no separate native preparation step exists.
 
 | Command                                                                                     | Result                                        |
 | ------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `pnpm fmt`                                                                                  | pass — 173 files formatted                    |
-| `pnpm check` (Vite+ format, lint, type check)                                               | pass — 173 formatted, 136 lint/type clean     |
-| `pnpm typecheck`                                                                            | pass — 136 files, no type errors              |
-| `pnpm test`                                                                                 | pass — 7 files, 38 tests                      |
+| `pnpm fmt`                                                                                  | pass — 175 files formatted                    |
+| `pnpm check` (Vite+ format, lint, type check)                                               | pass — 175 formatted, 138 lint/type clean     |
+| `pnpm typecheck`                                                                            | pass — 138 files, no type errors              |
+| `pnpm test`                                                                                 | pass — 9 files, 40 tests                      |
 | `pnpm build` (desktop + extension)                                                          | pass — existing >500 kB chunk warning remains |
 | `pnpm check:rust` (`cargo fmt --check`, `clippy -D warnings`)                               | pass                                          |
-| `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` | pass — 109 passed, 14 ignored                 |
+| `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` | pass — 113 passed, 14 ignored                 |
 | `node --check scripts/prepare-models.mjs`                                                   | pass                                          |
 | `pnpm install --frozen-lockfile`                                                            | pass                                          |
 | `git diff --check`                                                                          | pass                                          |
@@ -484,10 +484,9 @@ output, and stopped both streams before asserting frame counts and events.
 
 Both streams survived activation, delivered audio concurrently and joined
 without a fatal or device-lost event. The capture info reported the real
-44.1 kHz callback formats rather than a fixed 48 kHz contract. A 48 kHz output
-device was not available for a real-device run; 48 kHz and arbitrary-block
-resampling are covered by the deterministic `StreamingResampler` and
-`AudioFlow` tests.
+44.1 kHz callback formats rather than a fixed 48 kHz contract. Arbitrary-block
+resampling remains covered separately by the deterministic `StreamingResampler`
+and `AudioFlow` tests.
 `system_profiler SPAudioDataType` reported 44,100 Hz for the built-in output
 and microphone both immediately before and after the probe, so this run did
 not leave either device at a different system sample rate. A second stop/start
@@ -525,9 +524,61 @@ captured timeline did not drift at 44.1 kHz and the stream did not force a
 different device rate. The built-in output still reported 44,100 Hz in
 `system_profiler` after the run.
 
-The probe verifies capture and shutdown only. The full GUI, ASR, translation
-and record end-to-end path was not re-run after the CPAL migration in this
-environment.
+### Input-Capable 48 kHz Output (2026-11-20)
+
+The same probe was repeated after `小米Type-C耳机` became the default output.
+That device exposes two output channels and two input channels at 48,000 Hz,
+so it exercises the macOS path that CPAL's own input configuration cannot
+capture correctly. SonaSub created a private process tap and aggregate device,
+then opened the aggregate through CPAL while the microphone source continued
+to use the built-in microphone.
+
+| Source        | CPAL device                                | Callback format        | Captured frames | Observation                      |
+| ------------- | ------------------------------------------ | ---------------------- | --------------- | -------------------------------- |
+| System output | `coreaudio:AppleUSBAudioEngine:...小米...` | 48,000 Hz / 2 ch / f32 | 194,048         | Peak 0.5150 from the played tone |
+| Microphone    | `coreaudio:BuiltInMicrophoneDevice`        | 44,100 Hz / 1 ch / f32 | 176,640         | Captured concurrently            |
+
+Both streams joined without a fatal or device-lost event. The loopback used
+the USB headset's output mix rather than its microphone, and the unbuffered
+playback remained audible because the tap uses the `Unmuted` mute behavior.
+The private aggregate device is filtered out of the user-selectable device
+list.
+
+The capture probe verifies capture and shutdown. The installed release GUI was
+then exercised end to end with the same USB headset:
+
+| Step                                                          | Observed                                                                                                                          |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Open **New record**                                           | `小米Type-C耳机` was auto-selected as the system-output source                                                                    |
+| Open **Add device**                                           | `小米Type-C耳机` appeared under **System output** as `可用 系统默认`; its microphone direction also appeared under **Microphone** |
+| Start the record                                              | the record changed to `运行中` with `1 台设备运行中`; no format-change or device-open error appeared                              |
+| Play 12 seconds of speech through the headset                 | 4 subtitles appeared with English recognition and Simplified Chinese translation                                                  |
+| Pause the record                                              | active sources dropped to zero and the device was released                                                                        |
+| Open **New record** while the paused record still selected it | the same headset was selected again without an occupancy error                                                                    |
+
+`system_profiler SPAudioDataType` still reported `Current SampleRate: 48000`
+for the headset after the GUI run. The private loopback aggregate did not
+appear in the user-selectable device list. The test record remains paused as
+`小米Type-C耳机`; no production record configuration was changed.
+
+### Record Device Occupancy (2026-11-20)
+
+Occupancy is derived from every record's live capture sources instead of a
+separate claim map. A device is reported as in use only while a record holds a
+source for it, so a stopped, failed, timed-out or rolled-back source releases
+the device together with the state transition that removes the source.
+
+Verified on the installed release `.app`:
+
+| Step                                               | Observed                                                                                                    |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Start a record with the `BlackHole 2ch` microphone | `BlackHole 2ch` is disabled and labelled `MacBook Pro扬声器 正在使用`                                       |
+| Pause that record                                  | `BlackHole 2ch` becomes `可用` without restarting the app                                                   |
+| Open the device list                               | the list refetches on open; the header refresh button re-runs `list_record_devices` and keeps the list open |
+
+The Rust suite adds `a_live_source_owns_its_device`,
+`removing_the_active_source_releases_the_device` and
+`a_stored_selection_without_a_live_source_is_not_a_claim`.
 
 ## Known Limitations
 

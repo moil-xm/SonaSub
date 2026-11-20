@@ -2,6 +2,8 @@ mod capture;
 mod convert;
 pub mod devices;
 pub mod dsp;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_tap;
 pub(crate) mod resample;
 
 use std::{

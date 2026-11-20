@@ -41,6 +41,18 @@ tar = "0.4.46"
 zstd = "0.14.4"
 rusqlite = { version = "0.43.0", default-features = false, features = ["bundled"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-core-audio = { version = "0.3.2", features = [
+  "std",
+  "AudioHardware",
+  "AudioHardwareDeprecated",
+  "objc2",
+  "objc2-foundation",
+] }
+objc2-core-foundation = "0.3.2"
+objc2-foundation = { version = "0.3.2", features = ["std", "NSArray", "NSString", "NSValue"] }
+
 [dev-dependencies]
 hound = "3.5.1"
 

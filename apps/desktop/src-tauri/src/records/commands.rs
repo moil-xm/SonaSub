@@ -1,13 +1,12 @@
+use std::path::Path;
+
 use tauri::State;
 
 use crate::audio::AudioDeviceRef;
 
 use super::{
     manager::RecordManager,
-    types::{
-        RecordDevice, RecordInput, RecordListItem, RecordSnapshot, RecordSubtitlePage,
-        SubtitleCursor,
-    },
+    types::{RecordDevice, RecordExportSummary, RecordInput, RecordListItem, RecordSnapshot},
 };
 
 #[tauri::command]
@@ -95,6 +94,20 @@ pub fn delete_record(state: State<'_, RecordManager>, record_id: String) -> Resu
 }
 
 #[tauri::command]
+pub async fn export_record(
+    state: State<'_, RecordManager>,
+    record_id: String,
+    destination: String,
+) -> Result<RecordExportSummary, String> {
+    let manager = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.export_record(&record_id, Path::new(&destination))
+    })
+    .await
+    .map_err(|error| format!("Record export failed: {error}"))?
+}
+
+#[tauri::command]
 pub async fn add_record_device(
     state: State<'_, RecordManager>,
     record_id: String,
@@ -116,14 +129,4 @@ pub async fn remove_record_device(
     tauri::async_runtime::spawn_blocking(move || manager.remove_device(&record_id, &device))
         .await
         .map_err(|error| format!("Record device removal failed: {error}"))?
-}
-
-#[tauri::command]
-pub fn list_record_subtitles(
-    state: State<'_, RecordManager>,
-    record_id: String,
-    before: Option<SubtitleCursor>,
-    limit: usize,
-) -> Result<RecordSubtitlePage, String> {
-    state.subtitles(&record_id, before, limit)
 }

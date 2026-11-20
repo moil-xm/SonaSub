@@ -24,8 +24,12 @@ pub(super) fn start(
     events: Sender<CaptureEvent>,
     stop: Arc<AtomicBool>,
 ) -> Result<StartedCapture, String> {
-    let plan = devices::resolve(options.kind, options.device_id.as_deref())?;
+    let mut plan = devices::resolve(options.kind, options.device_id.as_deref())?;
     let info = capture_info(&plan);
+    // A macOS process tap is only kept alive by its private aggregate device.
+    // Move the Core Audio ownership into the capture thread so the aggregate
+    // cannot be destroyed while CPAL still has an open input stream.
+    let keepalive = plan.keepalive.take();
     let stream = build_stream(&plan, events, stop.clone())?;
     stream
         .play()
@@ -36,6 +40,7 @@ pub(super) fn start(
             options.kind.as_str().to_lowercase()
         ))
         .spawn(move || {
+            let _keepalive = keepalive;
             let _stream = stream;
             while !stop.load(Ordering::SeqCst) {
                 thread::sleep(STREAM_ERROR_POLL_INTERVAL);
