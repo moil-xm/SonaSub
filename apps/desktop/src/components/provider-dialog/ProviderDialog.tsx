@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import checkIcon from '@iconify-icons/lucide/check';
+import loaderCircleIcon from '@iconify-icons/lucide/loader-circle';
 import plusIcon from '@iconify-icons/lucide/plus';
 import refreshIcon from '@iconify-icons/lucide/refresh-cw';
 import uploadIcon from '@iconify-icons/lucide/image-up';
@@ -19,6 +20,14 @@ import {
 } from '@/lib/providers';
 
 import type { ProviderDialogProps } from './ProviderDialog.type';
+
+type ModelTestState = 'testing' | 'passed' | 'failed';
+
+const modelTestStateClass: Record<ModelTestState, string> = {
+  testing: 'text-muted-foreground',
+  passed: 'text-success',
+  failed: 'text-destructive',
+};
 
 function readDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -48,6 +57,8 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
   const [manualModel, setManualModel] = useState('');
   const [concurrency, setConcurrency] = useState(provider?.concurrency ?? 1);
   const [message, setMessage] = useState('');
+  const [testStates, setTestStates] = useState<Record<string, ModelTestState>>({});
+  const [isTesting, setIsTesting] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const saveProvider = useSaveProvider();
   const fetchModels = useFetchProviderModels();
@@ -58,10 +69,18 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
   function addModel(model: string) {
     const trimmed = model.trim();
     if (!trimmed || models.includes(trimmed)) return;
+    if (!availableModels.includes(trimmed)) {
+      setAvailableModels([...availableModels, trimmed]);
+    }
     setModels([...models, trimmed]);
   }
 
   function toggleModel(model: string) {
+    setTestStates((current) => {
+      const next = { ...current };
+      delete next[model];
+      return next;
+    });
     if (models.includes(model)) {
       setModels(models.filter((current) => current !== model));
       return;
@@ -73,7 +92,8 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
     setMessage('');
     try {
       const fetched = await fetchModels.mutateAsync({ baseUrl, apiKey });
-      setAvailableModels(fetched);
+      const manualModels = availableModels.filter((model) => !fetched.includes(model));
+      setAvailableModels([...fetched, ...manualModels]);
       setMessage('');
     } catch (error) {
       setMessage(t(($) => $.models.providers.fetchError));
@@ -83,17 +103,38 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
 
   async function handleTest() {
     setMessage('');
-    const selected = models[0];
-    if (!selected) {
+    if (isTesting) return;
+    if (models.length === 0) {
       setMessage(t(($) => $.models.providers.modelRequiredForTest));
       return;
     }
-    try {
-      const reply = await testProvider.mutateAsync({ baseUrl, apiKey, model: selected });
-      setMessage(t(($) => $.models.providers.testOk, { reply }));
-    } catch (error) {
-      setMessage(`${t(($) => $.models.providers.testError)}: ${errorText(error)}`);
-    }
+    const selectedModels = models;
+    setIsTesting(true);
+    setTestStates(Object.fromEntries(selectedModels.map((model) => [model, 'testing'])));
+    void (async () => {
+      const results = await Promise.all(
+        selectedModels.map(async (model) => {
+          try {
+            const reply = await testProvider.mutateAsync({ baseUrl, apiKey, model });
+            return { model, ok: true, reply };
+          } catch (error) {
+            return { model, ok: false, reply: errorText(error) };
+          }
+        }),
+      );
+      setTestStates(
+        Object.fromEntries(
+          results.map((result) => [result.model, result.ok ? 'passed' : 'failed']),
+        ),
+      );
+      setIsTesting(false);
+      const firstFailure = results.find((result) => !result.ok);
+      if (firstFailure) {
+        setMessage(`${t(($) => $.models.providers.testError)}: ${firstFailure.reply}`);
+      } else {
+        setMessage('');
+      }
+    })();
   }
 
   async function handleIconChange(file: File | undefined) {
@@ -193,6 +234,13 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
                 <Icon icon={uploadIcon} />
                 {t(($) => $.models.providers.chooseFile)}
               </Button>
+              {iconDataUrl && (
+                <img
+                  src={iconDataUrl}
+                  alt={iconName}
+                  className="size-8 rounded-md border object-cover"
+                />
+              )}
               <span className="truncate text-muted-foreground">
                 {iconName || t(($) => $.models.providers.noFile)}
               </span>
@@ -222,6 +270,7 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
             <div className="flex flex-wrap gap-1.5">
               {availableModels.map((model) => {
                 const selected = models.includes(model);
+                const testState = testStates[model];
                 return (
                   <button
                     key={model}
@@ -235,6 +284,24 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
                   >
                     {selected && <Icon icon={checkIcon} className="mr-1 inline size-3" />}
                     {model}
+                    {testState && (
+                      <span
+                        data-testid={`model-status-${model}`}
+                        data-state={testState}
+                        className="ml-1.5 inline-flex size-3 items-center justify-center"
+                      >
+                        {testState === 'testing' ? (
+                          <Icon
+                            icon={loaderCircleIcon}
+                            className={`size-3 animate-spin ${modelTestStateClass[testState]}`}
+                          />
+                        ) : (
+                          <span
+                            className={`size-2 rounded-full bg-current ${modelTestStateClass[testState]}`}
+                          />
+                        )}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -268,7 +335,14 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
                 <Icon icon={refreshIcon} />
                 {t(($) => $.models.providers.refreshModels)}
               </Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => void handleTest()}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isTesting || models.length === 0}
+                onClick={() => void handleTest()}
+              >
+                {isTesting && <Icon icon={loaderCircleIcon} className="animate-spin" />}
                 {t(($) => $.models.providers.testModel)}
               </Button>
             </div>
