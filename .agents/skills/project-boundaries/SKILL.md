@@ -27,9 +27,9 @@ description: Use when deciding where SonaSub code belongs or how modules connect
 ## Constraints
 
 - Follow the minimal API rule in AGENTS.md: satisfy the real call site first, never reserve interfaces for "might be needed later".
-- Do not add microphone capture as a fallback for system audio, or any simulated/mock inference path.
+- Microphone and system output are explicit, separately identified sources. Do not substitute one for the other or add a simulated/mock inference path.
 - Model weights stay outside the application bundle; preparation is developer tooling.
-- Keep macOS-only behavior explicit. Unsupported platforms must report the capability as unavailable.
+- Keep platform behavior explicit. macOS system loopback requires macOS 14.6+, Windows uses WASAPI, and unsupported platforms must report the capability as unavailable.
 
 ## Verification
 

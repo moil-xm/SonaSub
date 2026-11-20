@@ -4,5 +4,7 @@
   <dict>
     <key>NSAudioCaptureUsageDescription</key>
     <string>SonaSub records system audio output locally to generate live subtitles. Audio never leaves this Mac.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>SonaSub records microphone audio locally to generate live subtitles. Audio never leaves this Mac.</string>
   </dict>
 </plist>

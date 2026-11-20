@@ -2,17 +2,21 @@
 
 [English](README.md) | **简体中文**
 
-开源的系统音频实时字幕工具。SonaSub 采集 macOS 系统输出，使用
+开源的系统输出与麦克风实时字幕工具。SonaSub 通过 CPAL 采集音频，使用
 sherpa-onnx 完成流式或分段语音识别与说话人关联，使用 Bergamot 完成本地
 翻译，或通过可选的 OpenAI-Compatible 端点翻译，并在桌面界面实时显示字幕。
 完整运行时为原生 Rust，安装包不包含 Node.js。
 
 原文字幕在识别产生后立即显示；说话人标签和译文作为异步结果，独立更新到
-同一条字幕上。项目不包含模拟结果、回退引擎、伪造的流式翻译或麦克风兜底。
+同一条字幕上。项目不包含模拟结果、回退引擎、伪造的流式翻译或静默音源兜底。
 
 ## 功能
 
-- 通过 Core Audio process tap 采集 macOS 系统输出（macOS 14.4+，arm64）。
+- 通过 CPAL / Core Audio 采集 macOS 系统输出回环与麦克风（系统输出要求
+  macOS 14.6+）。
+- 通过 CPAL / WASAPI 采集 Windows 系统输出回环与麦克风，不启用 ASIO。
+- 按设备实际采样率、声道数和采样格式转换，跨音频块保持重采样状态，统一送入
+  16 kHz 单声道识别链路。
 - 流式 Zipformer 中英双语识别，输出增量文本与最终文本。
 - Silero VAD + SenseVoice 分段识别，支持中、英、日、韩、粤语。
 - Silero VAD + Qwen3-ASR 0.6B/1.7B INT8 分段识别，覆盖 30 种语言和
@@ -37,7 +41,7 @@ Chrome 扩展仍是独立的 Manifest V3 工程，目前只有 popup。标签页
 - UI：Tailwind CSS 4 + CSS Variables、shadcn/ui、Iconify 静态图标
 - 路由与状态：TanStack Router / Query / Form、Zustand、Day.js
 - 原生语音：官方 `sherpa-onnx` Rust API v2.0.1
-- 原生系统音频：`flexaudio 0.8.1` / `flexaudio-os-macos 0.8.1`
+- 原生音频采集：`cpal 0.18.2`
 - 本地翻译：`fxtranslate 0.5.0` + 固定版本 Bergamot 模型
 - 远端翻译：`adk-model 2.3.0` OpenAI-Compatible 客户端
 - 扩展：WXT + React + TypeScript（Manifest V3）
@@ -47,11 +51,17 @@ Chrome 扩展仍是独立的 Manifest V3 工程，目前只有 popup。标签页
 - Node.js 24 LTS（`^24.11.0`）与 pnpm 12，仅用于开发和模型准备；打包后的
   桌面应用不依赖 Node.js。
 - Rust 稳定版 >= 1.95，含 `rustfmt` 与 `clippy`。
-- macOS 14.4 或更高版本（Apple Silicon / arm64）；Xcode Command Line Tools。
+- 系统输出回环需要 macOS 14.6 或更高版本；麦克风与其余桌面链路也支持
+  Windows 8 或更高版本。
+- macOS 需要 Xcode Command Line Tools；Windows 需要 Tauri 使用的 WebView2
+  与 Visual Studio 构建环境。
 - 模型准备需要 `curl`、`tar` 与 `zstd`（可用 `brew install zstd` 安装）。
 
-系统音频采集已在 macOS arm64 实际验证。Windows、Linux 与 macOS x64 尚未
-验证；在这些平台启动会话会返回明确的“不支持”错误。
+CPAL 采集已实现 macOS 与 Windows 路径。macOS arm64 已做真实设备验证；
+Windows WASAPI 路径由 CI 编译检查，但尚未在真实 Windows 音频设备上验证。
+Linux 未实现。macOS 14.6 之前不支持系统输出回环，会明确报告为不支持。
+系统默认设备切换会作为流警告上报；SonaSub 目前不会在每次设备变化后自动重建
+采集流。明确选择的设备失效时不会回退到其他设备。
 
 ## 初始化
 
@@ -61,7 +71,9 @@ pnpm prepare:models
 pnpm dev:desktop:app
 ```
 
-首次采集时，macOS 会请求“系统音频录制”权限。SonaSub 不会改用麦克风输入。
+首次采集系统输出时，macOS 会请求“屏幕与系统音频录制”权限；麦克风采集会
+单独请求“麦克风”权限。macOS 上如果某个输出设备同时暴露输入通道，CPAL 无法
+把它作为系统回环流打开；界面会标记为不可采集，而不会静默改用麦克风。
 
 官方 `sherpa-onnx` crate 会在 Rust 编译阶段下载并静态链接与 v2.0.1 匹配的
 原生运行时。它不是独立服务，也不包含 Node.js 进程。
@@ -131,7 +143,10 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
 
 设置面板包含：
 
-- 系统输出设备；
+- 实时音频来源（`systemOutput` 或 `microphone`）及一个设备，或跟随该来源的
+  当前系统默认设备；
+- 录制音源：任意数量的系统输出与麦克风设备，每路独立采集并维护自己的字幕
+  时间轴；
 - ASR 模式（`auto` / `streaming` / `segmented`）、模型与源语言；
 - 最大分段长度、VAD 阈值、最小静音/语音时长、稳定等待时间；
 - 翻译引擎（`bergamot` / `openai-compatible`）、模式
@@ -160,7 +175,7 @@ OpenAI-Compatible 的 Base URL、模型与 API Key 以明文保存在本地
 ```
 apps/desktop                 React 工作台 + src-tauri Rust 应用
   src/                       Tauri IPC/事件、实时字幕与配置界面
-  src-tauri/src/audio/       Core Audio 系统采集与 48k -> 16k DSP
+  src-tauri/src/audio/       CPAL 采集与设备格式 -> 16k DSP
   src-tauri/src/asr/         流式 Zipformer、分段 SenseVoice 与 Qwen3
   src-tauri/src/speaker/     CAM++ 注册表与窗口化 Diarization
   src-tauri/src/translation/ TranslationEngine 边界、Bergamot 与远端适配器

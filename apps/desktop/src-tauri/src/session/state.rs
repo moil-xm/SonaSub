@@ -48,7 +48,11 @@ impl RuntimeState {
         Self {
             status: SessionStatus::Idle,
             session_id: None,
-            store: SubtitleStore::new(String::new(), config.ui.history_limit),
+            store: SubtitleStore::new(
+                String::new(),
+                config.audio.live.kind,
+                config.ui.history_limit,
+            ),
             metrics: SessionMetrics::new(now_ms()),
             notices,
             config,

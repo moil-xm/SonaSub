@@ -15,7 +15,7 @@ description: Use when implementing, debugging or reviewing SonaSub system-audio 
 
 1. Trace the changed data from the capture source to DSP, ASR, subtitle patches and consumers. Identify the native callback versus the capture polling thread; do not assume they have identical execution constraints.
 2. Keep realtime-sensitive paths bounded and nonblocking. Do not perform inference, disk/network I/O, model initialization, blocking sends or expensive logging there. Avoid unnecessary allocation and copying; measure before adding complexity.
-3. Preserve the current format and timeline contracts unless the task explicitly changes them: capture at 48 kHz stereo, DSP to 16 kHz mono, and source frame indices carried through ASR. Account for resampler state and timing when formats or chunk boundaries change.
+3. Preserve the current format and timeline contracts unless the task explicitly changes them: capture at the device's actual CPAL format, statefully convert to 16 kHz mono, carry native input frame indices into the session timeline, and carry corresponding 16 kHz frames into ASR. Account for resampler state, callback-size changes and the flush tail.
 4. Trace each bounded queue's producer, consumer, capacity, full/disconnected behavior and shutdown. Preserve explicit drop accounting, notices and gap handling; do not silently bridge missing audio or replace a bounded queue with an unbounded one. Never block capture while waiting for a slow worker.
 5. On a dropped chunk, discontinuity, recovery or device change, verify the relevant resampler/history reset, ASR discontinuity and subtitle timeline. Surface permission, device, stall and fatal errors through the existing session mechanisms; do not substitute microphone input.
 6. Preserve actual recognition semantics: streaming Zipformer can emit partials, while VAD + SenseVoice is segmented; windowed diarization is not overlapping-speech separation. Keep subtitle IDs and source revisions stable across independent source, speaker and translation patches.
@@ -23,4 +23,4 @@ description: Use when implementing, debugging or reviewing SonaSub system-audio 
 
 ## Verification and delivery
 
-Use [project-verification](../project-verification/SKILL.md) to select Rust checks, model tests and real `.app` system-output playback. Note model/WAV and audio-permission prerequisites; ignored native tests are not run by ordinary `cargo test`. Report measured behavior and any unverified real device or platform. Capture is currently verified on macOS 14.4+ arm64 only.
+Use [project-verification](../project-verification/SKILL.md) to select Rust checks, model tests and real `.app` system-output playback. Note model/WAV and audio-permission prerequisites; ignored native tests are not run by ordinary `cargo test`. Report measured behavior and any unverified real device or platform. macOS loopback requires macOS 14.6+; Windows WASAPI compile checks do not count as real capture verification.

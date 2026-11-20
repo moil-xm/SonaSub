@@ -24,21 +24,22 @@ static runtime during compilation; no separate native preparation step exists.
 
 ## Automated Checks
 
-| Command                                                       | Result                                        |
-| ------------------------------------------------------------- | --------------------------------------------- |
-| `pnpm fmt`                                                    | pass — 173 files formatted                    |
-| `pnpm check` (Vite+ format, lint, type check)                 | pass — 173 formatted, 136 lint/type clean     |
-| `pnpm typecheck`                                              | pass — 136 files, no type errors              |
-| `pnpm test`                                                   | pass — 7 files, 38 tests                      |
-| `pnpm build` (desktop + extension)                            | pass — existing >500 kB chunk warning remains |
-| `pnpm check:rust` (`cargo fmt --check`, `clippy -D warnings`) | pass                                          |
-| `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` | pass — 100 passed, 13 ignored |
-| `node --check scripts/prepare-models.mjs`                     | pass                                          |
-| `pnpm install --frozen-lockfile`                              | pass                                          |
-| `git diff --check`                                            | pass                                          |
+| Command                                                                                     | Result                                        |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `pnpm fmt`                                                                                  | pass — 173 files formatted                    |
+| `pnpm check` (Vite+ format, lint, type check)                                               | pass — 173 formatted, 136 lint/type clean     |
+| `pnpm typecheck`                                                                            | pass — 136 files, no type errors              |
+| `pnpm test`                                                                                 | pass — 7 files, 38 tests                      |
+| `pnpm build` (desktop + extension)                                                          | pass — existing >500 kB chunk warning remains |
+| `pnpm check:rust` (`cargo fmt --check`, `clippy -D warnings`)                               | pass                                          |
+| `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` | pass — 109 passed, 14 ignored                 |
+| `node --check scripts/prepare-models.mjs`                                                   | pass                                          |
+| `pnpm install --frozen-lockfile`                                                            | pass                                          |
+| `git diff --check`                                                                          | pass                                          |
 
-The 13 ignored Rust tests are the real-model tests. They are **not** part
-of the automatic suite and are reported separately below.
+The 14 ignored Rust tests include the real-model tests and the real-device
+CPAL capture probe. They are **not** part of the automatic suite and are
+reported separately below.
 
 ## OpenAI-Compatible Translation Change
 
@@ -46,15 +47,15 @@ The optional remote translation engine was checked with the following commands
 from the repository root. `CARGO_NET_OFFLINE=true` was used after the new
 crates were fetched because the registry download stalled in this environment.
 
-| Command                                                       | Result |
-| ------------------------------------------------------------- | ------ |
-| `pnpm check`                                                  | pass — 173 formatted, 136 lint/type clean |
-| `pnpm test`                                                   | pass — 7 files, 38 tests |
-| `pnpm build`                                                  | pass — existing >500 kB desktop chunk warning remains |
-| `CARGO_NET_OFFLINE=true pnpm check:rust`                      | pass — `cargo fmt --check` and `clippy -D warnings` |
-| `cargo test --locked --offline --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` | pass — 100 passed, 13 ignored |
-| `git diff --check`                                            | pass |
-| `CARGO_NET_OFFLINE=true pnpm --filter @sonasub/desktop tauri:build --no-sign` | pass — unsigned release `.app`, 47.40 MiB |
+| Command                                                                                               | Result                                                |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `pnpm check`                                                                                          | pass — 173 formatted, 136 lint/type clean             |
+| `pnpm test`                                                                                           | pass — 7 files, 38 tests                              |
+| `pnpm build`                                                                                          | pass — existing >500 kB desktop chunk warning remains |
+| `CARGO_NET_OFFLINE=true pnpm check:rust`                                                              | pass — `cargo fmt --check` and `clippy -D warnings`   |
+| `cargo test --locked --offline --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1` | pass — 109 passed, 14 ignored                         |
+| `git diff --check`                                                                                    | pass                                                  |
+| `CARGO_NET_OFFLINE=true pnpm --filter @sonasub/desktop tauri:build --no-sign`                         | pass — unsigned release `.app`, 47.40 MiB             |
 
 The Rust suite covers old config/record compatibility, default and remote
 configuration persistence, empty API keys, secret-redacted `Debug`, 30
@@ -220,6 +221,7 @@ the acoustic models.
 | Requested regression                          | Test                                                                                                                                                                                                       |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Stop with a full queue and a slow worker      | `pipeline::workers::tests::the_stop_signal_reaches_a_worker_behind_a_full_audio_queue`                                                                                                                     |
+| Resampler tail delivered on stop              | `pipeline::workers::tests::stop_delivers_the_resampler_tail_before_the_engine_flush`                                                                                                                       |
 | Cancel or fail during initialization          | `pipeline::workers::tests::a_failing_initialization_releases_a_worker_that_is_blocked_on_the_event_queue`, `a_disabled_worker_counts_as_finished`, plus the `stage()` failure path in `Runner::initialize` |
 | Worker exited before the last ASR event       | `pipeline::workers::tests::the_translation_queue_waits_for_the_last_recognition_event`                                                                                                                     |
 | Timeline after an audio gap                   | `asr::segmented::tests::a_gap_resets_the_detector_and_keeps_absolute_timestamps`, `a_gap_flushes_the_speech_that_precedes_it`                                                                              |
@@ -274,13 +276,14 @@ update, so the final rebuild was not re-driven through the UI or used for a
 Qwen system-output session. The 9/9 observation belongs to the immediately
 preceding debug build using the same installed model root and model UI.
 
-## Native System-Audio Verification
+## Historical Native System-Audio Verification (pre-CPAL)
 
-The packaged debug app was driven through the real macOS process tap. The
-audio source was the system output device: a 16 kHz mono test clip was
-played through `afplay` and captured by the app.
+Before the CPAL migration, the packaged debug app was driven through the then
+current macOS system-output backend. The audio source was the system output
+device: a 16 kHz mono test clip was played through `afplay` and captured by the
+app.
 
-macOS 14.4 or later requires the `kTCCServiceSystemAudioRecording` privacy
+macOS 14.6 or later requires the `kTCCServiceSystemAudioRecording` privacy
 grant before a process tap can be created. Rebuilding the bundle changes the
 ad-hoc code signature, so the grant has to be given again after every
 rebuild. The grant was given for the build under test.
@@ -422,12 +425,14 @@ inverted again.
 
 ## Unverified Platforms
 
-- Windows and Linux: system capture is not implemented there and the app
-  reports the capability as unavailable. Not tested.
-- macOS x64: the process tap path is implemented but was not exercised on an
+- Windows: CPAL/WASAPI system loopback and microphone capture are implemented
+  and the Rust build is compiled in CI. Real WASAPI capture has not been
+  exercised on Windows hardware.
+- Linux: audio capture is not implemented and the capability is unavailable.
+- macOS x64: the CPAL loopback path is implemented but was not exercised on an
   Intel Mac. Not tested.
-- macOS 14.4 to 26.x: the capture path was verified on macOS 27.2 only. Not
-  tested.
+- macOS 14.6 to 26.x: the CPAL capture path was verified on macOS 27.2 only.
+  Not tested.
 
 ## Deferred Work
 
@@ -463,6 +468,66 @@ two checks remain unverified for this change.
   pipeline. The migration to the official sherpa-onnx v2.0.1 Rust API is a
   separate change; the subsection above records its automated and real-model
   verification.
+
+## CPAL Capture Probe (2026-11-20)
+
+The migration was exercised on macOS 27.2 arm64 with CPAL 0.18.2 and real
+Core Audio devices. The ignored integration test
+`tests/audio_capture.rs::captures_system_output_and_microphone_simultaneously`
+opened both sources at the same time, played a 440 Hz WAV through the current
+output, and stopped both streams before asserting frame counts and events.
+
+| Source        | CPAL device                         | Callback format        | Captured frames | Observation                       |
+| ------------- | ----------------------------------- | ---------------------- | --------------- | --------------------------------- |
+| System output | `coreaudio:BuiltInSpeakerDevice`    | 44,100 Hz / 2 ch / f32 | 177,664         | Peak 0.2000 from the played tone  |
+| Microphone    | `coreaudio:BuiltInMicrophoneDevice` | 44,100 Hz / 1 ch / f32 | 187,904         | Captured concurrently with output |
+
+Both streams survived activation, delivered audio concurrently and joined
+without a fatal or device-lost event. The capture info reported the real
+44.1 kHz callback formats rather than a fixed 48 kHz contract. A 48 kHz output
+device was not available for a real-device run; 48 kHz and arbitrary-block
+resampling are covered by the deterministic `StreamingResampler` and
+`AudioFlow` tests.
+`system_profiler SPAudioDataType` reported 44,100 Hz for the built-in output
+and microphone both immediately before and after the probe, so this run did
+not leave either device at a different system sample rate. A second stop/start
+probe also passed with the same formats (180,224 system-output frames and
+188,928 microphone frames); the exact frame count varies with callback timing.
+
+The debug bundle was rebuilt after the migration and inspected directly:
+
+| Check                                     | Result                                                                                               |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `Contents/Info.plist` via `PlistBuddy`    | `NSMicrophoneUsageDescription`, `NSAudioCaptureUsageDescription` and `LSMinimumSystemVersion = 14.6` |
+| `strings` scan of the packaged executable | no `flexaudio` strings                                                                               |
+| `otool -L`                                | no flexaudio or Node.js libraries                                                                    |
+| `Contents/Resources`                      | icon only; no model weights                                                                          |
+
+### Two-Minute Real Capture Run
+
+A dedicated probe built against the workspace crate opened the default system
+output for 120 seconds while tones played, then reported the native timeline
+and process cost:
+
+| Measurement       | Result                                                   |
+| ----------------- | -------------------------------------------------------- |
+| Device and format | `coreaudio:BuiltInSpeakerDevice`, 44,100 Hz / 2 ch / f32 |
+| Wall time         | 120.09 s                                                 |
+| Captured audio    | 5,292,032 frames over 10,336 chunks = 120.00 s           |
+| Duration drift    | -0.09 s                                                  |
+| Dropped frames    | 0                                                        |
+| Discontinuities   | 0                                                        |
+| Warnings / fatals | 0 / 0                                                    |
+| Peak RSS          | 17.9 MB                                                  |
+
+The frame count matches wall time within callback-boundary rounding, so the
+captured timeline did not drift at 44.1 kHz and the stream did not force a
+different device rate. The built-in output still reported 44,100 Hz in
+`system_profiler` after the run.
+
+The probe verifies capture and shutdown only. The full GUI, ASR, translation
+and record end-to-end path was not re-run after the CPAL migration in this
+environment.
 
 ## Known Limitations
 

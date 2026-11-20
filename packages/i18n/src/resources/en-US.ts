@@ -57,18 +57,18 @@ export const enUs = {
     romanian: 'Romanian',
   },
   workbench: {
-    eyebrow: 'Local system-audio session',
-    title: 'Turn the sound on this Mac into live subtitles',
+    eyebrow: 'Local audio session',
+    title: 'Turn live audio into subtitles',
     description:
-      'Capture system output, recognize speech locally with sherpa-onnx, then fill in speakers and Bergamot translations asynchronously. Source text never waits for translation.',
+      'Capture system output or a microphone, recognize speech locally with sherpa-onnx, then fill in speakers and Bergamot translations asynchronously. Source text never waits for translation.',
     status: {
       loading: 'Loading native session state…',
       idle: 'Idle',
       idleDetail:
-        'Start a session to load the selected models and capture the current macOS output.',
+        'Start a session to load the selected models and capture the selected audio source.',
       starting: 'Starting',
       running: 'Live',
-      runningDetail: 'System audio capture has been active for {{duration}}.',
+      runningDetail: 'Audio capture has been active for {{duration}}.',
       stopping: 'Stopping',
       failed: 'Failed',
     },
@@ -79,7 +79,7 @@ export const enUs = {
       settings: 'Session settings',
     },
     route: {
-      audio: 'Audio output',
+      audio: 'Audio source',
       asr: 'Recognition',
       asrAuto: 'Auto',
       asrStreaming: 'Streaming Zipformer',
@@ -99,7 +99,9 @@ export const enUs = {
       ready: 'Models ready',
       setupRequired: 'Setup required',
       unsupportedPlatform:
-        'System-audio capture is implemented and verified only for macOS 14.4 or later on arm64.',
+        'Audio capture requires macOS 14.6 or later for system output, or Windows 8 or later.',
+      audioDevice:
+        'The selected audio device is unavailable or cannot be captured by the current backend. Choose another device.',
       unknownAsrModel: 'The selected speech-recognition model is not registered.',
       asrModel: 'The selected speech-recognition model is missing one or more required files.',
       asrMode: 'The selected recognition mode does not match the selected model capability.',
@@ -131,9 +133,9 @@ export const enUs = {
     emptyTitle: 'Ready when you are',
     emptyDescription:
       'Choose models and a translation direction, then start listening. Captions appear here as soon as speech is recognized.',
-    listeningTitle: 'Listening to system audio',
+    listeningTitle: 'Listening for audio',
     listeningDescription:
-      'Play audio on this Mac. Partial source text appears first; speakers and translations are added when native analysis finishes.',
+      'Play audio or speak into the selected microphone. Partial source text appears first; speakers and translations are added when native analysis finishes.',
     speaker: 'Speaker {{index}}',
     speakerPending: 'Speaker pending',
     uncertain: 'Uncertain',
@@ -220,6 +222,7 @@ export const enUs = {
       occupied: 'In use by {{name}}',
       available: 'Available',
       defaultDevice: 'System default',
+      captureUnavailable: 'This device cannot be captured by CPAL',
     },
     editor: {
       newTitle: 'New record',
@@ -235,9 +238,10 @@ export const enUs = {
       loadError: 'Record settings could not be loaded',
       devices: 'Capture devices',
       addDevice: 'Add device',
-      deviceHint: 'Select more than one output to capture each device on its own timeline.',
+      deviceHint:
+        'Select system outputs, microphones, or both. Every source keeps its own timeline and is never mixed.',
       selectedDevices: '{{count}} selected',
-      noDevices: 'No system output devices found.',
+      noDevices: 'No supported audio devices found.',
       noAvailableDevices: 'All other devices are in use.',
       removeDevice: 'Remove {{name}}',
       speechLanguage: 'Speech language',
@@ -284,7 +288,8 @@ export const enUs = {
       checksDevices: 'Capture device',
       checksDevicesReady: '{{count}} selected',
       checksDevicesMissing: 'Select at least one device',
-      checksPlatformMissing: 'System capture is unavailable on this platform',
+      checksPlatformMissing: 'The selected audio source is unavailable on this platform',
+      checksDevicesUnsupported: 'One or more selected devices cannot be captured',
       checksRecognitionReady: 'Model installed',
       checksRecognitionMissing: 'Install the selected recognition model',
       checksTranslationReady: 'Translation ready',
@@ -323,12 +328,20 @@ export const enUs = {
     keepEditing: 'Keep editing',
     discardChanges: 'Discard changes',
     readiness: 'Selected configuration requirements',
-    audioSection: 'System audio',
-    audioOutput: 'Output endpoint',
-    systemDefault: 'Current macOS default output',
+    audioSection: 'Live audio',
+    audioSource: 'Audio source',
+    audioSourceHint:
+      'System output uses loopback capture; microphone input stays a separate source and is never mixed. Supported platform: {{platform}}.',
+    audioDevice: 'Device',
+    audioDeviceHint:
+      'The default choice follows that source’s current system default at start. A pinned device never falls back silently.',
+    followDefaultDevice: 'Current default · {{name}}',
+    noDefaultDevice: 'No default device',
+    noAudioDevice: 'No audio device',
+    systemOutput: 'System output',
+    microphone: 'Microphone',
+    captureUnavailable: 'Capture unavailable',
     audioBackend: 'Capture backend: {{backend}}',
-    audioHint:
-      'SonaSub records output through macOS process taps and never opens the microphone. Supported platform: {{platform}}.',
     recognitionSection: 'Speech recognition',
     recognitionHint:
       'Only the selected ASR model is loaded. Streaming and segmented models keep their real inference behavior.',
@@ -464,8 +477,7 @@ export const enUs = {
     installedSummary: '{{installed}} of {{total}} models installed',
     filesReady: '{{present}} / {{total}} files',
     recognitionSection: 'Speech recognition',
-    recognitionSectionHint:
-      'Choose the engine that turns captured system audio into source subtitles.',
+    recognitionSectionHint: 'Choose the engine that turns captured audio into source subtitles.',
     translationSection: 'Translation',
     translationSectionHint:
       'Optional local Bergamot directions. Install only the directions you need.',
@@ -573,7 +585,7 @@ export const enUs = {
     modules: {
       desktop: 'React live-caption interface and Tauri IPC client',
       native:
-        'Rust system-audio capture, sherpa-onnx inference, subtitle scheduling and Bergamot translation',
+        'CPAL audio capture, sherpa-onnx inference, subtitle scheduling and Bergamot translation',
       extension: 'Chrome extension entry point',
       ui: 'Shared components, theme, icons and styles',
       i18n: 'Shared interface translations and type-safe i18next setup',
@@ -627,7 +639,7 @@ export const enUs = {
     },
     about: {
       appSection: 'Application',
-      description: 'Local, open-source real-time subtitles for system audio on macOS.',
+      description: 'Local, open-source real-time subtitles for system output and microphones.',
       version: 'Version',
       versionDescription: 'Installed desktop application version',
       versionUnavailable: 'Unavailable',

@@ -3,6 +3,7 @@ use std::time::Instant;
 use rusqlite::params;
 
 use crate::{
+    audio::{AudioDeviceRef, AudioSourceKind},
     config::AppConfig,
     subtitles::{SubtitleSegment, TranslationState, TranslationStatus},
 };
@@ -12,8 +13,12 @@ use super::*;
 
 fn config() -> AppConfig {
     let mut config = AppConfig::default();
-    config.audio.device_ids = vec!["device-a".to_owned()];
+    config.audio.record = vec![device("device-a")];
     config
+}
+
+fn device(id: &str) -> AudioDeviceRef {
+    AudioDeviceRef::new(AudioSourceKind::SystemOutput, id)
 }
 
 fn segment_for(
@@ -28,6 +33,7 @@ fn segment_for(
         session_id: source_run_id.to_owned(),
         record_id: "record".to_owned(),
         source_run_id: source_run_id.to_owned(),
+        source_kind: AudioSourceKind::SystemOutput,
         device_id: device_id.to_owned(),
         device_name: device_id.to_owned(),
         local_id,
@@ -67,7 +73,10 @@ fn an_old_record_config_without_openai_compatible_still_loads() {
     let directory = std::env::temp_dir().join(format!("sonasub-records-{}", uuid::Uuid::new_v4()));
     let store = RecordStore::open(directory.join("records.sqlite")).unwrap();
     let config_json = r#"{
-        "audio": {"deviceIds": ["device-a"]},
+        "audio": {
+            "live": {"kind": "systemOutput", "deviceId": null},
+            "record": [{"kind": "systemOutput", "id": "device-a"}]
+        },
         "translation": {
             "engine": "bergamot",
             "modelId": "bergamot-en-zh-Hans",
@@ -132,8 +141,8 @@ fn a_record_config_keeps_openai_compatible_settings() {
                 id: "record".to_owned(),
                 name: "Record".to_owned(),
                 state: RecordState::Paused,
-                device_ids: vec!["device-a".to_owned()],
-                active_device_ids: Vec::new(),
+                devices: vec![device("device-a")],
+                active_devices: Vec::new(),
                 has_active_source: false,
                 last_error: None,
                 created_at_ms: 1,
@@ -173,8 +182,8 @@ fn a_record_config_is_normalized_when_saved_and_loaded() {
                 id: "record".to_owned(),
                 name: "Record".to_owned(),
                 state: RecordState::Paused,
-                device_ids: vec!["device-a".to_owned()],
-                active_device_ids: Vec::new(),
+                devices: vec![device("device-a")],
+                active_devices: Vec::new(),
                 has_active_source: false,
                 last_error: None,
                 created_at_ms: 1,
@@ -211,8 +220,8 @@ fn records_sources_and_subtitles_survive_a_reopen() {
             id: "record".to_owned(),
             name: "Record".to_owned(),
             state: RecordState::Paused,
-            device_ids: vec!["device-a".to_owned()],
-            active_device_ids: Vec::new(),
+            devices: vec![device("device-a")],
+            active_devices: Vec::new(),
             has_active_source: false,
             last_error: None,
             created_at_ms: 1,
@@ -228,6 +237,7 @@ fn records_sources_and_subtitles_survive_a_reopen() {
         .insert_source_run(&RecordSource {
             source_run_id: "run-a".to_owned(),
             record_id: "record".to_owned(),
+            source_kind: AudioSourceKind::SystemOutput,
             device_id: "device-a".to_owned(),
             device_name: "Device A".to_owned(),
             state: SourceRunState::Running,
@@ -244,7 +254,9 @@ fn records_sources_and_subtitles_survive_a_reopen() {
     let store = RecordStore::open(path).unwrap();
     assert_eq!(store.list_records().unwrap().len(), 1);
     assert_eq!(
-        store.device_elapsed_ms("record", "device-a").unwrap(),
+        store
+            .device_elapsed_ms("record", &device("device-a"))
+            .unwrap(),
         2_000
     );
     let page = store.list_subtitles("record", None, 50).unwrap();
@@ -266,8 +278,8 @@ fn identical_local_ids_from_different_source_runs_coexist() {
                 id: "record".to_owned(),
                 name: "Record".to_owned(),
                 state: RecordState::Paused,
-                device_ids: vec!["device-a".to_owned(), "device-b".to_owned()],
-                active_device_ids: Vec::new(),
+                devices: vec![device("device-a"), device("device-b")],
+                active_devices: Vec::new(),
                 has_active_source: false,
                 last_error: None,
                 created_at_ms: 1,
@@ -307,8 +319,8 @@ fn complete_history_can_be_paged_after_the_live_window_is_trimmed() {
                 id: "record".to_owned(),
                 name: "Record".to_owned(),
                 state: RecordState::Ended,
-                device_ids: vec!["device-a".to_owned()],
-                active_device_ids: Vec::new(),
+                devices: vec![device("device-a")],
+                active_devices: Vec::new(),
                 has_active_source: false,
                 last_error: None,
                 created_at_ms: 1,
@@ -366,8 +378,8 @@ fn interrupted_records_and_sources_recover_as_paused_and_disconnected() {
                 id: "record".to_owned(),
                 name: "Record".to_owned(),
                 state: RecordState::Running,
-                device_ids: vec!["device-a".to_owned()],
-                active_device_ids: vec!["device-a".to_owned()],
+                devices: vec![device("device-a")],
+                active_devices: vec![device("device-a")],
                 has_active_source: true,
                 last_error: None,
                 created_at_ms: 1,
@@ -383,6 +395,7 @@ fn interrupted_records_and_sources_recover_as_paused_and_disconnected() {
         .insert_source_run(&RecordSource {
             source_run_id: "run-a".to_owned(),
             record_id: "record".to_owned(),
+            source_kind: AudioSourceKind::SystemOutput,
             device_id: "device-a".to_owned(),
             device_name: "Device A".to_owned(),
             state: SourceRunState::Running,
@@ -415,8 +428,8 @@ fn subtitle_batch_rolls_back_when_one_segment_cannot_be_saved() {
                 id: "record".to_owned(),
                 name: "Record".to_owned(),
                 state: RecordState::Paused,
-                device_ids: vec!["device-a".to_owned()],
-                active_device_ids: Vec::new(),
+                devices: vec![device("device-a")],
+                active_devices: Vec::new(),
                 has_active_source: false,
                 last_error: None,
                 created_at_ms: 1,
@@ -432,6 +445,7 @@ fn subtitle_batch_rolls_back_when_one_segment_cannot_be_saved() {
         .insert_source_run(&RecordSource {
             source_run_id: "run-a".to_owned(),
             record_id: "record".to_owned(),
+            source_kind: AudioSourceKind::SystemOutput,
             device_id: "device-a".to_owned(),
             device_name: "Device A".to_owned(),
             state: SourceRunState::Running,
@@ -455,7 +469,12 @@ fn subtitle_batch_rolls_back_when_one_segment_cannot_be_saved() {
         .unwrap()
         .items
         .is_empty());
-    assert_eq!(store.device_elapsed_ms("record", "device-a").unwrap(), 0);
+    assert_eq!(
+        store
+            .device_elapsed_ms("record", &device("device-a"))
+            .unwrap(),
+        0
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -470,8 +489,8 @@ fn subtitle_batch_updates_elapsed_in_the_same_transaction() {
                 id: "record".to_owned(),
                 name: "Record".to_owned(),
                 state: RecordState::Paused,
-                device_ids: vec!["device-a".to_owned()],
-                active_device_ids: Vec::new(),
+                devices: vec![device("device-a")],
+                active_devices: Vec::new(),
                 has_active_source: false,
                 last_error: None,
                 created_at_ms: 1,
@@ -487,6 +506,7 @@ fn subtitle_batch_updates_elapsed_in_the_same_transaction() {
         .insert_source_run(&RecordSource {
             source_run_id: "run-a".to_owned(),
             record_id: "record".to_owned(),
+            source_kind: AudioSourceKind::SystemOutput,
             device_id: "device-a".to_owned(),
             device_name: "Device A".to_owned(),
             state: SourceRunState::Running,
@@ -514,7 +534,9 @@ fn subtitle_batch_updates_elapsed_in_the_same_transaction() {
     let page = store.list_subtitles("record", None, 50).unwrap();
     assert_eq!(page.items.len(), 2);
     assert_eq!(
-        store.device_elapsed_ms("record", "device-a").unwrap(),
+        store
+            .device_elapsed_ms("record", &device("device-a"))
+            .unwrap(),
         5_000
     );
     std::fs::remove_dir_all(directory).unwrap();

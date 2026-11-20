@@ -21,8 +21,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 crossbeam-channel = "0.5.17"
 sherpa-onnx = "=2.0.1"
-flexaudio = "=0.8.1"
-flexaudio-os-macos = "=0.8.1"
+cpal = "=0.18.2"
 fxtranslate = "=0.5.0"
 adk-core = "=2.3.0"
 adk-model = { version = "=2.3.0", default-features = false, features = ["openai"] }

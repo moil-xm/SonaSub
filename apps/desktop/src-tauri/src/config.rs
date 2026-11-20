@@ -6,6 +6,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::audio::{AudioDeviceRef, AudioSourceKind};
+
 pub const DEFAULT_ASR_MODEL: &str = "zipformer-bilingual-streaming";
 pub const DEFAULT_TRANSLATION_ENGINE: &str = "bergamot";
 pub const DEFAULT_TRANSLATION_MODEL: &str = "bergamot-en-zh-Hans";
@@ -38,14 +40,31 @@ pub enum TranslationTrigger {
     StableSegment,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AudioSourceSelection {
+    pub kind: AudioSourceKind,
+    /// `None` follows the current platform default for `kind`.
+    pub device_id: Option<String>,
+}
+
+impl Default for AudioSourceSelection {
+    fn default() -> Self {
+        Self {
+            kind: AudioSourceKind::SystemOutput,
+            device_id: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AudioConfig {
-    /// Output endpoint id. Empty selects the current macOS default output.
-    pub device_id: Option<String>,
-    /// Capture endpoints used by a record. A record may capture several
-    /// outputs at once, with one source run per endpoint.
-    pub device_ids: Vec<String>,
+    /// The single source used by the live subtitle session.
+    pub live: AudioSourceSelection,
+    /// Capture sources used by a record. Each entry runs as an independent
+    /// source with its own ASR stream and timeline.
+    pub record: Vec<AudioDeviceRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::audio::SystemOutput;
+use crate::audio::{AudioDevice, AudioDeviceRef};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,12 +81,12 @@ pub struct LanguageOption {
 pub struct AudioCapabilities {
     pub backend: String,
     pub system_capture: bool,
+    pub microphone_capture: bool,
     pub supported_platform: String,
     pub permission: String,
-    pub sample_rate: u32,
-    pub channels: u16,
-    pub default_device: Option<String>,
-    pub devices: Vec<SystemOutput>,
+    pub default_system_output: Option<AudioDeviceRef>,
+    pub default_microphone: Option<AudioDeviceRef>,
+    pub devices: Vec<AudioDevice>,
 }
 
 #[derive(Debug, Clone, Serialize)]

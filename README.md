@@ -2,8 +2,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Open-source real-time subtitling for system audio. SonaSub captures the macOS
-output device, runs streaming or segmented speech recognition with
+Open-source real-time subtitling for system output and microphones. SonaSub
+captures audio through CPAL, runs streaming or segmented speech recognition with
 sherpa-onnx, associates speakers, translates locally with Bergamot or through
 an optional OpenAI-compatible endpoint, and renders live captions. The complete
 runtime is native Rust and the packaged desktop app contains no Node.js.
@@ -11,11 +11,16 @@ runtime is native Rust and the packaged desktop app contains no Node.js.
 Source text appears as soon as recognition produces it; speaker labels and
 translation are independent asynchronous updates on the same subtitle segment.
 There are no mock results, fallback engines, fabricated streaming translations
-or microphone fallbacks.
+or silent audio-source fallbacks.
 
 ## Features
 
-- macOS system-output capture through Core Audio process taps (macOS 14.4+ arm64).
+- macOS system-output loopback and microphone capture through CPAL/Core Audio
+  (macOS 14.6+ for system output).
+- Windows system-output loopback and microphone capture through CPAL/WASAPI,
+  without ASIO.
+- Native sample rates, channel counts and sample formats are converted
+  statefully to the 16 kHz mono recognition stream.
 - Streaming Zipformer zh-en recognition with partial and final text.
 - Segmented Silero VAD + SenseVoice recognition for zh, en, ja, ko and yue.
 - Segmented Silero VAD + Qwen3-ASR 0.6B/1.7B INT8 recognition for 30 languages
@@ -43,7 +48,7 @@ Tab capture is future work and is not used as a hidden audio fallback.
 - UI: Tailwind CSS 4 + CSS Variables, shadcn/ui, static Iconify icons
 - Routing/state: TanStack Router / Query / Form, Zustand, Day.js
 - Native speech: official `sherpa-onnx` Rust API v2.0.1
-- Native system audio: `flexaudio 0.8.1` / `flexaudio-os-macos 0.8.1`
+- Native audio capture: `cpal 0.18.2`
 - Local translation: `fxtranslate 0.5.0` with pinned Bergamot models
 - Remote translation: `adk-model 2.3.0` OpenAI-compatible client
 - Extension: WXT + React + TypeScript (Manifest V3)
@@ -53,12 +58,19 @@ Tab capture is future work and is not used as a hidden audio fallback.
 - Node.js 24 LTS (`^24.11.0`) and pnpm 12 for development and model preparation.
   Node.js is not used by the packaged desktop app.
 - Rust stable >= 1.95 with `rustfmt` and `clippy`.
-- macOS 14.4 or later on Apple Silicon (arm64); Xcode Command Line Tools.
+- macOS 14.6 or later for system-output loopback; microphone capture and the
+  rest of the desktop pipeline are also supported on Windows 8 or later.
+- Xcode Command Line Tools on macOS, or the WebView2/Visual Studio build
+  prerequisites used by Tauri on Windows.
 - `curl`, `tar` and `zstd` for model preparation (`brew install zstd` if needed).
 
-System capture is implemented and verified on macOS arm64. Windows, Linux and
-macOS x64 are not verified; starting a session there returns an explicit
-unsupported-platform error.
+CPAL capture is implemented for macOS and Windows. The macOS path is verified
+on arm64; the Windows WASAPI path compiles in CI but has not been exercised on
+real Windows audio hardware. Linux is not implemented. macOS system loopback
+is unavailable before macOS 14.6 and is reported as unsupported.
+Default-device rerouting is reported as a stream warning; SonaSub does not
+automatically rebuild the stream after every device change. An explicitly
+selected device never falls back to another device.
 
 ## Setup
 
@@ -68,8 +80,11 @@ pnpm prepare:models
 pnpm dev:desktop:app
 ```
 
-The first capture asks for macOS System Audio Recording permission. SonaSub
-does not request microphone input as a substitute.
+The first system-output capture asks for macOS Screen & System Audio Recording
+permission. Microphone capture asks for Microphone permission separately.
+CPAL cannot turn an output device that also exposes input channels into a
+system loopback stream on macOS; such devices are shown as capture-unavailable
+instead of silently opening the microphone.
 
 The official `sherpa-onnx` crate downloads and statically links a runtime that
 matches v2.0.1 during the Rust build. It is not a separate service or bundled
@@ -146,7 +161,10 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
 
 The preferences panel controls:
 
-- system output device;
+- live audio source (`systemOutput` or `microphone`) and one device, or the
+  current system default for that source;
+- record sources: any number of independent system-output and microphone
+  devices, each with its own capture stream and subtitle timeline;
 - ASR mode (`auto` / `streaming` / `segmented`), model and source language;
 - maximum segment length, VAD threshold, silence/speech minimums and the
   stable-segment wait;
@@ -182,7 +200,7 @@ environment-variable fallback.
 ```
 apps/desktop                 React workbench + src-tauri Rust application
   src/                       Tauri IPC/events, live captions and configuration
-  src-tauri/src/audio/       Core Audio system capture and 48k -> 16k DSP
+  src-tauri/src/audio/       CPAL capture and native-format -> 16k DSP
   src-tauri/src/asr/         Streaming Zipformer, segmented SenseVoice and Qwen3
   src-tauri/src/speaker/     CAM++ registry and windowed diarization
   src-tauri/src/translation/ TranslationEngine boundary, Bergamot and remote adapters

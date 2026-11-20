@@ -1,5 +1,7 @@
 use tauri::State;
 
+use crate::audio::AudioDeviceRef;
+
 use super::{
     manager::RecordManager,
     types::{
@@ -91,10 +93,10 @@ pub async fn stop_record(
 pub async fn add_record_device(
     state: State<'_, RecordManager>,
     record_id: String,
-    device_id: String,
+    device: AudioDeviceRef,
 ) -> Result<RecordSnapshot, String> {
     let manager = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || manager.add_device(&record_id, &device_id))
+    tauri::async_runtime::spawn_blocking(move || manager.add_device(&record_id, device))
         .await
         .map_err(|error| format!("Record device add failed: {error}"))?
 }
@@ -103,10 +105,10 @@ pub async fn add_record_device(
 pub async fn remove_record_device(
     state: State<'_, RecordManager>,
     record_id: String,
-    device_id: String,
+    device: AudioDeviceRef,
 ) -> Result<RecordSnapshot, String> {
     let manager = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || manager.remove_device(&record_id, &device_id))
+    tauri::async_runtime::spawn_blocking(move || manager.remove_device(&record_id, &device))
         .await
         .map_err(|error| format!("Record device removal failed: {error}"))?
 }

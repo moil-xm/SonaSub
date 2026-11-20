@@ -160,20 +160,25 @@ fn platform_label() -> String {
 }
 
 fn audio_capabilities() -> AudioCapabilities {
-    let devices = crate::audio::system_outputs().unwrap_or_default();
-    let supported = crate::audio::is_supported();
+    let mut devices = crate::audio::system_outputs().unwrap_or_default();
+    devices.extend(crate::audio::microphones().unwrap_or_default());
     AudioCapabilities {
-        backend: if supported {
-            "Core Audio process tap".to_owned()
+        backend: crate::audio::backend_label().to_owned(),
+        system_capture: crate::audio::system_capture_supported(),
+        microphone_capture: crate::audio::microphone_capture_supported(),
+        supported_platform: crate::audio::supported_platform_label().to_owned(),
+        permission: if cfg!(target_os = "macos") {
+            "macOS asks for Screen & System Audio Recording for system audio and Microphone for microphone input."
+                .to_owned()
         } else {
-            "Unsupported on this platform".to_owned()
+            "Windows applies the system microphone privacy setting to microphone input.".to_owned()
         },
-        system_capture: supported,
-        supported_platform: "macOS 14.4 or later (arm64)".to_owned(),
-        permission: "macOS System Audio Recording".to_owned(),
-        sample_rate: crate::audio::CAPTURE_RATE,
-        channels: crate::audio::CAPTURE_CHANNELS,
-        default_device: crate::audio::default_system_output(),
+        default_system_output: crate::audio::default_system_output().map(|id| {
+            crate::audio::AudioDeviceRef::new(crate::audio::AudioSourceKind::SystemOutput, id)
+        }),
+        default_microphone: crate::audio::default_microphone().map(|id| {
+            crate::audio::AudioDeviceRef::new(crate::audio::AudioSourceKind::Microphone, id)
+        }),
         devices,
     }
 }

@@ -33,7 +33,7 @@ description: Use when finishing a SonaSub change and deciding which checks to ru
 3. Skill changes: each `SKILL.md` `name` matches its directory, `description` is non-empty, referenced relative paths exist and commands exist in `package.json`.
 4. Record what the environment cannot complete (GUI, permission, missing model, other platform) with the reason, never "should work".
 5. Native pipeline verification must be real:
-   - start a session and play audio through the macOS system output (not microphone input);
+   - start a session with system-output loopback, then separately verify microphone input;
    - verify both streaming and segmented ASR;
    - verify source text arrives before translation and speaker updates;
    - verify both configured Bergamot directions;
@@ -44,7 +44,7 @@ description: Use when finishing a SonaSub change and deciding which checks to ru
 6. Packaging: after changing native dependencies or resources, rebuild the macOS `.app` and inspect the bundle for Node.js, engine/protocol artifacts, non-system dynamic libraries and bundled model weights.
 7. Native runtime: the official `sherpa-onnx` crate downloads its version-matched static runtime during compilation. Keep the crate version pinned and avoid overriding the native library directory with a stale local build.
 8. Model checks: `pnpm prepare:models` verifies every pinned SHA-256. Normal CI must not download large models; the model tests stay `#[ignore]` and are run explicitly.
-9. CI gates include frozen installs, `pnpm check`, `pnpm test`, builds, `pnpm check:rust` and serial Rust tests. The Rust job runs on macOS because system capture is macOS-only.
+9. CI gates include frozen installs, `pnpm check`, `pnpm test`, builds, `pnpm check:rust`, serial Rust tests and a Windows `cargo check` for the WASAPI path. A Windows compile is not real capture verification.
 10. Rerun the checks covering the final change before finishing so results match current files.
 
 ## Constraints

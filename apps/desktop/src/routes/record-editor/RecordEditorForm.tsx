@@ -20,6 +20,7 @@ import { LanguageName } from '@/components/session-config-form';
 import { getErrorMessage } from '@/lib/error';
 import { assessTranslationReadiness } from '@/lib/model-readiness';
 import { useCreateRecord, useUpdateRecord } from '@/lib/records';
+import { audioDeviceKey } from '@/lib/session';
 import type { AsrMode, TranslationEngineId, TranslationTrigger } from '@/lib/session';
 import { clearRecordEditorDraft, saveRecordEditorDraft } from '@/stores/record-editor-draft';
 
@@ -201,8 +202,14 @@ export function RecordEditorForm({
     await navigate({ to: '/' });
   }
 
-  const isSaveDisabled =
-    isSaving || formConfig.audio.deviceIds.length === 0 || !capabilities.audio.systemCapture;
+  const hasSelectedDevices = formConfig.audio.record.length > 0;
+  const selectedDevicesCapturable = formConfig.audio.record.every((selected) => {
+    const device = devices.find(
+      (candidate) => audioDeviceKey(candidate) === audioDeviceKey(selected),
+    );
+    return device?.captureSupported ?? false;
+  });
+  const isSaveDisabled = isSaving || !hasSelectedDevices || !selectedDevicesCapturable;
   const sourceLanguageDetail =
     selectedAsr?.sourceLanguages.map((language) => (
       <LanguageName key={language} code={language} />
@@ -257,7 +264,7 @@ export function RecordEditorForm({
                   {t(($) => $.records.editor.noDevices)}
                 </p>
               )}
-              <form.Field name="audio.deviceIds">
+              <form.Field name="audio.record">
                 {(field) => (
                   <>
                     <p className="mb-2 text-[10.5px] text-muted-foreground">
@@ -265,11 +272,15 @@ export function RecordEditorForm({
                     </p>
                     <RecordDevicePicker
                       devices={devices}
-                      selectedIds={field.state.value}
+                      selected={field.state.value}
                       disabled={false}
-                      onSelect={(deviceId) => field.handleChange([...field.state.value, deviceId])}
-                      onRemove={(deviceId) =>
-                        field.handleChange(field.state.value.filter((id) => id !== deviceId))
+                      onSelect={(device) => field.handleChange([...field.state.value, device])}
+                      onRemove={(device) =>
+                        field.handleChange(
+                          field.state.value.filter(
+                            (selected) => audioDeviceKey(selected) !== audioDeviceKey(device),
+                          ),
+                        )
                       }
                     />
                   </>

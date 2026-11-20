@@ -1,8 +1,9 @@
 import { useTranslation } from '@sonasub/i18n';
 
 import { assessTranslationReadiness } from '@/lib/model-readiness';
-import type { AppConfig, Capabilities } from '@/lib/session';
 import type { RecordDevice } from '@/lib/records';
+import { audioDeviceKey } from '@/lib/session';
+import type { AppConfig, Capabilities } from '@/lib/session';
 
 import { RecordCheckRow } from './RecordCheckRow';
 
@@ -16,21 +17,34 @@ export function RecordEditorChecks({ capabilities, config, devices }: RecordEdit
   const { t } = useTranslation();
   const asr = capabilities.asrModels.find((model) => model.id === config.recognition.modelId);
   const translation = assessTranslationReadiness(capabilities, config);
-  const selectedDevices = new Set(config.audio.deviceIds);
-  const availableDevices = devices.filter((device) => selectedDevices.has(device.id));
-  const deviceReady = capabilities.audio.systemCapture && availableDevices.length > 0;
+  const selectedDevices = config.audio.record.flatMap((selected) => {
+    const device = devices.find(
+      (candidate) => audioDeviceKey(candidate) === audioDeviceKey(selected),
+    );
+    return device ? [device] : [];
+  });
+  const selectedPlatformSupported = config.audio.record.every((selected) => {
+    if (selected.kind === 'systemOutput') return capabilities.audio.systemCapture;
+    return capabilities.audio.microphoneCapture;
+  });
+  const deviceReady =
+    selectedPlatformSupported &&
+    selectedDevices.length === config.audio.record.length &&
+    selectedDevices.every((device) => device.captureSupported);
   const speakerReady =
     !config.speakers.enabled ||
     (capabilities.speakerEmbedding.available &&
       (!config.speakers.diarizationEnabled || capabilities.diarization.available));
   let deviceDetail: string = t(($) => $.records.editor.checksDevicesReady, {
-    count: availableDevices.length,
+    count: selectedDevices.length,
   });
-  if (!capabilities.audio.systemCapture) {
+  if (!selectedPlatformSupported) {
     deviceDetail = t(($) => $.records.editor.checksPlatformMissing);
   }
-  if (availableDevices.length === 0) {
+  if (selectedDevices.length === 0) {
     deviceDetail = t(($) => $.records.editor.checksDevicesMissing);
+  } else if (!deviceReady) {
+    deviceDetail = t(($) => $.records.editor.checksDevicesUnsupported);
   }
   let recognitionDetail: string = t(($) => $.records.editor.checksRecognitionReady);
   if (!asr?.available) {

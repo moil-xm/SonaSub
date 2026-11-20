@@ -149,11 +149,11 @@ impl StreamingEngine {
     pub fn push(
         &mut self,
         samples: &[f32],
-        start_frame_48k: u64,
+        start_frame_16k: u64,
         emit: &mut dyn FnMut(AsrEvent),
     ) -> Result<(), String> {
         if self.segment_audio.is_empty() {
-            self.segment_start_secs = start_frame_48k as f64 / 48_000.0;
+            self.segment_start_secs = start_frame_16k as f64 / 16_000.0;
             self.audio_position_secs = self.segment_start_secs;
         }
         self.backend.accept(samples);

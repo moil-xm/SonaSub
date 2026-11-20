@@ -16,6 +16,7 @@ import { getErrorMessage } from '@/lib/error';
 import { formatDuration } from '@/lib/format';
 import { assessModelReadiness } from '@/lib/model-readiness';
 import {
+  audioDeviceKey,
   sessionCapabilitiesOptions,
   sessionConfigOptions,
   sessionSnapshotOptions,
@@ -147,12 +148,35 @@ export function SessionToolbar() {
     }
   }
 
-  let audioRoute: string = t(($) => $.config.systemDefault);
-  if (configView.config.audio.deviceId) {
-    const selectedDevice = capabilities.audio.devices.find(
-      (device) => device.id === configView.config.audio.deviceId,
-    );
-    audioRoute = selectedDevice?.name ?? configView.config.audio.deviceId;
+  const liveSourceKind = configView.config.audio.live.kind;
+  let sourceLabel: string = t(($) => $.config.systemOutput);
+  if (liveSourceKind === 'microphone') sourceLabel = t(($) => $.config.microphone);
+  let deviceRef = configView.config.audio.live.deviceId
+    ? {
+        kind: liveSourceKind,
+        id: configView.config.audio.live.deviceId,
+      }
+    : null;
+  if (!deviceRef && liveSourceKind === 'systemOutput') {
+    deviceRef = capabilities.audio.defaultSystemOutput;
+  }
+  if (!deviceRef && liveSourceKind === 'microphone') {
+    deviceRef = capabilities.audio.defaultMicrophone;
+  }
+  const selectedDevice = deviceRef
+    ? capabilities.audio.devices.find(
+        (device) => audioDeviceKey(device) === audioDeviceKey(deviceRef),
+      )
+    : undefined;
+  let deviceLabel: string = t(($) => $.config.noAudioDevice);
+  if (selectedDevice) deviceLabel = selectedDevice.name;
+  let audioRoute = `${sourceLabel} · ${deviceLabel}`;
+  if (isRunning) {
+    let runningSourceLabel: string = t(($) => $.config.systemOutput);
+    if (status.info.audio.sourceKind === 'microphone') {
+      runningSourceLabel = t(($) => $.config.microphone);
+    }
+    audioRoute = `${runningSourceLabel} · ${status.info.audio.deviceName}`;
   }
 
   let startHint: string | undefined;

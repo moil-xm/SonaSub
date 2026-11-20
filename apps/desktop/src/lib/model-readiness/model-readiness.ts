@@ -1,4 +1,5 @@
-import type { AppConfig, Capabilities } from '../session';
+import { audioDeviceKey } from '../session';
+import type { AppConfig, AudioDeviceRef, Capabilities } from '../session';
 
 import type { ModelReadiness, ReadinessIssue, TranslationReadiness } from './model-readiness.type';
 
@@ -16,7 +17,26 @@ export function assessModelReadiness(
   const translation = assessTranslationReadiness(capabilities, config);
   const issues: ReadinessIssue[] = [];
 
-  if (!capabilities.audio.systemCapture) issues.push('unsupportedPlatform');
+  const sourceKind = config.audio.live.kind;
+  const sourceCapturable =
+    sourceKind === 'systemOutput'
+      ? capabilities.audio.systemCapture
+      : capabilities.audio.microphoneCapture;
+  if (!sourceCapturable) issues.push('unsupportedPlatform');
+  let selectedDeviceRef: AudioDeviceRef | null = null;
+  if (config.audio.live.deviceId) {
+    selectedDeviceRef = { kind: sourceKind, id: config.audio.live.deviceId };
+  } else if (sourceKind === 'systemOutput') {
+    selectedDeviceRef = capabilities.audio.defaultSystemOutput;
+  } else {
+    selectedDeviceRef = capabilities.audio.defaultMicrophone;
+  }
+  const selectedDevice = selectedDeviceRef
+    ? capabilities.audio.devices.find(
+        (device) => audioDeviceKey(device) === audioDeviceKey(selectedDeviceRef),
+      )
+    : undefined;
+  if (!selectedDevice?.captureSupported) issues.push('audioDevice');
   if (!selectedAsr) issues.push('unknownAsrModel');
   else {
     if (!selectedAsr.available) issues.push('asrModel');

@@ -6,6 +6,32 @@ export type TranslationTrigger = 'finalOnly' | 'stableSegment';
 
 export type TranslationEngineId = 'bergamot' | 'openai-compatible';
 
+export type AudioSourceKind = 'systemOutput' | 'microphone';
+
+export type AudioDeviceRef = {
+  kind: AudioSourceKind;
+  id: string;
+};
+
+export type AudioDevice = AudioDeviceRef & {
+  name: string;
+  isDefault: boolean;
+  captureSupported: boolean;
+  captureReason: string | null;
+  sampleRate: number | null;
+  channels: number | null;
+  sampleFormat: string | null;
+};
+
+export type CaptureInfo = {
+  sourceKind: AudioSourceKind;
+  deviceId: string;
+  deviceName: string;
+  sampleRate: number;
+  channels: number;
+  sampleFormat: string;
+};
+
 export type SessionAction = 'start' | 'stop' | 'restart';
 
 export type SessionStatus =
@@ -46,7 +72,7 @@ export type SessionInfo = {
   sessionId: string;
   startedAtMs: number;
   audioBackend: string;
-  audioDevice: string | null;
+  audio: CaptureInfo;
   modelsDir: string;
   asr: AsrInfo;
   translation: TranslationInfo;
@@ -111,21 +137,15 @@ export type LanguageOption = {
   label: string;
 };
 
-export type AudioOutput = {
-  id: string;
-  name: string;
-  isDefault: boolean;
-};
-
 export type AudioCapabilities = {
   backend: string;
   systemCapture: boolean;
+  microphoneCapture: boolean;
   supportedPlatform: string;
   permission: string;
-  sampleRate: number;
-  channels: number;
-  defaultDevice: string | null;
-  devices: AudioOutput[];
+  defaultSystemOutput: AudioDeviceRef | null;
+  defaultMicrophone: AudioDeviceRef | null;
+  devices: AudioDevice[];
 };
 
 export type Capabilities = {
@@ -142,8 +162,11 @@ export type Capabilities = {
 };
 
 export type AudioConfig = {
-  deviceId: string | null;
-  deviceIds: string[];
+  live: {
+    kind: AudioSourceKind;
+    deviceId: string | null;
+  };
+  record: AudioDeviceRef[];
 };
 
 export type RecognitionConfig = {
@@ -231,6 +254,7 @@ export type SubtitleSegment = {
   sessionId: string;
   recordId: string;
   sourceRunId: string;
+  sourceKind: AudioSourceKind;
   deviceId: string;
   deviceName: string;
   localId: number;

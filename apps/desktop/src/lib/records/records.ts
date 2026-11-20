@@ -5,7 +5,7 @@ import type { UnlistenFn } from '@tauri-apps/api/event';
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { applySubtitlePatches } from '@/lib/session-cache';
-import type { SubtitleSegment } from '@/lib/session';
+import type { AudioDeviceRef, SubtitleSegment } from '@/lib/session';
 
 import type {
   RecordAction,
@@ -162,8 +162,8 @@ export function useAddRecordDevice() {
   return useMutation({
     mutationKey: ['records', 'device', 'add'],
     networkMode: 'always',
-    mutationFn: ({ recordId, deviceId }: { recordId: string; deviceId: string }) =>
-      invoke<RecordSnapshot>('add_record_device', { recordId, deviceId }),
+    mutationFn: ({ recordId, device }: { recordId: string; device: AudioDeviceRef }) =>
+      invoke<RecordSnapshot>('add_record_device', { recordId, device }),
     onSuccess: (snapshot) => applySnapshot(queryClient, snapshot),
   });
 }
@@ -174,8 +174,8 @@ export function useRemoveRecordDevice() {
   return useMutation({
     mutationKey: ['records', 'device', 'remove'],
     networkMode: 'always',
-    mutationFn: ({ recordId, deviceId }: { recordId: string; deviceId: string }) =>
-      invoke<RecordSnapshot>('remove_record_device', { recordId, deviceId }),
+    mutationFn: ({ recordId, device }: { recordId: string; device: AudioDeviceRef }) =>
+      invoke<RecordSnapshot>('remove_record_device', { recordId, device }),
     onSuccess: (snapshot) => applySnapshot(queryClient, snapshot),
   });
 }

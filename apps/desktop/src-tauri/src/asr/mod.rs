@@ -20,7 +20,7 @@ use self::{
 pub enum AsrInput {
     Audio {
         samples: Vec<f32>,
-        start_frame_48k: u64,
+        start_frame_16k: u64,
     },
     Discontinuity {
         at_secs: f64,
@@ -30,12 +30,12 @@ pub enum AsrInput {
 /// Control signals for the recognition worker.
 ///
 /// The stop signal travels on its own channel so it can never be blocked by a
-/// full audio backlog. A session that stops while the worker is still busy
-/// decoding therefore always reaches the flush path instead of waiting for
-/// the queue to drain.
-#[derive(Debug, Clone, Copy)]
+/// full audio backlog. The resampler tail is carried with the stop signal so
+/// it is consumed after the control message wins the worker's biased select,
+/// before the engine flush.
+#[derive(Debug, Clone)]
 pub enum AsrControl {
-    Stop,
+    Stop { tail: Vec<AsrInput> },
 }
 
 #[derive(Debug, Clone)]
@@ -79,7 +79,7 @@ pub trait Recognition: Send {
     fn push(
         &mut self,
         samples: &[f32],
-        start_frame_48k: u64,
+        start_frame_16k: u64,
         emit: &mut dyn FnMut(AsrEvent),
     ) -> Result<(), String>;
     fn discontinuity(&mut self, at_secs: f64, emit: &mut dyn FnMut(AsrEvent))
@@ -91,12 +91,12 @@ impl Recognition for AsrEngine {
     fn push(
         &mut self,
         samples: &[f32],
-        start_frame_48k: u64,
+        start_frame_16k: u64,
         emit: &mut dyn FnMut(AsrEvent),
     ) -> Result<(), String> {
         match self {
-            Self::Streaming(engine) => engine.push(samples, start_frame_48k, emit),
-            Self::Segmented(engine) => engine.push(samples, start_frame_48k, emit),
+            Self::Streaming(engine) => engine.push(samples, start_frame_16k, emit),
+            Self::Segmented(engine) => engine.push(samples, start_frame_16k, emit),
         }
     }
 

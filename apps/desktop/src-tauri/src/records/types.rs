@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    audio::{AudioDeviceRef, AudioSourceKind},
     config::AppConfig,
     subtitles::{SubtitlePatch, SubtitleSegment},
 };
@@ -98,8 +99,8 @@ pub struct RecordSummary {
     pub id: String,
     pub name: String,
     pub state: RecordState,
-    pub device_ids: Vec<String>,
-    pub active_device_ids: Vec<String>,
+    pub devices: Vec<AudioDeviceRef>,
+    pub active_devices: Vec<AudioDeviceRef>,
     pub has_active_source: bool,
     pub last_error: Option<String>,
     pub created_at_ms: u64,
@@ -112,6 +113,7 @@ pub struct RecordSummary {
 pub struct RecordSource {
     pub source_run_id: String,
     pub record_id: String,
+    pub source_kind: AudioSourceKind,
     pub device_id: String,
     pub device_name: String,
     pub state: SourceRunState,
@@ -120,6 +122,12 @@ pub struct RecordSource {
     pub started_at_ms: u64,
     pub ended_at_ms: Option<u64>,
     pub error: Option<String>,
+}
+
+impl RecordSource {
+    pub fn device_ref(&self) -> AudioDeviceRef {
+        AudioDeviceRef::new(self.source_kind, self.device_id.clone())
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -220,9 +228,12 @@ pub struct RecordSubtitlePage {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordDevice {
+    pub kind: AudioSourceKind,
     pub id: String,
     pub name: String,
     pub is_default: bool,
+    pub capture_supported: bool,
+    pub capture_reason: Option<String>,
     pub is_available: bool,
     pub occupied_record_id: Option<String>,
     pub occupied_record_name: Option<String>,

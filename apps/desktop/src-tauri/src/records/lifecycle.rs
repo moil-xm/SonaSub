@@ -10,7 +10,10 @@ use std::{
 
 use uuid::Uuid;
 
-use crate::{audio, config::AppConfig};
+use crate::{
+    audio::{self, AudioDeviceRef, AudioSourceKind},
+    config::AppConfig,
+};
 
 use super::{
     manager::{validate_record_config, RecordManager},
@@ -35,7 +38,7 @@ type SourceSpawn = (
 struct SourceStop {
     record_id: String,
     source_run_id: String,
-    device_id: String,
+    device: AudioDeviceRef,
     stop: Arc<AtomicBool>,
     completion: Option<mpsc::Receiver<()>>,
     handle: Option<JoinHandle<()>>,
@@ -45,7 +48,7 @@ impl RecordManager {
     pub(super) fn start_record_locked(&self, record_id: &str) -> Result<RecordSnapshot, String> {
         self.ensure_segments_loaded(record_id)?;
         let mut runtime = self.runtime();
-        let (record_config, device_ids) = {
+        let (record_config, devices) = {
             let record = runtime
                 .records
                 .get_mut(record_id)
@@ -66,43 +69,61 @@ impl RecordManager {
                 | RecordState::Failed => {}
             }
             validate_record_config(&mut record.config)?;
-            if record.config.audio.device_ids.is_empty() {
-                return Err("Select at least one system audio device.".to_owned());
+            if record.config.audio.record.is_empty() {
+                return Err("Select at least one audio source for the record.".to_owned());
             }
-            (
-                record.config.clone(),
-                record.config.audio.device_ids.clone(),
-            )
+            (record.config.clone(), record.config.audio.record.clone())
         };
-        let devices = audio::system_outputs().map_err(|error| error.to_string())?;
-        let device_names = devices
+        let available = enumerate_devices();
+        let device_names = available
             .iter()
-            .map(|device| (device.id.clone(), device.name.clone()))
+            .map(|device| (device.device_ref(), device.name.clone()))
             .collect::<HashMap<_, _>>();
-        for device_id in &device_ids {
-            if !device_names.contains_key(device_id) {
+        let capture_support = available
+            .iter()
+            .map(|device| {
+                (
+                    device.device_ref(),
+                    (device.capture_supported, device.capture_reason.clone()),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        for device in &devices {
+            if !device_names.contains_key(device) {
                 return Err(format!(
-                    "The selected audio device `{device_id}` is unavailable."
+                    "The selected {} device `{}` is unavailable.",
+                    device.kind.label().to_lowercase(),
+                    device.id
                 ));
+            }
+            if let Some((false, reason)) = capture_support.get(device) {
+                return Err(reason.clone().unwrap_or_else(|| {
+                    format!(
+                        "The selected {} device `{}` cannot be captured by this build.",
+                        device.kind.label().to_lowercase(),
+                        device.id
+                    )
+                }));
             }
             if runtime
                 .device_claims
-                .get(device_id)
+                .get(device)
                 .is_some_and(|owner| owner != record_id)
             {
                 return Err(format!(
-                    "The device `{}` is already in use by another record.",
+                    "The {} `{}` is already in use by another record.",
+                    device.kind.label().to_lowercase(),
                     device_names
-                        .get(device_id)
+                        .get(device)
                         .cloned()
-                        .unwrap_or_else(|| device_id.clone())
+                        .unwrap_or_else(|| device.id.clone())
                 ));
             }
         }
-        for device_id in &device_ids {
+        for device in &devices {
             runtime
                 .device_claims
-                .insert(device_id.clone(), record_id.to_owned());
+                .insert(device.clone(), record_id.to_owned());
         }
         let now = now_ms();
         let history_limit = record_config.ui.history_limit;
@@ -118,21 +139,22 @@ impl RecordManager {
             record.summary.updated_at_ms = now;
             let mut sources = Vec::new();
             let mut spawn_failure = None;
-            for device_id in &device_ids {
+            for device in &devices {
                 let source_run_id = Uuid::new_v4().to_string();
                 let device_name = device_names
-                    .get(device_id)
+                    .get(device)
                     .cloned()
-                    .unwrap_or_else(|| device_id.clone());
+                    .unwrap_or_else(|| device.id.clone());
                 let elapsed_base_ms = self
                     .inner
                     .store
-                    .device_elapsed_ms(record_id, device_id)
+                    .device_elapsed_ms(record_id, device)
                     .unwrap_or(0);
                 let source = RecordSource {
                     source_run_id,
                     record_id: record_id.to_owned(),
-                    device_id: device_id.clone(),
+                    source_kind: device.kind,
+                    device_id: device.id.clone(),
                     device_name,
                     state: SourceRunState::Starting,
                     elapsed_base_ms,
@@ -225,7 +247,7 @@ impl RecordManager {
                 .records
                 .get(record_id)
                 .ok_or_else(|| format!("Unknown record `{record_id}`."))?;
-            if record.active_sources.len() == record.config.audio.device_ids.len()
+            if record.active_sources.len() == record.config.audio.record.len()
                 && record
                     .active_sources
                     .values()
@@ -271,6 +293,7 @@ impl RecordManager {
         let context = SourceContext {
             record_id: record_id.to_owned(),
             source_run_id: source.source_run_id.clone(),
+            source_kind: source.source_kind,
             device_id: source.device_id.clone(),
             device_name: source.device_name.clone(),
             config: config.clone(),
@@ -298,7 +321,7 @@ impl RecordManager {
                 source.stop.store(true, Ordering::SeqCst);
                 stops.push(SourceStop {
                     source_run_id: source.source.source_run_id.clone(),
-                    device_id: source.source.device_id.clone(),
+                    device: source.source.device_ref(),
                     stop: source.stop.clone(),
                     record_id: record_id.to_owned(),
                     completion: source.completion.take(),
@@ -314,7 +337,7 @@ impl RecordManager {
     pub(super) fn stop_sources_for_device(
         &self,
         record_id: &str,
-        device_id: &str,
+        device: &AudioDeviceRef,
     ) -> Result<(), String> {
         let stops = {
             let mut runtime = self.runtime();
@@ -326,7 +349,7 @@ impl RecordManager {
             let source_ids = record
                 .active_sources
                 .iter()
-                .filter(|(_, source)| source.source.device_id == device_id)
+                .filter(|(_, source)| source.source.device_ref() == *device)
                 .map(|(id, _)| id.clone())
                 .collect::<Vec<_>>();
             for source_run_id in source_ids {
@@ -334,7 +357,7 @@ impl RecordManager {
                     source.stop.store(true, Ordering::SeqCst);
                     stops.push(SourceStop {
                         source_run_id,
-                        device_id: device_id.to_owned(),
+                        device: device.clone(),
                         stop: source.stop.clone(),
                         record_id: record_id.to_owned(),
                         completion: source.completion.take(),
@@ -362,7 +385,7 @@ impl RecordManager {
                     source.handle = None;
                 }
             }
-            runtime.device_claims.remove(&stop.device_id);
+            runtime.device_claims.remove(&stop.device);
         }
         Ok(())
     }
@@ -378,7 +401,7 @@ impl RecordManager {
                 source.stop.store(true, Ordering::SeqCst);
                 stops.push(SourceStop {
                     source_run_id: source.source.source_run_id.clone(),
-                    device_id: source.source.device_id.clone(),
+                    device: source.source.device_ref(),
                     stop: source.stop.clone(),
                     record_id: record_id.to_owned(),
                     completion: source.completion.take(),
@@ -400,7 +423,7 @@ impl RecordManager {
                 mark_source_failed(record, &stop.source_run_id, error);
                 record.active_sources.remove(&stop.source_run_id);
             }
-            runtime.device_claims.remove(&stop.device_id);
+            runtime.device_claims.remove(&stop.device);
             let _ = self.inner.store.finish_source_run(
                 &stop.source_run_id,
                 SourceRunState::Failed,
@@ -415,12 +438,12 @@ impl RecordManager {
         &self,
         record_id: &str,
         source_run_id: &str,
-        device_id: &str,
+        device: &AudioDeviceRef,
         error: &str,
     ) {
         let source = {
             let mut runtime = self.runtime();
-            runtime.device_claims.remove(device_id);
+            runtime.device_claims.remove(device);
             runtime
                 .records
                 .get_mut(record_id)
@@ -439,7 +462,7 @@ impl RecordManager {
             let mut runtime = self.runtime();
             if let Some(record) = runtime.records.get_mut(record_id) {
                 mark_source_failed(record, source_run_id, error);
-                rollback_added_device(record, device_id);
+                rollback_added_device(record, device);
             }
         }
         let _ = self.inner.store.finish_source_run(
@@ -455,4 +478,12 @@ impl RecordManager {
         let mut runtime = self.runtime();
         runtime.device_claims.retain(|_, owner| owner != record_id);
     }
+}
+
+fn enumerate_devices() -> Vec<audio::AudioDevice> {
+    let mut devices = Vec::new();
+    for kind in [AudioSourceKind::SystemOutput, AudioSourceKind::Microphone] {
+        devices.extend(audio::devices(kind).unwrap_or_default());
+    }
+    devices
 }

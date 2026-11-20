@@ -35,9 +35,9 @@ export function RecordNav({ activeRecordId, isLiveActive }: RecordNavProps) {
   }
 
   function subtitle(record: RecordSummary) {
-    if (record.activeDeviceIds.length > 0) {
+    if (record.activeDevices.length > 0) {
       return t(($) => $.records.nav.activeDeviceCount, {
-        count: record.activeDeviceIds.length,
+        count: record.activeDevices.length,
       });
     }
     return statusLabel(record.state);

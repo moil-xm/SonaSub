@@ -190,11 +190,11 @@ impl SegmentedEngine {
     pub fn push(
         &mut self,
         samples: &[f32],
-        start_frame_48k: u64,
+        start_frame_16k: u64,
         emit: &mut dyn FnMut(AsrEvent),
     ) -> Result<(), String> {
         if self.epoch_secs.is_none() {
-            self.epoch_secs = Some(start_frame_48k as f64 / 48_000.0);
+            self.epoch_secs = Some(start_frame_16k as f64 / 16_000.0);
         }
         self.vad.accept_waveform(samples);
         self.drain(emit)
@@ -400,7 +400,7 @@ mod tests {
             .discontinuity(10.0, &mut |event| events.push(event))
             .expect("discontinuity succeeds");
         engine
-            .push(&[0.0; 32_000], 10 * 48_000, &mut |event| events.push(event))
+            .push(&[0.0; 32_000], 10 * 16_000, &mut |event| events.push(event))
             .expect("push succeeds");
         engine
             .flush(&mut |event| events.push(event))

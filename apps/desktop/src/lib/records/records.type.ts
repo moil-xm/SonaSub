@@ -1,4 +1,10 @@
-import type { AppConfig, SubtitlePatch, SubtitleSegment } from '@/lib/session';
+import type {
+  AppConfig,
+  AudioDeviceRef,
+  AudioSourceKind,
+  SubtitlePatch,
+  SubtitleSegment,
+} from '@/lib/session';
 
 export type RecordState =
   | 'notStarted'
@@ -15,8 +21,8 @@ export type RecordSummary = {
   id: string;
   name: string;
   state: RecordState;
-  deviceIds: string[];
-  activeDeviceIds: string[];
+  devices: AudioDeviceRef[];
+  activeDevices: AudioDeviceRef[];
   hasActiveSource: boolean;
   lastError: string | null;
   createdAtMs: number;
@@ -27,6 +33,7 @@ export type RecordSummary = {
 export type RecordSource = {
   sourceRunId: string;
   recordId: string;
+  sourceKind: AudioSourceKind;
   deviceId: string;
   deviceName: string;
   state: SourceRunState;
@@ -102,9 +109,12 @@ export type RecordNoticeEvent = {
 };
 
 export type RecordDevice = {
+  kind: AudioSourceKind;
   id: string;
   name: string;
   isDefault: boolean;
+  captureSupported: boolean;
+  captureReason: string | null;
   isAvailable: boolean;
   occupiedRecordId: string | null;
   occupiedRecordName: string | null;

@@ -3,6 +3,7 @@ use std::time::Instant;
 use rusqlite::{params, Connection, Row};
 
 use crate::{
+    audio::AudioSourceKind,
     speaker::SpeakerInfo,
     subtitles::{SubtitleSegment, TranslationState},
 };
@@ -55,13 +56,13 @@ impl RecordStore {
         let connection = self.connection();
         let mut statement = connection
             .prepare(
-                "SELECT id, session_id, record_id, source_run_id, device_id, device_name,
+                "SELECT id, session_id, record_id, source_run_id, source_kind, device_id, device_name,
                         local_id, device_time_secs, start_secs, end_secs, occurrence_ms,
                         text, revision, is_final, speaker_json, speaker_revision,
                         translation_json, source_language, created_at_ms, updated_at_ms
                  FROM (
                     SELECT id, source_run_id AS session_id, record_id, source_run_id,
-                           device_id, device_name, local_id, device_time_secs, start_secs,
+                           source_kind, device_id, device_name, local_id, device_time_secs, start_secs,
                            end_secs, occurrence_ms, text, revision, is_final, speaker_json,
                            speaker_revision, translation_json, source_language,
                            created_at_ms, updated_at_ms
@@ -93,7 +94,7 @@ impl RecordStore {
         let request_limit = limit.saturating_add(1);
         let connection = self.connection();
         let select = "SELECT id, source_run_id AS session_id, record_id, source_run_id,
-                             device_id, device_name, local_id, device_time_secs,
+                             source_kind, device_id, device_name, local_id, device_time_secs,
                              start_secs, end_secs, occurrence_ms, text, revision,
                              is_final, speaker_json, speaker_revision, translation_json,
                              source_language, created_at_ms, updated_at_ms
@@ -175,13 +176,13 @@ fn upsert_subtitle_on(connection: &Connection, segment: &SubtitleSegment) -> Res
     connection
         .execute(
             "INSERT INTO subtitles (
-                    id, record_id, source_run_id, device_id, device_name, local_id,
+                    id, record_id, source_run_id, source_kind, device_id, device_name, local_id,
                     device_time_secs, start_secs, end_secs, occurrence_ms, text, revision,
                     is_final, speaker_json, speaker_revision, translation_json,
                     source_language, created_at_ms, updated_at_ms
                  ) VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                    ?14, ?15, ?16, ?17, ?18, ?19
+                    ?14, ?15, ?16, ?17, ?18, ?19, ?20
                  )
                  ON CONFLICT(source_run_id, local_id) DO UPDATE SET
                     device_name = excluded.device_name,
@@ -201,6 +202,7 @@ fn upsert_subtitle_on(connection: &Connection, segment: &SubtitleSegment) -> Res
                 segment.id,
                 segment.record_id,
                 segment.source_run_id,
+                segment.source_kind.as_str(),
                 segment.device_id,
                 segment.device_name,
                 segment.local_id as i64,
@@ -224,8 +226,9 @@ fn upsert_subtitle_on(connection: &Connection, segment: &SubtitleSegment) -> Res
 }
 
 fn segment_from_row(row: &Row<'_>) -> rusqlite::Result<SubtitleSegment> {
-    let speaker_json: Option<String> = row.get(14)?;
-    let translation_json: Option<String> = row.get(16)?;
+    let source_kind: String = row.get(4)?;
+    let speaker_json: Option<String> = row.get(15)?;
+    let translation_json: Option<String> = row.get(17)?;
     let speaker = deserialize_optional::<SpeakerInfo>(speaker_json)?;
     let translation = deserialize_optional::<TranslationState>(translation_json)?;
     Ok(SubtitleSegment {
@@ -233,22 +236,29 @@ fn segment_from_row(row: &Row<'_>) -> rusqlite::Result<SubtitleSegment> {
         session_id: row.get(1)?,
         record_id: row.get(2)?,
         source_run_id: row.get(3)?,
-        device_id: row.get(4)?,
-        device_name: row.get(5)?,
-        local_id: get_u64(row, 6)?,
-        device_time_secs: row.get(7)?,
-        start_secs: row.get(8)?,
-        end_secs: row.get(9)?,
-        occurrence_ms: get_u64(row, 10)?,
-        text: row.get(11)?,
-        revision: row.get(12)?,
-        is_final: row.get(13)?,
+        source_kind: AudioSourceKind::parse(&source_kind).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                source_kind.len(),
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+            )
+        })?,
+        device_id: row.get(5)?,
+        device_name: row.get(6)?,
+        local_id: get_u64(row, 7)?,
+        device_time_secs: row.get(8)?,
+        start_secs: row.get(9)?,
+        end_secs: row.get(10)?,
+        occurrence_ms: get_u64(row, 11)?,
+        text: row.get(12)?,
+        revision: row.get(13)?,
+        is_final: row.get(14)?,
         speaker,
-        speaker_revision: row.get(15)?,
+        speaker_revision: row.get(16)?,
         translation,
-        source_language: row.get(17)?,
-        created_at_ms: get_u64(row, 18)?,
-        updated_at_ms: get_u64(row, 19)?,
+        source_language: row.get(18)?,
+        created_at_ms: get_u64(row, 19)?,
+        updated_at_ms: get_u64(row, 20)?,
         last_change: Instant::now(),
     })
 }

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     asr::{AsrFinal, AsrPartial},
+    audio::AudioSourceKind,
     speaker::{SpeakerInfo, SPEAKER_SOURCE_DIARIZATION},
     translation::TranslationRequest,
 };
@@ -43,6 +44,7 @@ pub struct SubtitleSegment {
     pub session_id: String,
     pub record_id: String,
     pub source_run_id: String,
+    pub source_kind: AudioSourceKind,
     pub device_id: String,
     pub device_name: String,
     pub local_id: u64,
@@ -108,6 +110,7 @@ pub struct SubtitleStore {
     session_id: String,
     record_id: String,
     source_run_id: String,
+    source_kind: AudioSourceKind,
     device_id: String,
     device_name: String,
     elapsed_base_ms: u64,
@@ -118,11 +121,12 @@ pub struct SubtitleStore {
 }
 
 impl SubtitleStore {
-    pub fn new(session_id: String, history_limit: usize) -> Self {
+    pub fn new(session_id: String, source_kind: AudioSourceKind, history_limit: usize) -> Self {
         Self {
             session_id,
             record_id: String::new(),
             source_run_id: String::new(),
+            source_kind,
             device_id: String::new(),
             device_name: String::new(),
             elapsed_base_ms: 0,
@@ -137,6 +141,7 @@ impl SubtitleStore {
     pub fn for_source(
         record_id: String,
         source_run_id: String,
+        source_kind: AudioSourceKind,
         device_id: String,
         device_name: String,
         elapsed_base_ms: u64,
@@ -147,6 +152,7 @@ impl SubtitleStore {
             session_id: source_run_id.clone(),
             record_id,
             source_run_id,
+            source_kind,
             device_id,
             device_name,
             elapsed_base_ms,
@@ -187,6 +193,7 @@ impl SubtitleStore {
                 session_id: self.session_id.clone(),
                 record_id: self.record_id.clone(),
                 source_run_id: self.source_run_id.clone(),
+                source_kind: self.source_kind,
                 device_id: self.device_id.clone(),
                 device_name: self.device_name.clone(),
                 local_id: partial.local_id,
@@ -243,6 +250,7 @@ impl SubtitleStore {
                     session_id: self.session_id.clone(),
                     record_id: self.record_id.clone(),
                     source_run_id: self.source_run_id.clone(),
+                    source_kind: self.source_kind,
                     device_id: self.device_id.clone(),
                     device_name: self.device_name.clone(),
                     local_id: final_event.local_id,
@@ -614,7 +622,7 @@ mod tests {
 
     #[test]
     fn partial_updates_reuse_the_same_subtitle_id() {
-        let mut store = SubtitleStore::new("s".to_owned(), 100);
+        let mut store = SubtitleStore::new("s".to_owned(), AudioSourceKind::SystemOutput, 100);
         let first = store.apply_partial(partial(1, "hello", 1));
         let second = store.apply_partial(partial(1, "hello world", 2));
         let SubtitlePatch::Upsert { segment } = &second[0] else {
@@ -628,7 +636,7 @@ mod tests {
 
     #[test]
     fn a_stale_translation_is_rejected_after_a_text_revision() {
-        let mut store = SubtitleStore::new("s".to_owned(), 100);
+        let mut store = SubtitleStore::new("s".to_owned(), AudioSourceKind::SystemOutput, 100);
         store.apply_partial(partial(1, "hello", 1));
         let request = TranslationRequest {
             session_id: "s".to_owned(),
@@ -657,7 +665,7 @@ mod tests {
 
     #[test]
     fn translation_patches_keep_the_request_engine_and_model() {
-        let mut store = SubtitleStore::new("s".to_owned(), 100);
+        let mut store = SubtitleStore::new("s".to_owned(), AudioSourceKind::SystemOutput, 100);
         store.apply_partial(partial(1, "hello", 1));
 
         let pending = store
@@ -719,7 +727,7 @@ mod tests {
 
     #[test]
     fn history_is_bounded() {
-        let mut store = SubtitleStore::new("s".to_owned(), 50);
+        let mut store = SubtitleStore::new("s".to_owned(), AudioSourceKind::SystemOutput, 50);
         for id in 0..60 {
             store.apply_partial(partial(id, "hello", 1));
         }
@@ -739,7 +747,7 @@ mod tests {
 
     #[test]
     fn a_late_embedding_does_not_erase_a_diarization_label() {
-        let mut store = SubtitleStore::new("s".to_owned(), 50);
+        let mut store = SubtitleStore::new("s".to_owned(), AudioSourceKind::SystemOutput, 50);
         store.apply_partial(partial(1, "hello", 1));
         store.set_speaker("s:1", speaker(SPEAKER_SOURCE_DIARIZATION, true));
 
@@ -761,7 +769,7 @@ mod tests {
 
     #[test]
     fn a_diarization_label_replaces_an_earlier_embedding_label() {
-        let mut store = SubtitleStore::new("s".to_owned(), 50);
+        let mut store = SubtitleStore::new("s".to_owned(), AudioSourceKind::SystemOutput, 50);
         store.apply_partial(partial(1, "hello", 1));
         store.set_speaker("s:1", speaker(SPEAKER_SOURCE_EMBEDDING, false));
 

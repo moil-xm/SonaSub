@@ -150,6 +150,7 @@ mod tests {
             session_id: "source".to_owned(),
             record_id: "record".to_owned(),
             source_run_id: "source".to_owned(),
+            source_kind: crate::audio::AudioSourceKind::SystemOutput,
             device_id: "device".to_owned(),
             device_name: "Device".to_owned(),
             local_id: 1,

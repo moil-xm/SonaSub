@@ -103,8 +103,8 @@ impl RecordManager {
             id: id.clone(),
             name,
             state: RecordState::NotStarted,
-            device_ids: input.config.audio.device_ids.clone(),
-            active_device_ids: Vec::new(),
+            devices: input.config.audio.record.clone(),
+            active_devices: Vec::new(),
             has_active_source: false,
             last_error: None,
             created_at_ms: now,
@@ -156,7 +156,7 @@ impl RecordManager {
         }
         let name = resolved_name(&input.name, &input.config);
         record.summary.name = name;
-        record.summary.device_ids = input.config.audio.device_ids.clone();
+        record.summary.devices = input.config.audio.record.clone();
         record.config = input.config;
         record.summary.updated_at_ms = now_ms();
         record.summary.revision = record.summary.revision.saturating_add(1);
@@ -405,13 +405,17 @@ impl RecordManager {
 pub(super) fn validate_record_config(config: &mut AppConfig) -> Result<(), String> {
     config.normalize()?;
     config.validate()?;
-    if config.audio.device_ids.is_empty() {
-        return Err("Select at least one system audio device.".to_owned());
+    if config.audio.record.is_empty() {
+        return Err("Select at least one audio source for the record.".to_owned());
     }
-    let mut ids = std::collections::HashSet::new();
-    for id in &config.audio.device_ids {
-        if !ids.insert(id) {
-            return Err(format!("Device `{id}` is selected more than once."));
+    let mut devices = std::collections::HashSet::new();
+    for device in &config.audio.record {
+        if !devices.insert(device) {
+            return Err(format!(
+                "The {} device `{}` is selected more than once.",
+                device.kind.label().to_lowercase(),
+                device.id
+            ));
         }
     }
     validate_asr_config(
@@ -430,9 +434,9 @@ fn resolved_name(name: &str, config: &AppConfig) -> String {
     }
     config
         .audio
-        .device_ids
+        .record
         .first()
-        .map(|id| device_name(id))
+        .map(device_name)
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "Untitled record".to_owned())
 }
@@ -441,6 +445,7 @@ fn resolved_name(name: &str, config: &AppConfig) -> String {
 mod tests {
     use super::validate_record_config;
     use crate::{
+        audio::AudioDeviceRef,
         config::{AppConfig, AsrMode},
         models::{ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID},
     };
@@ -448,7 +453,10 @@ mod tests {
     #[test]
     fn record_config_rejects_an_incompatible_translation_model() {
         let mut config = AppConfig::default();
-        config.audio.device_ids = vec!["device".to_owned()];
+        config.audio.record = vec![AudioDeviceRef::new(
+            crate::audio::AudioSourceKind::SystemOutput,
+            "device",
+        )];
         config.translation.target_language = "zh-Hans".to_owned();
         config.translation.model_id = "bergamotZhEn".to_owned();
         assert!(validate_record_config(&mut config).is_err());
@@ -458,7 +466,10 @@ mod tests {
     fn record_config_accepts_qwen3_and_rejects_fake_streaming() {
         for model_id in [ASR_QWEN3_06B_ID, ASR_QWEN3_17B_ID] {
             let mut config = AppConfig::default();
-            config.audio.device_ids = vec!["device".to_owned()];
+            config.audio.record = vec![AudioDeviceRef::new(
+                crate::audio::AudioSourceKind::SystemOutput,
+                "device",
+            )];
             config.recognition.model_id = model_id.to_owned();
             config.recognition.mode = AsrMode::Segmented;
             validate_record_config(&mut config).unwrap();

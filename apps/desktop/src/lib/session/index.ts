@@ -1,4 +1,5 @@
 export {
+  audioDeviceKey,
   sessionCapabilitiesOptions,
   sessionConfigOptions,
   sessionSnapshotOptions,

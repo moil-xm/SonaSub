@@ -324,9 +324,19 @@ fn run_asr_worker(
         // delayed by a full audio queue.
         let message = crossbeam_channel::select_biased! {
             recv(control) -> message => match message {
-                Ok(AsrControl::Stop) => {
-                    if let Err(error) = engine.flush(&mut emit) {
-                        emit(AsrEvent::Fatal(error));
+                Ok(AsrControl::Stop { tail }) => {
+                    let mut tail_ok = true;
+                    for input in tail {
+                        if let Err(error) = apply_asr_input(&mut *engine, input, &mut emit) {
+                            emit(AsrEvent::Fatal(error));
+                            tail_ok = false;
+                            break;
+                        }
+                    }
+                    if tail_ok {
+                        if let Err(error) = engine.flush(&mut emit) {
+                            emit(AsrEvent::Fatal(error));
+                        }
                     }
                     break;
                 }
@@ -337,19 +347,27 @@ fn run_asr_worker(
                 Err(_) => break,
             },
         };
-        let result = match message {
-            AsrInput::Audio {
-                samples,
-                start_frame_48k,
-            } => engine.push(&samples, start_frame_48k, &mut emit),
-            AsrInput::Discontinuity { at_secs } => engine.discontinuity(at_secs, &mut emit),
-        };
+        let result = apply_asr_input(&mut *engine, message, &mut emit);
         if let Err(error) = result {
             emit(AsrEvent::Fatal(error));
             break;
         }
     }
     let _ = events.send(WorkerEvent::Done(WorkerKind::Asr));
+}
+
+fn apply_asr_input(
+    engine: &mut dyn Recognition,
+    input: AsrInput,
+    emit: &mut dyn FnMut(AsrEvent),
+) -> Result<(), String> {
+    match input {
+        AsrInput::Audio {
+            samples,
+            start_frame_16k,
+        } => engine.push(&samples, start_frame_16k, emit),
+        AsrInput::Discontinuity { at_secs } => engine.discontinuity(at_secs, emit),
+    }
 }
 
 fn run_speaker_worker(
@@ -423,7 +441,7 @@ mod tests {
         fn push(
             &mut self,
             _samples: &[f32],
-            _start_frame_48k: u64,
+            _start_frame_16k: u64,
             _emit: &mut dyn FnMut(AsrEvent),
         ) -> Result<(), String> {
             std::thread::sleep(self.delay);
@@ -473,12 +491,12 @@ mod tests {
             input_tx
                 .send(AsrInput::Audio {
                     samples: vec![0.0; 16],
-                    start_frame_48k: 0,
+                    start_frame_16k: 0,
                 })
                 .expect("the queue accepts the audio");
         }
         control_tx
-            .send(AsrControl::Stop)
+            .send(AsrControl::Stop { tail: Vec::new() })
             .expect("the control channel accepts");
         drop(input_tx);
 
@@ -495,6 +513,89 @@ mod tests {
             }
         }
         assert_eq!(finals, 1);
+        assert!(done);
+    }
+
+    struct TailRecognition {
+        pushed: Arc<Mutex<Vec<f32>>>,
+        flushed: Arc<AtomicBool>,
+    }
+
+    impl Recognition for TailRecognition {
+        fn push(
+            &mut self,
+            samples: &[f32],
+            _start_frame_16k: u64,
+            _emit: &mut dyn FnMut(AsrEvent),
+        ) -> Result<(), String> {
+            self.pushed
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .extend_from_slice(samples);
+            Ok(())
+        }
+
+        fn discontinuity(
+            &mut self,
+            _at_secs: f64,
+            _emit: &mut dyn FnMut(AsrEvent),
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn flush(&mut self, _emit: &mut dyn FnMut(AsrEvent)) -> Result<(), String> {
+            self.flushed.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn stop_delivers_the_resampler_tail_before_the_engine_flush() {
+        let pushed = Arc::new(Mutex::new(Vec::new()));
+        let flushed = Arc::new(AtomicBool::new(false));
+        let (input_tx, input_rx) = bounded(1);
+        let (control_tx, control_rx) = bounded(1);
+        let (event_tx, event_rx) = bounded(8);
+        let worker_pushed = pushed.clone();
+        let worker_flushed = flushed.clone();
+        let handle = thread::spawn(move || {
+            run_asr_worker(
+                Box::new(TailRecognition {
+                    pushed: worker_pushed,
+                    flushed: worker_flushed,
+                }),
+                input_rx,
+                control_rx,
+                event_tx,
+            )
+        });
+
+        control_tx
+            .send(AsrControl::Stop {
+                tail: vec![AsrInput::Audio {
+                    samples: vec![0.75; 7],
+                    start_frame_16k: 1_234,
+                }],
+            })
+            .expect("the control channel accepts the tail");
+        drop(input_tx);
+
+        handle.join().expect("the worker finishes");
+        assert_eq!(
+            pushed
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .as_slice(),
+            &[0.75; 7]
+        );
+        assert!(flushed.load(Ordering::SeqCst));
+
+        let mut done = false;
+        while let Ok(event) = event_rx.recv_timeout(Duration::from_secs(2)) {
+            if matches!(event, WorkerEvent::Done(WorkerKind::Asr)) {
+                done = true;
+            }
+        }
         assert!(done);
     }
 

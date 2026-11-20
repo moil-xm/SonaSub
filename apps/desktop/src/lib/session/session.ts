@@ -14,6 +14,7 @@ import {
 } from '../session-cache';
 import type {
   AppConfig,
+  AudioDeviceRef,
   Capabilities,
   ConfigView,
   SessionAction,
@@ -23,6 +24,10 @@ import type {
   StatusEvent,
   SubtitleBatch,
 } from './session.type';
+
+export function audioDeviceKey(device: AudioDeviceRef): string {
+  return `${device.kind}:${device.id}`;
+}
 
 export const sessionCapabilitiesOptions = queryOptions({
   queryKey: ['session', 'capabilities'],

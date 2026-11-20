@@ -24,8 +24,14 @@ function config(): AppConfig {
   return {
     version: 1,
     audio: {
-      deviceId: 'device-a',
-      deviceIds: ['device-a', 'device-b'],
+      live: {
+        kind: 'systemOutput',
+        deviceId: null,
+      },
+      record: [
+        { kind: 'systemOutput', id: 'device-a' },
+        { kind: 'systemOutput', id: 'device-b' },
+      ],
     },
     recognition: {
       mode: 'auto',
@@ -73,6 +79,7 @@ function segment(
     sessionId: sourceRunId,
     recordId: 'record',
     sourceRunId,
+    sourceKind: 'systemOutput',
     deviceId: sourceRunId,
     deviceName: sourceRunId,
     localId,
@@ -99,8 +106,14 @@ function snapshot(overrides: Partial<RecordSnapshot> = {}): RecordSnapshot {
       id: 'record',
       name: 'Record',
       state: 'running',
-      deviceIds: ['device-a', 'device-b'],
-      activeDeviceIds: ['device-a', 'device-b'],
+      devices: [
+        { kind: 'systemOutput', id: 'device-a' },
+        { kind: 'systemOutput', id: 'device-b' },
+      ],
+      activeDevices: [
+        { kind: 'systemOutput', id: 'device-a' },
+        { kind: 'systemOutput', id: 'device-b' },
+      ],
       hasActiveSource: true,
       lastError: null,
       createdAtMs: 1,

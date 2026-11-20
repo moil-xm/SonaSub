@@ -32,14 +32,26 @@ function capabilities(qwen: AsrModelCapability): Capabilities {
     modelsDir: '/tmp/models',
     platform: 'macos-aarch64',
     audio: {
-      backend: 'Core Audio process tap',
+      backend: 'CPAL / Core Audio',
       systemCapture: true,
-      supportedPlatform: 'macOS 14.4 or later (arm64)',
-      permission: 'System Audio Recording',
-      sampleRate: 16_000,
-      channels: 1,
-      defaultDevice: null,
-      devices: [],
+      microphoneCapture: true,
+      supportedPlatform: 'macOS 14.6 or later',
+      permission: 'Screen & System Audio Recording and Microphone',
+      defaultSystemOutput: { kind: 'systemOutput', id: 'speaker' },
+      defaultMicrophone: { kind: 'microphone', id: 'microphone' },
+      devices: [
+        {
+          kind: 'systemOutput',
+          id: 'speaker',
+          name: 'Built-in Output',
+          isDefault: true,
+          captureSupported: true,
+          captureReason: null,
+          sampleRate: 44_100,
+          channels: 2,
+          sampleFormat: 'f32',
+        },
+      ],
     },
     asrModels: [qwen],
     translationModels: [
@@ -81,7 +93,10 @@ function capabilities(qwen: AsrModelCapability): Capabilities {
 function config(): AppConfig {
   return {
     version: 1,
-    audio: { deviceId: null, deviceIds: [] },
+    audio: {
+      live: { kind: 'systemOutput', deviceId: null },
+      record: [],
+    },
     recognition: {
       mode: 'auto',
       modelId: 'qwen3-asr-0.6b-int8',

@@ -246,8 +246,8 @@ impl SessionManager {
             )
         };
         validate_configuration(&mut config)?;
-        if !audio::is_supported() {
-            return Err(audio::unsupported_capture_error());
+        if !audio::capture_supported(config.audio.live.kind) {
+            return Err(audio::unsupported_capture_error(config.audio.live.kind));
         }
 
         let session_id = Uuid::new_v4().to_string();
@@ -260,7 +260,8 @@ impl SessionManager {
                 stage: "Validating models and audio capture".to_owned(),
             };
             runtime.session_id = Some(session_id.clone());
-            runtime.store = SubtitleStore::new(session_id.clone(), history_limit);
+            let live_kind = runtime.config.audio.live.kind;
+            runtime.store = SubtitleStore::new(session_id.clone(), live_kind, history_limit);
             runtime.metrics = SessionMetrics::new(started_at_ms);
             runtime.notices.clear();
         }

@@ -261,7 +261,7 @@ fn run_realtime_qwen(samples: &[f32], cycles: usize) -> RealtimeRun {
             let message = crossbeam_channel::select_biased! {
                 recv(control_rx) -> message => {
                     match message {
-                        Ok(AsrControl::Stop) => {
+                        Ok(AsrControl::Stop { .. }) => {
                             if let Err(error) = engine.flush(&mut emit) {
                                 let _ = events_tx.send(RealtimeEvent::Fatal(error));
                             }
@@ -277,13 +277,13 @@ fn run_realtime_qwen(samples: &[f32], cycles: usize) -> RealtimeRun {
             };
             let AsrInput::Audio {
                 samples,
-                start_frame_48k,
+                start_frame_16k,
             } = message
             else {
                 continue;
             };
             let push_started = Instant::now();
-            if let Err(error) = engine.push(&samples, start_frame_48k, &mut emit) {
+            if let Err(error) = engine.push(&samples, start_frame_16k, &mut emit) {
                 let _ = events_tx.send(RealtimeEvent::Fatal(error));
                 break;
             }
@@ -313,7 +313,7 @@ fn run_realtime_qwen(samples: &[f32], cycles: usize) -> RealtimeRun {
             .collect::<Vec<_>>();
         match input_tx.try_send(AsrInput::Audio {
             samples: chunk,
-            start_frame_48k: (absolute_sample * 3) as u64,
+            start_frame_16k: absolute_sample as u64,
         }) {
             Ok(()) => {}
             Err(crossbeam_channel::TrySendError::Full(_)) => {
@@ -334,7 +334,7 @@ fn run_realtime_qwen(samples: &[f32], cycles: usize) -> RealtimeRun {
         metrics.drain_available(&events_rx, started);
     }
     control_tx
-        .send(AsrControl::Stop)
+        .send(AsrControl::Stop { tail: Vec::new() })
         .expect("send recognition stop");
     while !metrics.done {
         let event = events_rx

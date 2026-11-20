@@ -23,6 +23,7 @@ use super::{
     types::{SessionInfo, SessionStatus},
 };
 use crate::{
+    asr::AsrInput,
     audio::CaptureEvent,
     config::AppConfig,
     pipeline::{
@@ -108,9 +109,10 @@ impl Runner {
                                 if self.stop.load(Ordering::SeqCst) {
                                     self.begin_shutdown(None);
                                 } else {
-                                    self.begin_shutdown(Some(
-                                        "System audio capture ended unexpectedly.".to_owned(),
-                                    ));
+                                    self.begin_shutdown(Some(format!(
+                                        "{} capture ended unexpectedly.",
+                                        self.info.audio.source_kind.label()
+                                    )));
                                 }
                             }
                         }
@@ -258,12 +260,37 @@ impl Runner {
                 },
             },
         );
-        lifecycle::stop_capture(
+        let pending_capture = lifecycle::stop_capture(
             &mut self.capture_handle,
             &mut self.capture_rx,
             &mut self._capture_keepalive,
         );
-        lifecycle::stop_workers(&mut self.workers);
+        self.consume_pending_capture(pending_capture);
+        let asr_tail = self.finish_audio();
+        lifecycle::stop_workers(&mut self.workers, asr_tail);
+    }
+
+    fn consume_pending_capture(&mut self, events: Vec<CaptureEvent>) {
+        for event in events {
+            if let CaptureEvent::Chunk(chunk) = event {
+                self.process_chunk(chunk);
+            }
+        }
+    }
+
+    fn finish_audio(&mut self) -> Vec<AsrInput> {
+        let mut tail = Vec::new();
+        if let Some(at_secs) = self.audio.pending_discontinuity() {
+            tail.push(AsrInput::Discontinuity { at_secs });
+            self.audio.clear_pending_discontinuity();
+        }
+        if let Some(outcome) = self.audio.finish() {
+            tail.push(AsrInput::Audio {
+                samples: outcome.samples,
+                start_frame_16k: outcome.start_frame_16k,
+            });
+        }
+        tail
     }
 
     fn flush_patches(&mut self, force: bool) {

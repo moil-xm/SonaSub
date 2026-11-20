@@ -1,6 +1,6 @@
 # SonaSub
 
-Open-source real-time subtitling project. The desktop app captures macOS system audio and runs sherpa-onnx recognition and speaker analysis locally in Rust; translation is local Bergamot by default or an optional OpenAI-compatible endpoint. React controls the session through Tauri IPC and events. pnpm workspace + Vite+ manage the JS/TS toolchain, while Tauri and WXT keep their own build entries.
+Open-source real-time subtitling project. The desktop app captures system output and microphone audio through CPAL on macOS and Windows, then runs sherpa-onnx recognition and speaker analysis locally in Rust; translation is local Bergamot by default or an optional OpenAI-compatible endpoint. React controls the session through Tauri IPC and events. pnpm workspace + Vite+ manage the JS/TS toolchain, while Tauri and WXT keep their own build entries.
 
 ## Language
 
@@ -9,12 +9,12 @@ Open-source real-time subtitling project. The desktop app captures macOS system 
 
 ## Tech Stack and Module Responsibilities
 
-| Module           | Responsibility                                                                                  | Technology                                                                               |
-| ---------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `apps/desktop`   | React control UI; Rust system-audio capture, inference workers, subtitles and session lifecycle | React + TypeScript, TanStack Router/Query/Form, Zustand, Tauri 2 + Rust                  |
-| `apps/extension` | Chrome extension (Manifest V3), popup only for now                                              | WXT + React + TypeScript                                                                 |
-| `packages/ui`    | Shared components, theme variables, icons, styles, hooks                                        | shadcn/ui, Tailwind CSS 4 + CSS Variables, static Iconify icons, Day.js provided by apps |
-| `packages/i18n`  | Shared English and Simplified Chinese resources and typed i18next setup                         | i18next + react-i18next                                                                  |
+| Module           | Responsibility                                                                           | Technology                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `apps/desktop`   | React control UI; Rust audio capture, inference workers, subtitles and session lifecycle | React + TypeScript, TanStack Router/Query/Form, Zustand, Tauri 2 + Rust                  |
+| `apps/extension` | Chrome extension (Manifest V3), popup only for now                                       | WXT + React + TypeScript                                                                 |
+| `packages/ui`    | Shared components, theme variables, icons, styles, hooks                                 | shadcn/ui, Tailwind CSS 4 + CSS Variables, static Iconify icons, Day.js provided by apps |
+| `packages/i18n`  | Shared English and Simplified Chinese resources and typed i18next setup                  | i18next + react-i18next                                                                  |
 
 Dependency direction and import conventions are in [docs/architecture.md](docs/architecture.md).
 
@@ -107,7 +107,8 @@ Add a Skill only when a stable, repeated, project-specific judgment rule exists;
 
 ## Current Scope
 
-- The native desktop pipeline is implemented: macOS system-output capture, streaming and segmented ASR, windowed speaker analysis, local Bergamot translation, optional OpenAI-compatible translation, subtitle scheduling and the live caption UI.
+- The native desktop pipeline is implemented: CPAL system-output loopback and microphone capture on macOS/Windows, streaming and segmented ASR, windowed speaker analysis, local Bergamot translation, optional OpenAI-compatible translation, subtitle scheduling and the live caption UI.
 - The Chrome extension still contains only a popup. Tab capture and extension-to-desktop communication are future work, not a hidden fallback path.
-- System capture is implemented and verified for macOS 14.4+ arm64. Other platforms and architectures must be reported as unverified rather than silently using another audio source.
+- macOS system loopback requires macOS 14.6+ and has been exercised on arm64; Windows WASAPI is compiled in CI but real Windows audio capture remains unverified. Linux is unsupported. Never substitute another source silently.
+- CPAL cannot request loopback from a macOS output device that also exposes input channels; such devices must remain visibly capture-unavailable.
 - Native workers run in the desktop process; a native crash is not isolated from the UI.

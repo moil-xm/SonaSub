@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use crate::audio::CaptureInfo;
 pub use crate::pipeline::metrics::{SessionMetrics, SessionStats};
 use crate::subtitles::SubtitleSegment;
 
@@ -29,7 +30,7 @@ pub struct SessionInfo {
     pub session_id: String,
     pub started_at_ms: u64,
     pub audio_backend: String,
-    pub audio_device: Option<String>,
+    pub audio: CaptureInfo,
     pub models_dir: String,
     pub asr: AsrInfo,
     pub translation: TranslationInfo,

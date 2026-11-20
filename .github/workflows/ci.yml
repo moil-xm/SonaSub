@@ -43,3 +43,21 @@ jobs:
         run: pnpm --filter @sonasub/desktop build
       - run: pnpm check:rust
       - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- --test-threads=1
+
+  rust-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build frontend assets for Tauri
+        run: pnpm --filter @sonasub/desktop build
+      - name: Check the Windows/WASAPI build
+        run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml

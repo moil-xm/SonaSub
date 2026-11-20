@@ -12,7 +12,7 @@ use crossbeam_channel::{bounded, tick, Receiver, Sender, TrySendError};
 
 use crate::{
     asr::{AsrEngine, AsrEvent, AsrFinal, AsrInput, AsrPartial},
-    audio::{self, AudioChunk, CaptureEvent, CaptureOptions},
+    audio::{self, AudioChunk, AudioSourceKind, CaptureEvent, CaptureOptions},
     config::{AppConfig, TranslationTrigger},
     models::{resolve_asr_mode, ModelPaths, ASR_MODELS, DIARIZATION_FILES, SPEAKER_FILES},
     pipeline::{
@@ -42,6 +42,7 @@ const NATIVE_WAIT_NOTICE_INTERVAL: Duration = Duration::from_secs(10);
 pub struct SourceContext {
     pub record_id: String,
     pub source_run_id: String,
+    pub source_kind: AudioSourceKind,
     pub device_id: String,
     pub device_name: String,
     pub config: AppConfig,
@@ -74,7 +75,6 @@ pub enum SourceEvent {
     Finished {
         record_id: String,
         source_run_id: String,
-        device_id: String,
         outcome: SourceOutcome,
         ack: mpsc::Sender<()>,
     },
@@ -108,7 +108,6 @@ fn run_source(context: SourceContext, ready: mpsc::Sender<Result<(), String>>) {
             let _ = context.events.send(SourceEvent::Finished {
                 record_id: context.record_id,
                 source_run_id: context.source_run_id,
-                device_id: context.device_id,
                 outcome,
                 ack: context.completion,
             });
@@ -233,24 +232,40 @@ impl SourceRunner {
             registry,
         )?;
         let (capture_tx, capture_rx) = bounded(250);
-        let capture_handle = match audio::start(
+        let capture = match audio::start(
             CaptureOptions {
+                kind: context.source_kind,
                 device_id: Some(context.device_id.clone()),
             },
             capture_tx,
             context.stop.clone(),
         ) {
-            Ok(handle) => handle,
+            Ok(capture) => capture,
             Err(error) => {
                 workers.shutdown();
                 return Err(error);
             }
         };
+        let capture_info = capture.info;
+        let capture_handle = capture.thread;
         if context.stop.load(Ordering::SeqCst) {
             let _ = capture_handle.join();
             workers.shutdown();
             return Err("Source start was cancelled.".to_owned());
         }
+        let audio = match AudioFlow::new(
+            f64::from(context.config.speakers.window_secs.max(30.0)) + 2.0,
+            capture_info.sample_rate,
+            capture_info.channels,
+        ) {
+            Ok(audio) => audio,
+            Err(error) => {
+                context.stop.store(true, Ordering::SeqCst);
+                let _ = capture_handle.join();
+                workers.shutdown();
+                return Err(error);
+            }
+        };
         // Model loading happens before capture starts. Anchor record ordering
         // to the moment audio actually begins, not to the spawn request.
         context.occurrence_base_ms = now_ms();
@@ -264,13 +279,14 @@ impl SourceRunner {
             store: SubtitleStore::for_source(
                 context.record_id.clone(),
                 context.source_run_id.clone(),
+                context.source_kind,
                 context.device_id.clone(),
                 context.device_name.clone(),
                 context.elapsed_base_ms,
                 context.occurrence_base_ms,
                 context.history_limit,
             ),
-            audio: AudioFlow::new(f64::from(context.config.speakers.window_secs.max(30.0)) + 2.0),
+            audio,
             pending_patches: Vec::new(),
             last_patch_emit: now,
             last_stats_emit: now,
@@ -298,7 +314,10 @@ impl SourceRunner {
                                     self.begin_shutdown(None, SourceEndReason::RecordStopped);
                                 } else {
                                     self.begin_shutdown(
-                                        Some("System audio capture ended unexpectedly.".to_owned()),
+                                        Some(format!(
+                                            "{} capture ended unexpectedly.",
+                                            self.context.source_kind.label()
+                                        )),
                                         SourceEndReason::PipelineFailure,
                                     );
                                 }
@@ -376,18 +395,20 @@ impl SourceRunner {
                 );
             }
         }
-        self.metrics.add_audio(chunk.frames as u64, 0);
+        self.metrics.add_audio(outcome.native_frames, 0);
         self.metrics.set_level(chunk.peak, chunk.rms);
+        let asr_frames = outcome.samples.len() as u64;
         self.send_asr(
             AsrInput::Audio {
                 samples: outcome.samples,
-                start_frame_48k: outcome.start_frame_48k,
+                start_frame_16k: outcome.start_frame_16k,
             },
             outcome.start_secs,
+            asr_frames,
         );
     }
 
-    fn send_asr(&mut self, input: AsrInput, start_secs: f64) {
+    fn send_asr(&mut self, input: AsrInput, start_secs: f64, asr_frames: u64) {
         if let Some(at_secs) = self.audio.pending_discontinuity() {
             let Some(sender) = self.workers.asr_tx.as_ref() else {
                 self.begin_shutdown(
@@ -399,7 +420,7 @@ impl SourceRunner {
             match sender.try_send(AsrInput::Discontinuity { at_secs }) {
                 Ok(()) => self.audio.clear_pending_discontinuity(),
                 Err(TrySendError::Full(_)) => {
-                    self.drop_asr_input(start_secs);
+                    self.drop_asr_input(start_secs, asr_frames);
                     return;
                 }
                 Err(TrySendError::Disconnected(_)) => {
@@ -420,7 +441,7 @@ impl SourceRunner {
         };
         match sender.try_send(input) {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) => self.drop_asr_input(start_secs),
+            Err(TrySendError::Full(_)) => self.drop_asr_input(start_secs, asr_frames),
             Err(TrySendError::Disconnected(_)) => {
                 self.begin_shutdown(
                     Some("The ASR worker stopped unexpectedly.".to_owned()),
@@ -430,13 +451,15 @@ impl SourceRunner {
         }
     }
 
-    fn drop_asr_input(&mut self, start_secs: f64) {
+    fn drop_asr_input(&mut self, start_secs: f64, asr_frames: u64) {
         self.audio.mark_asr_dropped(start_secs);
-        self.metrics.add_audio(0, 960);
+        self.metrics.add_audio(0, asr_frames);
         self.notice(
             "warning",
-            "ASR could not keep up with system audio. The dropped interval is excluded from the subtitle timeline."
-                .to_owned(),
+            format!(
+                "ASR could not keep up with {} audio. The dropped interval is excluded from the subtitle timeline.",
+                self.context.source_kind.label().to_lowercase()
+            ),
         );
     }
 
@@ -750,12 +773,33 @@ impl SourceRunner {
         self.end_reason = reason;
         self.shutdown_started = Some(Instant::now());
         self.context.stop.store(true, Ordering::SeqCst);
-        lifecycle::stop_capture(
+        let pending_capture = lifecycle::stop_capture(
             &mut self.capture_handle,
             &mut self.capture_rx,
             &mut self._capture_keepalive,
         );
-        lifecycle::stop_workers(&mut self.workers);
+        for event in pending_capture {
+            if let CaptureEvent::Chunk(chunk) = event {
+                self.process_chunk(chunk);
+            }
+        }
+        let asr_tail = self.finish_audio();
+        lifecycle::stop_workers(&mut self.workers, asr_tail);
+    }
+
+    fn finish_audio(&mut self) -> Vec<AsrInput> {
+        let mut tail = Vec::new();
+        if let Some(at_secs) = self.audio.pending_discontinuity() {
+            tail.push(AsrInput::Discontinuity { at_secs });
+            self.audio.clear_pending_discontinuity();
+        }
+        if let Some(outcome) = self.audio.finish() {
+            tail.push(AsrInput::Audio {
+                samples: outcome.samples,
+                start_frame_16k: outcome.start_frame_16k,
+            });
+        }
+        tail
     }
 
     fn flush_patches(&mut self, force: bool) {

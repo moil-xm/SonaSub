@@ -1,9 +1,9 @@
 # Native Architecture
 
-SonaSub is a native macOS desktop application. Tauri and Rust own system-audio
-capture, inference workers, subtitle scheduling and process cleanup. React is
-a control and presentation layer that reaches the backend only through Tauri
-IPC and events. There is no Node.js runtime, local WebSocket service,
+SonaSub is a native desktop application for macOS and Windows. Tauri and Rust
+own audio capture, inference workers, subtitle scheduling and process cleanup.
+React is a control and presentation layer that reaches the backend only through
+Tauri IPC and events. There is no Node.js runtime, local WebSocket service,
 authentication handshake or browser-side inference.
 
 ## Module Responsibilities
@@ -11,7 +11,7 @@ authentication handshake or browser-side inference.
 | Path                     | Responsibility                                                                                                                                             | Technology                                                       |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | `apps/desktop`           | React control UI; Tauri commands, events and native desktop shell                                                                                          | React + TypeScript, TanStack Router/Query/Form, Zustand, Tauri 2 |
-| `apps/desktop/src-tauri` | Audio capture, DSP, sherpa-onnx workers, speaker analysis, local and remote translation adapters, subtitle scheduling, configuration and session lifecycle | Rust, flexaudio, sherpa-onnx, fxtranslate, adk-model             |
+| `apps/desktop/src-tauri` | Audio capture, DSP, sherpa-onnx workers, speaker analysis, local and remote translation adapters, subtitle scheduling, configuration and session lifecycle | Rust, CPAL, sherpa-onnx, fxtranslate, adk-model                  |
 | `apps/extension`         | Chrome extension (Manifest V3), popup only; no capture implementation yet                                                                                  | WXT + React + TypeScript                                         |
 | `packages/ui`            | Shared shadcn/ui components, theme variables, styles and hooks                                                                                             | Tailwind CSS 4, CSS Variables, Radix primitives                  |
 | `packages/i18n`          | Shared `en-US` / `zh-CN` resources, i18next setup and typed selectors                                                                                      | i18next + react-i18next                                          |
@@ -31,7 +31,8 @@ the Tauri commands and starts the live-session and record managers.
   owns the shared capture and worker stop protocol.
 - `models/` owns the pinned registry, capability discovery, downloads and
   verified installation. `config.rs` persists application settings.
-- `audio/` captures macOS system output and converts 48 kHz stereo to 16 kHz mono.
+- `audio/` captures system output or microphone input through CPAL/Core Audio
+  or CPAL/WASAPI and converts the callback's native format to 16 kHz mono.
 - `asr/` provides a common input/event adapter for streaming Zipformer and
   segmented Silero VAD + SenseVoice or Qwen3-ASR implementations.
 - `speaker/` owns the CAM++ embedding registry, windowed Pyannote diarization
@@ -62,7 +63,7 @@ graph TD
   extension[apps/extension] --> ui
   extension --> i18n
   desktop -. Tauri IPC + events .-> rust[src-tauri Rust]
-  rust --> audio[Core Audio + DSP]
+  rust --> audio[CPAL: Core Audio / WASAPI + DSP]
   rust --> asr[sherpa-onnx workers]
   rust --> speaker[speaker + diarization workers]
   rust --> translation[translation workers]
@@ -79,17 +80,34 @@ graph TD
 
 ## Capture And Timeline
 
-macOS output is captured through a Core Audio process tap
-(`flexaudio`/`flexaudio-os-macos`) at 48 kHz stereo in 20 ms chunks. The capture
-thread only polls native chunks, copies them into a bounded channel and records
-capture warnings. It performs no inference, disk access or network request.
+CPAL owns the capture stream on macOS and Windows. macOS output uses CPAL's
+Core Audio process-tap loopback and requires macOS 14.6 or later. Windows
+output uses WASAPI loopback; ASIO is not compiled in. Microphone capture uses
+the normal input direction on both platforms.
 
-The session thread performs channel downmix and a windowed-sinc FIR decimation
-to 16 kHz mono. Every chunk carries an absolute 48 kHz frame index. The ASR
-input also carries that frame index, so a completed inference is assigned the
-audio's original time, not the time at which the worker finished.
+The stream is opened from the device's current default input or output
+configuration. The app does not assume 48 kHz, stereo or `f32`; it supports the
+common signed/unsigned integer and float callback formats exposed by CPAL and
+reports the actual format in session information. A bounded crossbeam channel
+delivers callbacks to the session thread. When it is full, the callback counts
+dropped native frames and marks the next delivered chunk as discontinuous
+instead of buffering without limit.
 
-- A gap, dropped chunk, device recovery or discontinuity resets the resampler
+The session thread keeps a stateful, windowed-sinc resampler across arbitrary
+callback sizes, downmixes channels to mono and produces 16 kHz audio for ASR and
+diarization. Every chunk carries an absolute index in the native capture rate;
+the ASR input carries the corresponding 16 kHz frame index. A completed
+inference is therefore assigned the audio's original time, not the time at
+which the worker finished. When capture stops, events already queued by the
+capture channel are drained through the same path; the resampler tail is then
+carried on the recognition stop control message and processed before the ASR
+flush, so it cannot be skipped behind a full audio queue. Audio still queued
+for a slow recognition worker is not replayed during shutdown.
+An output device that also exposes input channels cannot be selected as a
+system loopback source on macOS, because CPAL would open its microphone
+direction; the UI marks that device as capture-unavailable.
+
+- A gap, dropped chunk, reported device change or discontinuity resets the resampler
   and audio history, emits an ASR discontinuity, and starts the next subtitle
   run after the real gap. Missing audio is never presented as continuous.
 - The segmented path recreates the Silero VAD after a gap. Clearing the
@@ -99,13 +117,18 @@ audio's original time, not the time at which the worker finished.
   recovered run stays correct.
 - A bounded ASR queue drops whole intervals when inference cannot keep up and
   records the dropped frames; the excluded interval is not bridged.
-- Device loss, permission denial, terminal errors and stalled capture are
+- Device loss, permission denial, unsupported formats, terminal errors and
+  stalled stream activation are
   surfaced as warnings or session failures.
 - Subtitle history and the diarization audio ring are bounded.
 
-System capture is implemented and verified on macOS 14.4 or later on arm64.
-Windows, Linux and macOS x64 report the capability as unavailable and refuse to
-start; they do not silently switch to microphone input.
+System-output and microphone capture are implemented through CPAL on macOS
+14.6+ and Windows 8+. The macOS arm64 path has been exercised on real output
+and microphone devices; the Windows build is compiled in CI but real WASAPI
+capture is not yet verified. Linux reports the capability as unavailable.
+Following a default device resolves that default when a session starts; an
+explicit device never falls back silently if it disappears. Live rerouting of a
+changed default device is not implemented.
 
 ## Recognition Paths
 
@@ -295,7 +318,9 @@ running → stopping/failed (stop, restart, app exit or pipeline failure)
   failure of a later initialization stage and a cancelled start.
 - The stop signal for the recognition worker travels on its own control
   channel, which is never blocked by a full audio backlog. A worker that is
-  busy decoding still reaches its flush and reports the last subtitle.
+  busy decoding still reaches its flush and reports the last subtitle. The
+  resampler tail is part of that control message and is pushed before the
+  engine flush.
 - Stop stops capture, flushes ASR, lets native inference reach a safe boundary,
   closes the translation queue and joins workers. Native inference cannot be
   preemptively cancelled.
@@ -363,7 +388,7 @@ Important fields:
   (`finalOnly` / `stableSegment`) and target language;
 - speaker embedding/diarization switches, window, maximum speakers and
   similarity threshold;
-- audio output device and subtitle history limit.
+- live audio source and device, record source list and subtitle history limit.
 
 Capabilities are computed from the model registry, the compiled adapters and
 the current platform. A user preference cannot turn an unsupported mode into a

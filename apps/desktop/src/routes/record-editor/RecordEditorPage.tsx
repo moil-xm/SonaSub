@@ -9,7 +9,7 @@ import { Link } from '@tanstack/react-router';
 import { getErrorMessage } from '@/lib/error';
 import { isRecordActiveState, recordDevicesOptions, recordSnapshotOptions } from '@/lib/records';
 import type { RecordDevice } from '@/lib/records';
-import { sessionCapabilitiesOptions, sessionConfigOptions } from '@/lib/session';
+import { audioDeviceKey, sessionCapabilitiesOptions, sessionConfigOptions } from '@/lib/session';
 import type { AppConfig, Capabilities } from '@/lib/session';
 import { readRecordEditorDraft } from '@/stores/record-editor-draft';
 
@@ -28,25 +28,30 @@ function newRecordConfig(
   config.recognition.mode = 'auto';
   config.speakers.enabled = false;
 
-  const availableIds = new Set(
-    devices.filter((device) => device.isAvailable).map((device) => device.id),
+  const availableDevices = devices.filter(
+    (device) => device.isAvailable && device.captureSupported,
   );
-  const preferredIds = config.audio.deviceIds.filter((id) => availableIds.has(id));
-  if (preferredIds.length > 0) {
-    config.audio.deviceIds = preferredIds;
-  } else {
-    const legacyDeviceId = config.audio.deviceId;
-    const legacyAvailable = legacyDeviceId !== null && availableIds.has(legacyDeviceId);
-    const defaultDevice = devices.find((device) => device.isDefault && device.isAvailable);
-    if (legacyAvailable) {
-      config.audio.deviceIds = [legacyDeviceId];
-    } else if (defaultDevice) {
-      config.audio.deviceIds = [defaultDevice.id];
-    } else {
-      config.audio.deviceIds = [];
+  const availableKeys = new Set(availableDevices.map(audioDeviceKey));
+  config.audio.record = config.audio.record.filter((device) =>
+    availableKeys.has(audioDeviceKey(device)),
+  );
+  if (config.audio.record.length === 0) {
+    let preferredDevice = availableDevices.find(
+      (device) => device.kind === 'systemOutput' && device.isDefault,
+    );
+    if (!preferredDevice) {
+      preferredDevice = availableDevices.find((device) => device.kind === 'systemOutput');
+    }
+    if (!preferredDevice) {
+      preferredDevice = availableDevices.find(
+        (device) => device.kind === 'microphone' && device.isDefault,
+      );
+    }
+    if (!preferredDevice) preferredDevice = availableDevices[0];
+    if (preferredDevice) {
+      config.audio.record = [{ kind: preferredDevice.kind, id: preferredDevice.id }];
     }
   }
-  config.audio.deviceId = config.audio.deviceIds[0] ?? null;
 
   const asr = capabilities.asrModels.find((model) => model.id === config.recognition.modelId);
   if (!asr) {

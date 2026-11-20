@@ -109,7 +109,7 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
               <span className="h-3 w-px bg-border" />
               <span>
                 {t(($) => $.records.nav.activeDeviceCount, {
-                  count: summary.activeDeviceIds.length,
+                  count: summary.activeDevices.length,
                 })}
               </span>
             </div>
@@ -189,12 +189,12 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
             </span>
             <RecordDevicePicker
               devices={devices}
-              selectedIds={config.audio.deviceIds}
-              activeIds={summary.activeDeviceIds}
+              selected={config.audio.record}
+              active={summary.activeDevices}
               currentRecordId={summary.id}
               disabled={!isActive}
-              onSelect={(deviceId) => addDevice.mutate({ recordId: summary.id, deviceId })}
-              onRemove={(deviceId) => removeDevice.mutate({ recordId: summary.id, deviceId })}
+              onSelect={(device) => addDevice.mutate({ recordId: summary.id, device })}
+              onRemove={(device) => removeDevice.mutate({ recordId: summary.id, device })}
             />
             {isActionPending && (
               <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground">

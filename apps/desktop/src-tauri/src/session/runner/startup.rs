@@ -153,29 +153,49 @@ impl Runner {
         // Every failure after the workers exist has to release them, otherwise
         // the recognition and translation threads stay blocked on their
         // queues for the lifetime of the process.
-        if let Err(error) = stage(&context, "Starting macOS system audio capture") {
+        let source = context.config.audio.live.clone();
+        if let Err(error) = stage(
+            &context,
+            &format!("Starting {} capture", source.kind.label().to_lowercase()),
+        ) {
             workers.shutdown();
             return Err(error);
         }
         let (capture_tx, capture_rx) = bounded(250);
-        let capture_handle = match audio::start(
+        let capture = match audio::start(
             CaptureOptions {
-                device_id: context.config.audio.device_id.clone(),
+                kind: source.kind,
+                device_id: source.device_id,
             },
             capture_tx,
             context.stop.clone(),
         ) {
-            Ok(handle) => handle,
+            Ok(capture) => capture,
             Err(error) => {
                 workers.shutdown();
                 return Err(StartupError::Failed(error));
             }
         };
+        let capture_info = capture.info;
+        let capture_handle = capture.thread;
         if context.stop.load(Ordering::SeqCst) {
             let _ = capture_handle.join();
             workers.shutdown();
             return Err(StartupError::Cancelled);
         }
+        let audio = match AudioFlow::new(
+            f64::from(context.config.speakers.window_secs.max(30.0)) + 2.0,
+            capture_info.sample_rate,
+            capture_info.channels,
+        ) {
+            Ok(audio) => audio,
+            Err(error) => {
+                context.stop.store(true, Ordering::SeqCst);
+                let _ = capture_handle.join();
+                workers.shutdown();
+                return Err(StartupError::Failed(error));
+            }
+        };
         let asr_info = AsrInfo {
             model_id: selected_asr.id.to_owned(),
             model_label: selected_asr.label.to_owned(),
@@ -204,8 +224,8 @@ impl Runner {
         let info = SessionInfo {
             session_id: context.session_id.clone(),
             started_at_ms: context.started_at_ms,
-            audio_backend: "Core Audio process tap".to_owned(),
-            audio_device: context.config.audio.device_id.clone(),
+            audio_backend: audio::backend_label().to_owned(),
+            audio: capture_info,
             models_dir: context.inner.models.root.display().to_string(),
             asr: asr_info,
             translation: translation_info,
@@ -222,7 +242,6 @@ impl Runner {
             history_limit: context.history_limit,
             run_boundary: RUN_BOUNDARY.to_owned(),
         };
-        let audio = AudioFlow::new(f64::from(context.config.speakers.window_secs.max(30.0)) + 2.0);
         let now = Instant::now();
         let runner = Self {
             inner: context.inner.clone(),

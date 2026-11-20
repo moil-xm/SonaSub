@@ -8,7 +8,7 @@ use std::{
 use crossbeam_channel::Sender;
 use tauri::AppHandle;
 
-use crate::{config::AppConfig, models::ModelPaths};
+use crate::{audio::AudioDeviceRef, config::AppConfig, models::ModelPaths};
 
 use super::{
     persistence::RecordStore,
@@ -32,7 +32,7 @@ pub(super) struct RecordManagerInner {
 
 pub(super) struct RecordRuntimeState {
     pub(super) records: HashMap<String, RecordRuntime>,
-    pub(super) device_claims: HashMap<String, String>,
+    pub(super) device_claims: HashMap<AudioDeviceRef, String>,
 }
 
 pub(super) struct RecordRuntime {
@@ -143,22 +143,26 @@ pub(super) fn mark_source_failed(record: &mut RecordRuntime, source_run_id: &str
     }
 }
 
-pub(super) fn rollback_added_device(record: &mut RecordRuntime, device_id: &str) {
-    record.config.audio.device_ids.retain(|id| id != device_id);
-    record.summary.device_ids = record.config.audio.device_ids.clone();
+pub(super) fn rollback_added_device(record: &mut RecordRuntime, device: &AudioDeviceRef) {
+    record
+        .config
+        .audio
+        .record
+        .retain(|selected| selected != device);
+    record.summary.devices = record.config.audio.record.clone();
     record.summary.updated_at_ms = now_ms();
     sync_summary(record);
 }
 
 pub(super) fn sync_summary(record: &mut RecordRuntime) {
-    record.summary.device_ids = record.config.audio.device_ids.clone();
-    record.summary.active_device_ids = record
+    record.summary.devices = record.config.audio.record.clone();
+    record.summary.active_devices = record
         .active_sources
         .values()
         .filter(|source| source.source.state == SourceRunState::Running)
-        .map(|source| source.source.device_id.clone())
+        .map(|source| source.source.device_ref())
         .collect();
-    record.summary.has_active_source = !record.summary.active_device_ids.is_empty();
+    record.summary.has_active_source = !record.summary.active_devices.is_empty();
     record.summary.revision = record.summary_revision;
 }
 

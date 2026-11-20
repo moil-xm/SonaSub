@@ -1,8 +1,9 @@
 import { useTranslation } from '@sonasub/i18n';
 
 import { LanguageName } from '@/components/session-config-form';
-import type { AppConfig, Capabilities } from '@/lib/session';
 import type { RecordDevice } from '@/lib/records';
+import { audioDeviceKey } from '@/lib/session';
+import type { AppConfig, Capabilities } from '@/lib/session';
 
 import { SummaryRow } from './SummaryRow';
 
@@ -33,16 +34,21 @@ export function RecordEditorSummary({
     const model = config.translation.openaiCompatible.model.trim();
     translationLabel = model ? `${translationEngine.label} · ${model}` : translationEngine.label;
   }
-  const firstDevice = devices.find((device) => device.id === config.audio.deviceIds[0]);
+  const firstSelection = config.audio.record[0];
+  const firstDevice = firstSelection
+    ? devices.find((device) => audioDeviceKey(device) === audioDeviceKey(firstSelection))
+    : undefined;
   let displayName = name.trim();
   if (!displayName) displayName = firstDevice?.name ?? t(($) => $.records.editor.namePlaceholder);
   const sourceLanguage = config.recognition.sourceLanguage;
-  const deviceNames = config.audio.deviceIds.map((id) => {
-    const device = devices.find((candidate) => candidate.id === id);
-    return device?.name ?? id;
+  const deviceNames = config.audio.record.map((selected) => {
+    const device = devices.find(
+      (candidate) => audioDeviceKey(candidate) === audioDeviceKey(selected),
+    );
+    return device?.name ?? selected.id;
   });
   let deviceSummary: string = t(($) => $.records.editor.deviceCount, {
-    count: config.audio.deviceIds.length,
+    count: config.audio.record.length,
   });
   if (deviceNames.length > 0) deviceSummary = deviceNames.join(' · ');
   let speakerSummary: string = t(($) => $.records.editor.summaryOff);

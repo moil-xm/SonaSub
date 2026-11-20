@@ -20,6 +20,7 @@ function segment(overrides: Partial<SubtitleSegment> = {}): SubtitleSegment {
     sessionId: 'session',
     recordId: 'session',
     sourceRunId: 'run:session',
+    sourceKind: 'systemOutput',
     deviceId: 'default',
     deviceName: 'Default output',
     localId: 1,
@@ -49,8 +50,15 @@ function snapshot(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
       info: {
         sessionId: 'session',
         startedAtMs: 1,
-        audioBackend: 'Core Audio process tap',
-        audioDevice: null,
+        audioBackend: 'CPAL / Core Audio',
+        audio: {
+          sourceKind: 'systemOutput',
+          deviceId: 'speaker',
+          deviceName: 'Built-in Output',
+          sampleRate: 48_000,
+          channels: 2,
+          sampleFormat: 'f32',
+        },
         modelsDir: '/models',
         asr: {
           modelId: 'streaming',

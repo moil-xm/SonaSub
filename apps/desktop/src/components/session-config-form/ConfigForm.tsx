@@ -28,10 +28,11 @@ import { ReadinessIssues } from '@/components/readiness-issues';
 import { SettingsList, SettingsRow, SettingsSection } from '@/components/settings-section';
 import { getErrorMessage } from '@/lib/error';
 import { assessModelReadiness } from '@/lib/model-readiness';
-import { sessionSnapshotOptions, useSaveConfig } from '@/lib/session';
+import { audioDeviceKey, sessionSnapshotOptions, useSaveConfig } from '@/lib/session';
 import type {
   AppConfig,
   AsrMode,
+  AudioSourceKind,
   Capabilities,
   ConfigView,
   TranslationEngineId,
@@ -95,6 +96,17 @@ export function ConfigForm({
     capabilities.translationEngines.find((engine) => engine.id === formConfig.translation.engine) ??
     null;
   const selectedModel = readiness.selectedAsr;
+  const liveKind = formConfig.audio.live.kind;
+  const liveDevices = capabilities.audio.devices.filter((device) => device.kind === liveKind);
+  const defaultDeviceRef =
+    liveKind === 'systemOutput'
+      ? capabilities.audio.defaultSystemOutput
+      : capabilities.audio.defaultMicrophone;
+  const defaultDevice = defaultDeviceRef
+    ? capabilities.audio.devices.find(
+        (device) => audioDeviceKey(device) === audioDeviceKey(defaultDeviceRef),
+      )
+    : undefined;
   let isLocked = false;
   const status = snapshot?.status;
   if (status) {
@@ -171,6 +183,13 @@ export function ConfigForm({
     if (model) form.setFieldValue('translation.modelId', model.id);
   }
 
+  function handleAudioSourceChange(value: string) {
+    let kind: AudioSourceKind = 'systemOutput';
+    if (value === 'microphone') kind = 'microphone';
+    form.setFieldValue('audio.live.kind', kind);
+    form.setFieldValue('audio.live.deviceId', null);
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <form
@@ -244,34 +263,80 @@ export function ConfigForm({
 
           <SettingsSection title={t(($) => $.config.audioSection)}>
             <SettingsList>
-              <form.Field name="audio.deviceId">
+              <form.Field name="audio.live.kind">
                 {(field) => {
-                  const selectedDevice = field.state.value ?? '__system_default__';
+                  return (
+                    <SettingsRow
+                      labelFor="audio-source"
+                      title={t(($) => $.config.audioSource)}
+                      description={`${t(($) => $.config.audioBackend, {
+                        backend: capabilities.audio.backend,
+                      })} ${t(($) => $.config.audioSourceHint, {
+                        platform: capabilities.audio.supportedPlatform,
+                      })}`}
+                    >
+                      <SettingSelect
+                        id="audio-source"
+                        value={field.state.value}
+                        disabled={isDisabled}
+                        onChange={handleAudioSourceChange}
+                      >
+                        <SelectItem
+                          value="systemOutput"
+                          disabled={!capabilities.audio.systemCapture}
+                        >
+                          {t(($) => $.config.systemOutput)}
+                        </SelectItem>
+                        <SelectItem
+                          value="microphone"
+                          disabled={!capabilities.audio.microphoneCapture}
+                        >
+                          {t(($) => $.config.microphone)}
+                        </SelectItem>
+                      </SettingSelect>
+                    </SettingsRow>
+                  );
+                }}
+              </form.Field>
+
+              <form.Field name="audio.live.deviceId">
+                {(field) => {
+                  const selectedDevice = field.state.value ?? '__default__';
+                  let defaultLabel: string = t(($) => $.config.noDefaultDevice);
+                  if (defaultDevice) {
+                    defaultLabel = defaultDevice.captureSupported
+                      ? t(($) => $.config.followDefaultDevice, {
+                          name: defaultDevice.name,
+                        })
+                      : `${defaultDevice.name} · ${t(($) => $.config.captureUnavailable)}`;
+                  }
                   return (
                     <SettingsRow
                       labelFor="audio-device"
-                      title={t(($) => $.config.audioOutput)}
-                      description={`${t(($) => $.config.audioBackend, {
-                        backend: capabilities.audio.backend,
-                      })} ${t(($) => $.config.audioHint, {
-                        platform: capabilities.audio.supportedPlatform,
-                      })}`}
+                      title={t(($) => $.config.audioDevice)}
+                      description={t(($) => $.config.audioDeviceHint)}
                     >
                       <SettingSelect
                         id="audio-device"
                         value={selectedDevice}
                         disabled={isDisabled}
                         onChange={(value) => {
-                          if (value === '__system_default__') field.handleChange(null);
+                          if (value === '__default__') field.handleChange(null);
                           else field.handleChange(value);
                         }}
                       >
-                        <SelectItem value="__system_default__">
-                          {t(($) => $.config.systemDefault)}
+                        <SelectItem value="__default__" disabled={!defaultDevice?.captureSupported}>
+                          {defaultLabel}
                         </SelectItem>
-                        {capabilities.audio.devices.map((device) => (
-                          <SelectItem key={device.id} value={device.id}>
+                        {liveDevices.map((device) => (
+                          <SelectItem
+                            key={audioDeviceKey(device)}
+                            value={device.id}
+                            disabled={!device.captureSupported}
+                          >
                             {device.name}
+                            {!device.captureSupported &&
+                              ` · ${t(($) => $.config.captureUnavailable)}`}
                           </SelectItem>
                         ))}
                       </SettingSelect>

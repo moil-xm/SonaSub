@@ -6,6 +6,7 @@ import type {
 
 export type ReadinessIssue =
   | 'unsupportedPlatform'
+  | 'audioDevice'
   | 'unknownAsrModel'
   | 'asrModel'
   | 'asrMode'

@@ -38,7 +38,6 @@ pub(super) fn run_event_loop(inner: Arc<RecordManagerInner>, events: Receiver<So
             SourceEvent::Finished {
                 record_id,
                 source_run_id,
-                device_id: _,
                 outcome,
                 ack,
             } => handle_source_finished(&inner, &record_id, &source_run_id, outcome, ack),
@@ -210,18 +209,18 @@ fn handle_source_finished(
             .runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let claimed_device_id = runtime
+        let claimed_device = runtime
             .records
             .get(record_id)
             .and_then(|record| record.active_sources.get(source_run_id))
-            .map(|source| source.source.device_id.clone());
-        if let Some(device_id) = &claimed_device_id {
+            .map(|source| source.source.device_ref());
+        if let Some(device) = &claimed_device {
             if runtime
                 .device_claims
-                .get(device_id)
+                .get(device)
                 .is_some_and(|owner| owner == record_id)
             {
-                runtime.device_claims.remove(device_id);
+                runtime.device_claims.remove(device);
             }
         }
         let Some(record) = runtime.records.get_mut(record_id) else {
@@ -302,7 +301,7 @@ fn handle_source_finished(
 fn aggregate_stats(record: &RecordRuntime) -> RecordStats {
     let mut aggregate = RecordStats {
         started_at_ms: record.started_at_ms.unwrap_or(0),
-        active_sources: record.summary.active_device_ids.len(),
+        active_sources: record.summary.active_devices.len(),
         ..RecordStats::default()
     };
     for stats in record.source_stats.values() {

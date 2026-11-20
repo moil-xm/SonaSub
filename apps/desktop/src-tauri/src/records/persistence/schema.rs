@@ -19,6 +19,7 @@ pub(super) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
         CREATE TABLE IF NOT EXISTS source_runs (
             id TEXT PRIMARY KEY,
             record_id TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+            device_kind TEXT NOT NULL DEFAULT 'systemOutput',
             device_id TEXT NOT NULL,
             device_name TEXT NOT NULL,
             elapsed_base_ms INTEGER NOT NULL DEFAULT 0,
@@ -34,6 +35,7 @@ pub(super) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
             id TEXT PRIMARY KEY,
             record_id TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
             source_run_id TEXT NOT NULL,
+            source_kind TEXT NOT NULL DEFAULT 'systemOutput',
             device_id TEXT NOT NULL,
             device_name TEXT NOT NULL,
             local_id INTEGER NOT NULL,
@@ -55,5 +57,37 @@ pub(super) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS subtitles_record_order
             ON subtitles(record_id, occurrence_ms, id);
         ",
-    )
+    )?;
+    ensure_column(
+        connection,
+        "source_runs",
+        "device_kind",
+        "TEXT NOT NULL DEFAULT 'systemOutput'",
+    )?;
+    ensure_column(
+        connection,
+        "subtitles",
+        "source_kind",
+        "TEXT NOT NULL DEFAULT 'systemOutput'",
+    )?;
+    Ok(())
+}
+
+fn ensure_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(());
+        }
+    }
+    connection.execute_batch(&format!(
+        "ALTER TABLE {table} ADD COLUMN {column} {definition}"
+    ))
 }
