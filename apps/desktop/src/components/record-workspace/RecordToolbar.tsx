@@ -29,6 +29,7 @@ import { LanguageName } from '@/components/session-config-form';
 import { getErrorMessage } from '@/lib/error';
 import {
   isRecordActiveState,
+  isRecordDeviceAvailable,
   useAddRecordDevice,
   useCreateRecord,
   useDeleteRecord,
@@ -61,6 +62,12 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
   const isPaused = summary.state === 'paused';
   const isEnded = summary.state === 'ended';
   const canDelete = !isActive;
+  const hasUnavailableSelectedDevice = config.audio.record.some((deviceRef) => {
+    const device = devices.find(
+      (candidate) => candidate.kind === deviceRef.kind && candidate.id === deviceRef.id,
+    );
+    return !isRecordDeviceAvailable(device, summary.id);
+  });
   const selectedAsr = capabilities.asrModels.find(
     (model) => model.id === config.recognition.modelId,
   );
@@ -150,7 +157,7 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
             {!isActive && !isEnded && (
               <Button
                 size="sm"
-                disabled={isActionPending}
+                disabled={isActionPending || hasUnavailableSelectedDevice}
                 onClick={() => action.mutate({ recordId: summary.id, action: startAction })}
               >
                 {isStartPending && <Icon icon={loaderCircleIcon} className="animate-spin" />}

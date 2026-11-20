@@ -48,7 +48,7 @@ pub fn run() {
             overlay::open_caption_overlay,
             overlay::close_caption_overlay,
             overlay::set_caption_overlay_locked,
-            overlay::caption_overlay_is_locked,
+            overlay::caption_overlay_lock_state,
             overlay::caption_overlay_binding,
             overlay::request_app_exit,
             records::list_records,

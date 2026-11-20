@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
 import lockOpenIcon from '@iconify-icons/lucide/lock-open';
 import monitorUpIcon from '@iconify-icons/lucide/monitor-up';
@@ -8,12 +7,9 @@ import { Button } from '@sonasub/ui/components/button';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useEffect, useState } from 'react';
 
-import {
-  CAPTION_OVERLAY_CLOSED_EVENT,
-  CAPTION_OVERLAY_OPEN_EVENT,
-  LOCK_EVENT,
-} from '@/lib/caption-overlay';
+import { LOCK_EVENT } from '@/lib/caption-overlay';
 import type { CaptionOverlayLockState } from '@/lib/caption-overlay';
 
 import type { FloatingCaptionButtonProps } from './FloatingCaptionButton.type';
@@ -21,7 +17,6 @@ import type { FloatingCaptionButtonProps } from './FloatingCaptionButton.type';
 export function FloatingCaptionButton({ recordId }: FloatingCaptionButtonProps) {
   const { t } = useTranslation();
   const [isLocked, setIsLocked] = useState(false);
-  const [isOpen, setIsOpen] = useState(true);
 
   useEffect(() => {
     let isDisposed = false;
@@ -32,14 +27,10 @@ export function FloatingCaptionButton({ recordId }: FloatingCaptionButtonProps) 
     }
     void listen<CaptionOverlayLockState>(LOCK_EVENT, ({ payload }) => {
       setIsLocked(payload.locked);
-      setIsOpen(!payload.locked);
     }).then(track);
-    void listen(CAPTION_OVERLAY_OPEN_EVENT, () => setIsOpen(true)).then(track);
-    void listen(CAPTION_OVERLAY_CLOSED_EVENT, () => setIsOpen(false)).then(track);
-    void invoke<boolean>('caption_overlay_is_locked')
-      .then((locked) => {
-        setIsLocked(locked);
-        setIsOpen(!locked);
+    void invoke<CaptionOverlayLockState>('caption_overlay_lock_state')
+      .then((state) => {
+        setIsLocked(state.locked);
       })
       .catch(() => undefined);
     return () => {
@@ -93,7 +84,6 @@ export function FloatingCaptionButton({ recordId }: FloatingCaptionButtonProps) 
         size="icon"
         title={t(($) => $.captions.floating.close)}
         aria-label={t(($) => $.captions.floating.close)}
-        disabled={!isOpen}
         onClick={() => void invoke('close_caption_overlay')}
       >
         <Icon icon={xIcon} />

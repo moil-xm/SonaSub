@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
 import captionsIcon from '@iconify-icons/lucide/captions';
 import lockIcon from '@iconify-icons/lucide/lock';
@@ -6,60 +5,42 @@ import xIcon from '@iconify-icons/lucide/x';
 import { useTranslation } from '@sonasub/i18n';
 import { Button } from '@sonasub/ui/components/button';
 import { useTheme } from '@sonasub/ui/theme';
-import { useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useQuery } from '@tanstack/react-query';
 
-import { BOUND_RECORD_EVENT, LOCK_EVENT, selectOverlaySegment } from '@/lib/caption-overlay';
-import type { CaptionOverlayBinding, CaptionOverlayLockState } from '@/lib/caption-overlay';
-import { recordSnapshotOptions, useRecordEvents } from '@/lib/records';
+import { TranslationBody } from '@/components/live-subtitles';
+import {
+  selectOverlaySegment,
+  useCaptionOverlayState,
+  useOverlayRecordEvents,
+} from '@/lib/caption-overlay';
+import { recordSnapshotOptions } from '@/lib/records';
 import { useCaptionTextSize } from '@/stores/app-preferences';
 
 export function FloatingCaptionCard() {
   const { t } = useTranslation();
   useTheme();
   useCaptionTextSize();
-  const [boundRecordId, setBoundRecordId] = useState<string | null>(null);
-  const [isLocked, setIsLocked] = useState(false);
-  useRecordEvents(boundRecordId ?? undefined);
-
-  useEffect(() => {
-    let isDisposed = false;
-    const unlisteners: UnlistenFn[] = [];
-    function track(unlisten: UnlistenFn) {
-      if (isDisposed) unlisten();
-      else unlisteners.push(unlisten);
-    }
-    void listen<CaptionOverlayBinding>(BOUND_RECORD_EVENT, ({ payload }) => {
-      setBoundRecordId(payload.recordId);
-    }).then(track);
-    void listen<CaptionOverlayLockState>(LOCK_EVENT, ({ payload }) => {
-      setIsLocked(payload.locked);
-    }).then(track);
-    void invoke<string | null>('caption_overlay_binding')
-      .then((recordId) => {
-        setBoundRecordId(recordId);
-      })
-      .catch(() => undefined);
-    void invoke<boolean>('caption_overlay_is_locked')
-      .then(setIsLocked)
-      .catch(() => undefined);
-    return () => {
-      isDisposed = true;
-      for (const unlisten of unlisteners) unlisten();
-    };
-  }, []);
+  const { boundRecordId, isLocked } = useCaptionOverlayState();
+  useOverlayRecordEvents(boundRecordId);
 
   const snapshotQuery = useQuery({
     ...recordSnapshotOptions(boundRecordId ?? '__none__'),
     enabled: boundRecordId !== null,
+    refetchOnWindowFocus: false,
   });
   const snapshot = snapshotQuery.data;
   const segment = snapshot ? selectOverlaySegment(snapshot) : null;
-  const translation = segment?.translation;
   const isUnavailable =
     snapshotQuery.error !== null || (snapshotQuery.data === undefined && !snapshotQuery.isPending);
+  const status = snapshot?.summary.state;
+  let statusLabel: string | null = null;
+  if (status === 'paused') statusLabel = t(($) => $.captions.floating.paused);
+  if (status === 'ended') statusLabel = t(($) => $.captions.floating.ended);
+  if (status === 'failed') statusLabel = t(($) => $.captions.floating.failed);
+  if (status === 'waitingForDevice') statusLabel = t(($) => $.captions.floating.waitingForDevice);
+  if (status === 'notStarted') statusLabel = t(($) => $.captions.floating.notStarted);
+  if (status === 'starting') statusLabel = t(($) => $.captions.floating.starting);
 
   return (
     <main
@@ -101,7 +82,10 @@ export function FloatingCaptionCard() {
           </div>
         )}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        {statusLabel && (
+          <p className="mb-2 text-[10px] font-medium text-muted-foreground">{statusLabel}</p>
+        )}
         {isUnavailable && (
           <p className="text-sm text-muted-foreground">
             {t(($) => $.captions.floating.recordUnavailable)}
@@ -113,21 +97,7 @@ export function FloatingCaptionCard() {
         {!isUnavailable && segment && (
           <div className="space-y-2">
             <p className="caption-source break-words">{segment.text}</p>
-            {translation?.status === 'ready' && translation.text && (
-              <p className="caption-translation break-words text-foreground/80">
-                {translation.text}
-              </p>
-            )}
-            {translation?.status === 'pending' && (
-              <p className="text-xs text-muted-foreground">
-                {t(($) => $.captions.translation.pending)}
-              </p>
-            )}
-            {translation?.status === 'stale' && (
-              <p className="text-xs text-muted-foreground">
-                {t(($) => $.captions.translation.stale)}
-              </p>
-            )}
+            <TranslationBody segment={segment} />
           </div>
         )}
       </div>

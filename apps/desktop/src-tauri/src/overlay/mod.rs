@@ -48,15 +48,49 @@ pub struct OverlayState {
 
 #[derive(Debug, Default)]
 struct ExitCleanupGuard {
-    exit_requested: AtomicBool,
+    was_requested: AtomicBool,
 }
 
 impl ExitCleanupGuard {
     fn run_once<F: FnOnce()>(&self, cleanup: F) {
-        if !self.exit_requested.swap(true, Ordering::AcqRel) {
+        if !self.was_requested.swap(true, Ordering::AcqRel) {
             cleanup();
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct OverlayRuntimeSnapshot {
+    bound_record_id: Option<String>,
+    is_open: bool,
+    is_locked: bool,
+}
+
+impl OverlayRuntimeSnapshot {
+    fn lock_state(&self) -> CaptionOverlayLockState {
+        CaptionOverlayLockState {
+            locked: self.is_locked,
+            is_open: self.is_open,
+        }
+    }
+}
+
+fn read_runtime(runtime: &Arc<Mutex<OverlayRuntime>>) -> Result<OverlayRuntimeSnapshot, String> {
+    let state = runtime.lock().map_err(|error| error.to_string())?;
+    Ok(OverlayRuntimeSnapshot {
+        bound_record_id: state.bound_record_id.clone(),
+        is_open: state.is_open,
+        is_locked: state.is_locked,
+    })
+}
+
+fn update_runtime<F>(runtime: &Arc<Mutex<OverlayRuntime>>, update: F) -> Result<(), String>
+where
+    F: FnOnce(&mut OverlayRuntime),
+{
+    let mut state = runtime.lock().map_err(|error| error.to_string())?;
+    update(&mut state);
+    Ok(())
 }
 
 impl OverlayState {
@@ -138,17 +172,10 @@ impl OverlayState {
     }
 }
 
-fn overlay_runtime(app: &AppHandle) -> tauri::Result<Arc<Mutex<OverlayRuntime>>> {
+fn overlay_runtime(app: &AppHandle) -> Result<Arc<Mutex<OverlayRuntime>>, String> {
     app.try_state::<OverlayState>()
         .map(|state| state.inner().runtime.clone())
-        .ok_or_else(|| {
-            tauri::Error::Anyhow(
-                tauri::Error::from(std::io::Error::other(
-                    "Caption overlay runtime is not initialized.",
-                ))
-                .into(),
-            )
-        })
+        .ok_or_else(|| "Caption overlay runtime is not initialized.".to_owned())
 }
 
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
@@ -158,13 +185,12 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
 #[tauri::command]
 pub fn open_caption_overlay(app: AppHandle, record_id: String) -> Result<(), String> {
-    let runtime = overlay_runtime(&app).map_err(|error| error.to_string())?;
-    {
-        let mut state = runtime.lock().map_err(|error| error.to_string())?;
+    let runtime = overlay_runtime(&app)?;
+    update_runtime(&runtime, |state| {
         state.bound_record_id = Some(record_id.clone());
         state.is_open = true;
         state.is_locked = false;
-    }
+    })?;
 
     if let Some(window) = app.get_webview_window(CAPTION_OVERLAY_LABEL) {
         apply_lock_state(&app, false)?;
@@ -201,20 +227,18 @@ pub fn open_caption_overlay(app: AppHandle, record_id: String) -> Result<(), Str
 
 #[tauri::command]
 pub fn close_caption_overlay(app: AppHandle) -> Result<(), String> {
-    let runtime = overlay_runtime(&app).map_err(|error| error.to_string())?;
-    {
-        let mut state = runtime.lock().map_err(|error| error.to_string())?;
+    let runtime = overlay_runtime(&app)?;
+    update_runtime(&runtime, |state| {
         state.is_open = false;
         state.is_locked = false;
         state.bound_record_id = None;
+    })?;
+    if let Some(window) = app.get_webview_window(CAPTION_OVERLAY_LABEL) {
+        window
+            .set_ignore_cursor_events(false)
+            .map_err(|error| error.to_string())?;
+        window.destroy().map_err(|error| error.to_string())?;
     }
-    let window = app
-        .get_webview_window(CAPTION_OVERLAY_LABEL)
-        .ok_or_else(|| "The caption overlay is not open.".to_owned())?;
-    window
-        .set_ignore_cursor_events(false)
-        .map_err(|error| error.to_string())?;
-    window.destroy().map_err(|error| error.to_string())?;
     emit_lock_state(&app)?;
     app.emit(CLOSED_EVENT, ())
         .map_err(|error| error.to_string())
@@ -222,29 +246,26 @@ pub fn close_caption_overlay(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn set_caption_overlay_locked(app: AppHandle, locked: bool) -> Result<(), String> {
-    let runtime = overlay_runtime(&app).map_err(|error| error.to_string())?;
-    {
-        let mut state = runtime.lock().map_err(|error| error.to_string())?;
-        if !state.is_open && locked {
-            return Err("The caption overlay is not open.".to_owned());
-        }
-        state.is_locked = locked;
+    let runtime = overlay_runtime(&app)?;
+    if locked && !read_runtime(&runtime)?.is_open {
+        return Err("The caption overlay is not open.".to_owned());
     }
+    update_runtime(&runtime, |state| {
+        state.is_locked = locked;
+    })?;
     apply_lock_state(&app, locked)
 }
 
 #[tauri::command]
-pub fn caption_overlay_is_locked(app: AppHandle) -> Result<bool, String> {
-    let runtime = overlay_runtime(&app).map_err(|error| error.to_string())?;
-    let state = runtime.lock().map_err(|error| error.to_string())?;
-    Ok(state.is_locked)
+pub fn caption_overlay_lock_state(app: AppHandle) -> Result<CaptionOverlayLockState, String> {
+    let runtime = overlay_runtime(&app)?;
+    Ok(read_runtime(&runtime)?.lock_state())
 }
 
 #[tauri::command]
 pub fn caption_overlay_binding(app: AppHandle) -> Result<Option<String>, String> {
-    let runtime = overlay_runtime(&app).map_err(|error| error.to_string())?;
-    let state = runtime.lock().map_err(|error| error.to_string())?;
-    Ok(state.bound_record_id.clone())
+    let runtime = overlay_runtime(&app)?;
+    Ok(read_runtime(&runtime)?.bound_record_id)
 }
 
 #[tauri::command]
@@ -272,26 +293,22 @@ fn update_runtime_on_destroyed(app: &AppHandle) {
     let Ok(runtime) = overlay_runtime(app) else {
         return;
     };
-    if let Ok(mut state) = runtime.lock() {
-        if state.is_open && app.get_webview_window(CAPTION_OVERLAY_LABEL).is_some() {
-            return;
-        }
+    let was_open = read_runtime(&runtime).is_ok_and(|state| state.is_open);
+    if was_open && app.get_webview_window(CAPTION_OVERLAY_LABEL).is_some() {
+        return;
+    }
+    let _ = update_runtime(&runtime, |state| {
         state.is_open = false;
         state.is_locked = false;
         state.bound_record_id = None;
-    }
+    });
     let _ = emit_lock_state(app);
     let _ = app.emit(CLOSED_EVENT, ());
 }
 
 fn emit_lock_state(app: &AppHandle) -> Result<(), String> {
-    let runtime = overlay_runtime(app).map_err(|error| error.to_string())?;
-    let state = runtime.lock().map_err(|error| error.to_string())?;
-    let lock_state = CaptionOverlayLockState {
-        locked: state.is_locked,
-        is_open: state.is_open,
-    };
-    drop(state);
+    let runtime = overlay_runtime(app)?;
+    let lock_state = read_runtime(&runtime)?.lock_state();
     app.emit(LOCK_EVENT, lock_state)
         .map_err(|error| error.to_string())
 }

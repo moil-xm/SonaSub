@@ -30,7 +30,9 @@ function renderButton() {
 describe('FloatingCaptionButton', () => {
   it('opens the overlay for the selected record', () => {
     invoke.mockImplementation((command: string) => {
-      if (command === 'caption_overlay_is_locked') return Promise.resolve(false);
+      if (command === 'caption_overlay_lock_state') {
+        return Promise.resolve({ locked: false, isOpen: false });
+      }
       return Promise.resolve(undefined);
     });
     renderButton();
@@ -42,7 +44,9 @@ describe('FloatingCaptionButton', () => {
 
   it('unlocks the overlay from the main window', async () => {
     invoke.mockImplementation((command: string) => {
-      if (command === 'caption_overlay_is_locked') return Promise.resolve(true);
+      if (command === 'caption_overlay_lock_state') {
+        return Promise.resolve({ locked: true, isOpen: true });
+      }
       return Promise.resolve(undefined);
     });
     renderButton();
@@ -55,10 +59,13 @@ describe('FloatingCaptionButton', () => {
 
   it('closes the overlay without stopping capture', async () => {
     invoke.mockImplementation((command: string) => {
-      if (command === 'caption_overlay_is_locked') return Promise.resolve(false);
+      if (command === 'caption_overlay_lock_state') {
+        return Promise.resolve({ locked: false, isOpen: true });
+      }
       return Promise.resolve(undefined);
     });
     renderButton();
+    await screen.findByRole('button', { name: 'Open floating captions' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Close floating captions' }));
 

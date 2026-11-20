@@ -156,6 +156,12 @@ export const zhCn = {
       exit: '退出 SonaSub',
       waiting: '等待字幕',
       recordUnavailable: '绑定的会话已不可用。',
+      paused: '已暂停',
+      ended: '已结束',
+      failed: '失败',
+      waitingForDevice: '等待设备',
+      notStarted: '未开始',
+      starting: '启动中',
     },
   },
   records: {

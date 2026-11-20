@@ -8,9 +8,8 @@
     "allow-get-record",
     "allow-close-caption-overlay",
     "allow-set-caption-overlay-locked",
-    "allow-caption-overlay-is-locked",
+    "allow-caption-overlay-lock-state",
     "allow-caption-overlay-binding",
-    "core:window:allow-close",
     "core:window:allow-start-dragging"
   ]
 }

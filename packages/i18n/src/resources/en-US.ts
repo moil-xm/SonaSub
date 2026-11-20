@@ -160,6 +160,12 @@ export const enUs = {
       exit: 'Exit SonaSub',
       waiting: 'Waiting for subtitles',
       recordUnavailable: 'The bound session is no longer available.',
+      paused: 'Paused',
+      ended: 'Ended',
+      failed: 'Failed',
+      waitingForDevice: 'Waiting for device',
+      notStarted: 'Not started',
+      starting: 'Starting',
     },
   },
   records: {

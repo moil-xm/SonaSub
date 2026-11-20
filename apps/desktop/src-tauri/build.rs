@@ -20,7 +20,7 @@ fn main() {
             "open_caption_overlay",
             "close_caption_overlay",
             "set_caption_overlay_locked",
-            "caption_overlay_is_locked",
+            "caption_overlay_lock_state",
             "caption_overlay_binding",
             "request_app_exit",
             "list_records",

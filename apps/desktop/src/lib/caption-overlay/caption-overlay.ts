@@ -52,11 +52,11 @@ export function useCaptionOverlayState(): CaptionOverlayState {
     }).then(track);
     void Promise.all([
       invoke<string | null>('caption_overlay_binding'),
-      invoke<boolean>('caption_overlay_is_locked'),
+      invoke<CaptionOverlayLockState>('caption_overlay_lock_state'),
     ])
-      .then(([recordId, isLocked]) => {
+      .then(([recordId, lockState]) => {
         if (isDisposed) return;
-        setState({ boundRecordId: recordId, isLocked });
+        setState({ boundRecordId: recordId, isLocked: lockState.locked });
       })
       .catch(() => undefined);
     return () => {
@@ -72,7 +72,8 @@ export function useOverlayRecordEvents(recordId: string | null) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!recordId) return;
+    if (!recordId) return undefined;
+    const snapshotKey = recordId;
     let isDisposed = false;
     const unlisteners: UnlistenFn[] = [];
     function track(unlisten: UnlistenFn) {
@@ -82,7 +83,7 @@ export function useOverlayRecordEvents(recordId: string | null) {
 
     function updateSnapshot(updater: (current: RecordSnapshot) => RecordSnapshot) {
       queryClient.setQueryData<RecordSnapshot>(
-        recordSnapshotOptions(recordId).queryKey,
+        recordSnapshotOptions(snapshotKey).queryKey,
         (current) => {
           if (!current) return current;
           return updater(current);
@@ -92,7 +93,7 @@ export function useOverlayRecordEvents(recordId: string | null) {
 
     const listeners = [
       listen<RecordSummaryEvent>(RECORD_SUMMARY_EVENT, ({ payload }) => {
-        if (payload.recordId !== recordId) return;
+        if (payload.recordId !== snapshotKey) return;
         updateSnapshot((current) => {
           if (payload.revision < current.summaryRevision) return current;
           return {
@@ -103,18 +104,18 @@ export function useOverlayRecordEvents(recordId: string | null) {
         });
       }).then(track),
       listen<RecordSubtitleBatch>(RECORD_SUBTITLES_EVENT, ({ payload }) => {
-        if (payload.recordId !== recordId) return;
+        if (payload.recordId !== snapshotKey) return;
         updateSnapshot((current) => applyRecordSubtitleBatch(current, payload));
       }).then(track),
       listen<RecordStatsEvent>(RECORD_STATS_EVENT, ({ payload }) => {
-        if (payload.recordId !== recordId) return;
+        if (payload.recordId !== snapshotKey) return;
         updateSnapshot((current) => {
           if (payload.revision <= current.statsRevision) return current;
           return { ...current, stats: payload.stats, statsRevision: payload.revision };
         });
       }).then(track),
       listen<RecordNoticeEvent>(RECORD_NOTICE_EVENT, ({ payload }) => {
-        if (payload.recordId !== recordId) return;
+        if (payload.recordId !== snapshotKey) return;
         updateSnapshot((current) => ({
           ...current,
           notices: [...current.notices, payload.notice].slice(-100),
@@ -124,7 +125,7 @@ export function useOverlayRecordEvents(recordId: string | null) {
 
     void Promise.allSettled(listeners).then(() => {
       if (isDisposed) return;
-      void queryClient.invalidateQueries({ queryKey: recordSnapshotOptions(recordId).queryKey });
+      void queryClient.invalidateQueries({ queryKey: recordSnapshotOptions(snapshotKey).queryKey });
     });
 
     return () => {

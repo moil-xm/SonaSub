@@ -43,7 +43,7 @@ the Tauri commands and starts the live-session and record managers.
 - `subtitles/` owns stable segment IDs, revisions and independent text, speaker and
   translation patches.
 - `overlay/` owns the single caption overlay window, its bound record, lock and
-  tray lifecycle. The main window close request hides it; `request_app_exit` is
+  lifecycle. The main window close request hides it; `request_app_exit` is
   the explicit path that triggers native cleanup.
 
 ## Native Runtime
@@ -349,8 +349,8 @@ running → stopping/failed (stop, restart, app exit or pipeline failure)
 - App exit runs the same cleanup path. Models are reused for the session, not
   reloaded per segment.
 - Hiding the main window and closing the caption overlay leave capture workers
-  and record sources running. The tray and macOS Dock reopen restore the main
-  window; explicit app exit runs the same cleanup path.
+  and record sources running. The macOS Dock or Windows taskbar restores the
+  main window; explicit app exit runs the same cleanup path.
 - Workers are threads inside the desktop process. A native crash is not
   isolated from the UI; this boundary is shown in the session information.
 
@@ -366,9 +366,8 @@ Tauri commands:
 - `stop_session`
 - `restart_session`
 - `open_caption_overlay`, `close_caption_overlay`
-- `set_caption_overlay_locked`, `caption_overlay_is_locked`,
-  `caption_overlay_binding`
-- `request_app_exit`
+- `set_caption_overlay_locked`, `caption_overlay_lock_state`,
+  `caption_overlay_binding`, `request_app_exit`
 
 Record commands:
 
@@ -411,9 +410,9 @@ The overlay loads `overlay.html`, a second Vite entry with its own
 It binds to the record supplied when it opens, reads the snapshot after its
 listeners are attached, and applies subtitle patches by revision. Locking sets
 click-through and disables resizing; unlocking and closing the overlay are
-available from the main window or tray. The window is always on top and joins
-all workspaces for ordinary and borderless full-screen windows; macOS Spaces
-and exclusive full-screen games are OS-dependent.
+available from the main window. The window is always on top and joins all
+workspaces for ordinary and borderless full-screen windows; macOS Spaces and
+exclusive full-screen games are OS-dependent.
 
 React queries and mutations use `networkMode: 'always'` because this is local
 IPC, not network I/O. Event listeners are removed on unmount. Zustand remains

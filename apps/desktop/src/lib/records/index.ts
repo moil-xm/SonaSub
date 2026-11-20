@@ -1,6 +1,7 @@
 export {
   applyRecordSubtitleBatch,
   isRecordActiveState,
+  isRecordDeviceAvailable,
   mergeRecordSnapshot,
   recordDevicesOptions,
   recordSnapshotOptions,

@@ -338,6 +338,15 @@ export function isRecordActiveState(state: RecordState): boolean {
   return state === 'starting' || state === 'running' || state === 'waitingForDevice';
 }
 
+export function isRecordDeviceAvailable(
+  device: RecordDevice | undefined,
+  currentRecordId: string,
+): boolean {
+  if (!device?.captureSupported) return false;
+  if (device.isAvailable) return true;
+  return device.occupiedRecordId === currentRecordId;
+}
+
 function trimRecordSegments(segments: SubtitleSegment[], historyLimit: number): SubtitleSegment[] {
   if (historyLimit <= 0 || segments.length <= historyLimit) return segments;
   return segments.slice(segments.length - historyLimit);

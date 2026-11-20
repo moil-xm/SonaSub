@@ -25,7 +25,7 @@
     "allow-restart-session",
     "allow-open-caption-overlay",
     "allow-set-caption-overlay-locked",
-    "allow-caption-overlay-is-locked",
+    "allow-caption-overlay-lock-state",
     "allow-request-app-exit",
     "allow-list-records",
     "allow-list-record-devices",

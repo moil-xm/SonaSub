@@ -7,7 +7,7 @@ import { Button } from '@sonasub/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@sonasub/ui/components/popover';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 
-import { recordDevicesOptions } from '@/lib/records';
+import { isRecordDeviceAvailable, recordDevicesOptions } from '@/lib/records';
 import type { RecordDevice } from '@/lib/records';
 import { audioDeviceKey } from '@/lib/session';
 import type { AudioDeviceRef, AudioSourceKind } from '@/lib/session';
@@ -25,6 +25,11 @@ type RecordDevicePickerProps = {
 function statusDotClass(isActive: boolean) {
   if (isActive) return 'bg-success';
   return 'bg-muted-foreground/45';
+}
+
+function deviceStatusDotClass(isOccupied: boolean, isActive: boolean) {
+  if (isOccupied) return 'bg-destructive';
+  return statusDotClass(isActive);
 }
 
 export function RecordDevicePicker({
@@ -67,7 +72,11 @@ export function RecordDevicePicker({
   }
 
   function occupiedByCurrent(device: RecordDevice) {
-    return currentRecordId !== undefined && device.occupiedRecordId === currentRecordId;
+    return (
+      currentRecordId !== undefined &&
+      !device.isAvailable &&
+      isRecordDeviceAvailable(device, currentRecordId)
+    );
   }
 
   function deviceStatus(device: RecordDevice) {
@@ -89,16 +98,27 @@ export function RecordDevicePicker({
     <div className="flex flex-wrap items-center gap-1.5">
       {selected.map((deviceRef) => {
         const key = audioDeviceKey(deviceRef);
+        const device = findDevice(deviceRef);
+        const isOccupied =
+          device !== undefined && !isRecordDeviceAvailable(device, currentRecordId ?? '');
+        const statusDot = deviceStatusDotClass(isOccupied, activeKeys.has(key));
         return (
           <span
             key={key}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs font-medium"
           >
-            <span className={`size-[7px] rounded-full ${statusDotClass(activeKeys.has(key))}`} />
+            <span className={`size-[7px] rounded-full ${statusDot}`} />
             <span className="max-w-[220px] truncate">{deviceName(deviceRef)}</span>
             <span className="text-[10px] font-normal text-muted-foreground">
               {deviceKindLabel(deviceRef.kind)}
             </span>
+            {isOccupied && (
+              <span
+                role="img"
+                aria-label={device ? deviceStatus(device) : t(($) => $.records.device.available)}
+                className="size-[7px] shrink-0 rounded-full bg-destructive"
+              />
+            )}
             {!disabled && (
               <button
                 type="button"
@@ -163,8 +183,7 @@ export function RecordDevicePicker({
                       {group.devices.map((device) => {
                         const isOccupied = !device.isAvailable && !occupiedByCurrent(device);
                         const isDisabled = !device.captureSupported || isOccupied;
-                        let statusDot = 'bg-muted-foreground/45';
-                        if (device.captureSupported && !isOccupied) statusDot = 'bg-success';
+                        const statusDot = deviceStatusDotClass(isOccupied, device.captureSupported);
                         return (
                           <button
                             key={audioDeviceKey(device)}
@@ -173,9 +192,13 @@ export function RecordDevicePicker({
                             className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:bg-transparent"
                             onClick={() => onSelect({ kind: device.kind, id: device.id })}
                           >
-                            <span
-                              className={`mt-1.5 size-[7px] shrink-0 rounded-full ${statusDot}`}
-                            />
+                            {!isOccupied && (
+                              <span
+                                role="img"
+                                aria-label={deviceStatus(device)}
+                                className={`mt-1.5 size-[7px] shrink-0 rounded-full ${statusDot}`}
+                              />
+                            )}
                             <span className="min-w-0 flex-1">
                               <span className="block truncate font-medium">{device.name}</span>
                               <span className="block text-[10.5px] leading-4 text-muted-foreground">
@@ -186,6 +209,13 @@ export function RecordDevicePicker({
                               <span className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">
                                 {t(($) => $.records.device.defaultDevice)}
                               </span>
+                            )}
+                            {isOccupied && (
+                              <span
+                                role="img"
+                                aria-label={deviceStatus(device)}
+                                className="mt-1.5 size-[7px] shrink-0 rounded-full bg-destructive"
+                              />
                             )}
                           </button>
                         );

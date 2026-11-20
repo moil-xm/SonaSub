@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { AppConfig, SubtitleSegment } from '@/lib/session';
 
-import { applyRecordSubtitleBatch, sortRecordSegments } from '../records';
-import type { RecordSnapshot, RecordStats } from '../records.type';
+import { applyRecordSubtitleBatch, isRecordDeviceAvailable, sortRecordSegments } from '../records';
+import type { RecordDevice, RecordSnapshot, RecordStats } from '../records.type';
 
 const EMPTY_STATS: RecordStats = {
   startedAtMs: 0,
@@ -134,6 +134,50 @@ function snapshot(overrides: Partial<RecordSnapshot> = {}): RecordSnapshot {
     ...overrides,
   };
 }
+
+function recordDevice(overrides: Partial<RecordDevice> = {}): RecordDevice {
+  return {
+    kind: 'systemOutput',
+    id: 'device-a',
+    name: 'Device A',
+    isDefault: false,
+    captureSupported: true,
+    captureReason: null,
+    isAvailable: true,
+    occupiedRecordId: null,
+    occupiedRecordName: null,
+    ...overrides,
+  };
+}
+
+describe('record device availability', () => {
+  it('rejects a device occupied by another record', () => {
+    const device = recordDevice({
+      isAvailable: false,
+      occupiedRecordId: 'other-record',
+      occupiedRecordName: 'Other record',
+    });
+
+    expect(isRecordDeviceAvailable(device, 'current-record')).toBe(false);
+  });
+
+  it('accepts a device occupied by the current record', () => {
+    const device = recordDevice({
+      isAvailable: false,
+      occupiedRecordId: 'current-record',
+      occupiedRecordName: 'Current record',
+    });
+
+    expect(isRecordDeviceAvailable(device, 'current-record')).toBe(true);
+  });
+
+  it('rejects a device that is missing or cannot be captured', () => {
+    const unroutable = recordDevice({ captureSupported: false });
+
+    expect(isRecordDeviceAvailable(undefined, 'current-record')).toBe(false);
+    expect(isRecordDeviceAvailable(unroutable, 'current-record')).toBe(false);
+  });
+});
 
 describe('record subtitle cache', () => {
   it('keeps identical local ids from different source runs', () => {
