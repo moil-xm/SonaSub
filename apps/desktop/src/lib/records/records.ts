@@ -55,7 +55,7 @@ export function recordSnapshotOptions(recordId: string) {
   });
 }
 
-export function useRecordEvents() {
+export function useRecordEvents(snapshotKey?: string) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -68,13 +68,16 @@ export function useRecordEvents() {
     }
 
     function applySummary(event: RecordSummaryEvent) {
-      queryClient.setQueryData<RecordListItem[]>(recordsOptions.queryKey, (current) => {
-        if (!current) return current;
-        const item = listItem(event.summary);
-        const index = current.findIndex((record) => record.id === item.id);
-        if (index === -1) return [...current, item];
-        return current.map((record) => (record.id === item.id ? item : record));
-      });
+      if (snapshotKey && event.recordId !== snapshotKey) return;
+      if (!snapshotKey) {
+        queryClient.setQueryData<RecordListItem[]>(recordsOptions.queryKey, (current) => {
+          if (!current) return current;
+          const item = listItem(event.summary);
+          const index = current.findIndex((record) => record.id === item.id);
+          if (index === -1) return [...current, item];
+          return current.map((record) => (record.id === item.id ? item : record));
+        });
+      }
       queryClient.setQueryData<RecordSnapshot>(
         recordSnapshotOptions(event.recordId).queryKey,
         (current) => {
@@ -86,11 +89,14 @@ export function useRecordEvents() {
           };
         },
       );
-      void queryClient.invalidateQueries({ queryKey: recordsOptions.queryKey });
-      void queryClient.invalidateQueries({ queryKey: recordDevicesOptions.queryKey });
+      if (!snapshotKey) {
+        void queryClient.invalidateQueries({ queryKey: recordsOptions.queryKey });
+        void queryClient.invalidateQueries({ queryKey: recordDevicesOptions.queryKey });
+      }
     }
 
     function applySubtitles(batch: RecordSubtitleBatch) {
+      if (snapshotKey && batch.recordId !== snapshotKey) return;
       queryClient.setQueryData<RecordSnapshot>(
         recordSnapshotOptions(batch.recordId).queryKey,
         (current) => {
@@ -101,6 +107,7 @@ export function useRecordEvents() {
     }
 
     function applyStats(event: RecordStatsEvent) {
+      if (snapshotKey && event.recordId !== snapshotKey) return;
       queryClient.setQueryData<RecordSnapshot>(
         recordSnapshotOptions(event.recordId).queryKey,
         (current) => {
@@ -111,6 +118,7 @@ export function useRecordEvents() {
     }
 
     function applyNotice(event: RecordNoticeEvent) {
+      if (snapshotKey && event.recordId !== snapshotKey) return;
       queryClient.setQueryData<RecordSnapshot>(
         recordSnapshotOptions(event.recordId).queryKey,
         (current) => {
@@ -120,27 +128,38 @@ export function useRecordEvents() {
       );
     }
 
-    void listen<RecordSummaryEvent>('record://summary', ({ payload }) => {
-      applySummary(payload);
-    }).then(track);
-    void listen<RecordSubtitleBatch>('record://subtitles', ({ payload }) => {
-      applySubtitles(payload);
-    }).then(track);
-    void listen<RecordStatsEvent>('record://stats', ({ payload }) => {
-      applyStats(payload);
-    }).then(track);
-    void listen<RecordNoticeEvent>('record://notice', ({ payload }) => {
-      applyNotice(payload);
-    }).then(track);
+    const listeners = [
+      listen<RecordSummaryEvent>('record://summary', ({ payload }) => {
+        applySummary(payload);
+      }).then(track),
+      listen<RecordSubtitleBatch>('record://subtitles', ({ payload }) => {
+        applySubtitles(payload);
+      }).then(track),
+      listen<RecordStatsEvent>('record://stats', ({ payload }) => {
+        applyStats(payload);
+      }).then(track),
+      listen<RecordNoticeEvent>('record://notice', ({ payload }) => {
+        applyNotice(payload);
+      }).then(track),
+    ];
 
-    void queryClient.invalidateQueries({ queryKey: recordsOptions.queryKey });
-    void queryClient.invalidateQueries({ queryKey: recordDevicesOptions.queryKey });
+    void Promise.allSettled(listeners).then(() => {
+      if (isDisposed) return;
+      if (snapshotKey) {
+        void queryClient.invalidateQueries({
+          queryKey: recordSnapshotOptions(snapshotKey).queryKey,
+        });
+        return;
+      }
+      void queryClient.invalidateQueries({ queryKey: recordsOptions.queryKey });
+      void queryClient.invalidateQueries({ queryKey: recordDevicesOptions.queryKey });
+    });
 
     return () => {
       isDisposed = true;
       for (const unlisten of unlisteners) unlisten();
     };
-  }, [queryClient]);
+  }, [queryClient, snapshotKey]);
 }
 
 export function useRecordAction() {

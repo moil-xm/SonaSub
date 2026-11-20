@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Default app-shell permissions plus local caption session commands.",
+  "identifier": "main",
+  "description": "Main window permissions for local caption sessions and overlay controls.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -23,6 +23,10 @@
     "allow-start-session",
     "allow-stop-session",
     "allow-restart-session",
+    "allow-open-caption-overlay",
+    "allow-set-caption-overlay-locked",
+    "allow-caption-overlay-is-locked",
+    "allow-request-app-exit",
     "allow-list-records",
     "allow-list-record-devices",
     "allow-get-record",

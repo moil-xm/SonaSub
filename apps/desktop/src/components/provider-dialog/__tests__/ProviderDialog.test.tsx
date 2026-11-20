@@ -32,7 +32,7 @@ describe('ProviderDialog', () => {
     fireEvent.change(screen.getByPlaceholderText('Add model ID...'), {
       target: { value: 'custom/model' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Add provider' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add model ID' }));
 
     expect(screen.getByText('custom/model')).toBeTruthy();
     expect(screen.getByText('1 models')).toBeTruthy();

@@ -131,6 +131,13 @@ function config(): AppConfig {
   };
 }
 
+const provider = {
+  name: 'OpenAI',
+  baseUrl: 'https://api.openai.com/v1',
+  apiKey: '',
+  models: ['translation-model'],
+};
+
 describe('Qwen3 model readiness', () => {
   it('resolves auto to segmented and does not require native partials', () => {
     const result = assessModelReadiness(capabilities(qwenCapability()), config());
@@ -160,7 +167,7 @@ describe('Qwen3 model readiness', () => {
     value.translation.engine = 'openai-compatible';
     value.translation.targetLanguage = 'ja';
     value.translation.openaiCompatible.model = 'translation-model';
-    const result = assessModelReadiness(capabilities(qwenCapability()), value);
+    const result = assessModelReadiness(capabilities(qwenCapability()), value, [provider]);
     expect(result.canStart).toBe(true);
     expect(result.issues).toEqual([]);
   });
@@ -172,7 +179,7 @@ describe('Qwen3 model readiness', () => {
     value.translation.openaiCompatible.model = 'translation-model';
     const capabilitiesWithMissingBergamot = capabilities(qwenCapability());
     capabilitiesWithMissingBergamot.translationModels[0]!.available = false;
-    const result = assessModelReadiness(capabilitiesWithMissingBergamot, value);
+    const result = assessModelReadiness(capabilitiesWithMissingBergamot, value, [provider]);
     expect(result.canStart).toBe(true);
     expect(result.issues).not.toContain('translationModel');
   });
@@ -183,7 +190,7 @@ describe('Qwen3 model readiness', () => {
     value.translation.targetLanguage = 'ja';
     value.translation.openaiCompatible.model = 'translation-model';
     value.translation.openaiCompatible.baseUrl = 'api.openai.com/v1';
-    const result = assessModelReadiness(capabilities(qwenCapability()), value);
+    const result = assessModelReadiness(capabilities(qwenCapability()), value, [provider]);
     expect(result.canStart).toBe(false);
     expect(result.issues).toContain('translationConfig');
   });
@@ -192,7 +199,7 @@ describe('Qwen3 model readiness', () => {
     const value = config();
     value.translation.engine = 'openai-compatible';
     value.translation.targetLanguage = 'ja';
-    const result = assessModelReadiness(capabilities(qwenCapability()), value);
+    const result = assessModelReadiness(capabilities(qwenCapability()), value, [provider]);
     expect(result.canStart).toBe(false);
     expect(result.issues).toContain('translationConfig');
   });
@@ -211,5 +218,16 @@ describe('Qwen3 model readiness', () => {
     const result = assessModelReadiness(capabilities(qwenCapability()), value);
     expect(result.canStart).toBe(false);
     expect(result.issues).toContain('translationTarget');
+  });
+
+  it('requires the selected remote model to belong to a saved provider', () => {
+    const value = config();
+    value.translation.engine = 'openai-compatible';
+    value.translation.targetLanguage = 'ja';
+    value.translation.openaiCompatible.model = 'translation-model';
+    const result = assessModelReadiness(capabilities(qwenCapability()), value);
+
+    expect(result.canStart).toBe(false);
+    expect(result.issues).toContain('translationConfig');
   });
 });

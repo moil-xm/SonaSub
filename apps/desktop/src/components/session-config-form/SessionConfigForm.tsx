@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from '@sonasub/ui/components/aler
 import { useQuery } from '@tanstack/react-query';
 
 import { getErrorMessage } from '@/lib/error';
+import { providersOptions } from '@/lib/providers';
 import { sessionCapabilitiesOptions, sessionConfigOptions } from '@/lib/session';
 
 import { ConfigForm } from './ConfigForm';
@@ -13,6 +14,7 @@ export function SessionConfigForm() {
   const { t } = useTranslation();
   const { data: capabilities, error: capabilitiesError } = useQuery(sessionCapabilitiesOptions);
   const { data: configView, error: configError } = useQuery(sessionConfigOptions);
+  const { data: providersView } = useQuery(providersOptions);
 
   const isInitialLoading = (!capabilities && !capabilitiesError) || (!configView && !configError);
   if (isInitialLoading) {
@@ -52,6 +54,7 @@ export function SessionConfigForm() {
       configView={configView}
       configError={configError}
       capabilitiesError={capabilitiesError}
+      providers={providersView?.providers ?? []}
     />
   );
 }

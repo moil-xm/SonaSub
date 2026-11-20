@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "caption-overlay",
+  "description": "Read-only caption rendering and overlay lock controls.",
+  "windows": ["caption-overlay"],
+  "permissions": [
+    "core:default",
+    "allow-get-record",
+    "allow-close-caption-overlay",
+    "allow-set-caption-overlay-locked",
+    "allow-caption-overlay-is-locked",
+    "allow-caption-overlay-binding",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging"
+  ]
+}

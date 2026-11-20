@@ -89,7 +89,7 @@ export function OverviewPage() {
           <Button className="mt-4" size="sm" asChild>
             <Link to="/records/new">
               <Icon icon={plusIcon} />
-              {t(($) => $.records.workspace.createRecord)}
+              {t(($) => $.records.workspace.createSession)}
             </Link>
           </Button>
         </div>
@@ -109,7 +109,7 @@ export function OverviewPage() {
           <Button className="mt-4" size="sm" asChild>
             <Link to="/records/new">
               <Icon icon={plusIcon} />
-              {t(($) => $.records.workspace.createRecord)}
+              {t(($) => $.records.workspace.createSession)}
             </Link>
           </Button>
         </div>

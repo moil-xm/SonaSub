@@ -22,12 +22,13 @@ import { Input } from '@sonasub/ui/components/input';
 import { SelectItem } from '@sonasub/ui/components/select';
 import { Switch } from '@sonasub/ui/components/switch';
 import { useQuery } from '@tanstack/react-query';
-import { useBlocker } from '@tanstack/react-router';
+import { Link, useBlocker } from '@tanstack/react-router';
 
 import { ReadinessIssues } from '@/components/readiness-issues';
 import { SettingsList, SettingsRow, SettingsSection } from '@/components/settings-section';
 import { getErrorMessage } from '@/lib/error';
 import { assessModelReadiness } from '@/lib/model-readiness';
+import type { ProviderConfig } from '@/lib/providers';
 import { audioDeviceKey, sessionSnapshotOptions, useSaveConfig } from '@/lib/session';
 import type {
   AppConfig,
@@ -39,6 +40,14 @@ import type {
   TranslationMode,
   TranslationTrigger,
 } from '@/lib/session';
+import {
+  findTranslationModelChoice,
+  listTranslationModelChoices,
+  LOCAL_TRANSLATION_MODEL_PREFIX,
+  normalizeTranslationConfig,
+  selectedTranslationModelId,
+  translationChoiceLabel,
+} from '@/lib/translation-models';
 
 import { LanguageName } from './LanguageName';
 import { SettingSelect } from './SettingSelect';
@@ -69,6 +78,7 @@ type ConfigFormProps = {
   configView: ConfigView;
   configError: Error | null;
   capabilitiesError: Error | null;
+  providers: ProviderConfig[];
 };
 
 export function ConfigForm({
@@ -76,25 +86,32 @@ export function ConfigForm({
   configView,
   configError,
   capabilitiesError,
+  providers,
 }: ConfigFormProps) {
   const { t } = useTranslation();
   const { data: snapshot } = useQuery(sessionSnapshotOptions);
   const saveConfig = useSaveConfig();
+  const translationChoices = listTranslationModelChoices(capabilities, providers);
   const form = useForm({
-    defaultValues: configView.config,
+    defaultValues: normalizeTranslationConfig(configView.config, capabilities, translationChoices),
     onSubmit: async ({ value }) => {
       const saved = await saveConfig.mutateAsync(value);
-      form.reset(saved.config);
+      form.reset(normalizeTranslationConfig(saved.config, capabilities, translationChoices));
     },
   });
   const isDirty = useStore(form.store, (state) => state.isDirty);
   const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
   const speakers = useStore(form.store, (state) => state.values.speakers);
   const formConfig: AppConfig = useStore(form.store, (state) => state.values);
-  const readiness = assessModelReadiness(capabilities, formConfig);
-  const selectedTranslationEngine =
-    capabilities.translationEngines.find((engine) => engine.id === formConfig.translation.engine) ??
-    null;
+  const readiness = assessModelReadiness(capabilities, formConfig, providers);
+  const remoteTranslationEngine = capabilities.translationEngines.find(
+    (engine) => engine.id === 'openai-compatible',
+  );
+  const selectedTranslationChoice = findTranslationModelChoice(
+    translationChoices,
+    formConfig.translation,
+  );
+  const selectedTranslationChoiceId = selectedTranslationModelId(formConfig.translation);
   const selectedModel = readiness.selectedAsr;
   const liveKind = formConfig.audio.live.kind;
   const liveDevices = capabilities.audio.devices.filter((device) => device.kind === liveKind);
@@ -142,45 +159,46 @@ export function ConfigForm({
       files: missingTranslation.join(', '),
     })}`;
   }
-  if (selectedTranslationEngine && !selectedTranslationEngine.requiresLocalModel) {
+  if (selectedTranslationChoice && !selectedTranslationChoice.isLocal) {
     targetLanguageDescription = `${targetLanguageDescription} ${t(
       ($) => $.config.remoteTargetLanguageHint,
     )}`;
-  } else if (selectedTranslationEngine?.requiresLocalModel) {
+  } else if (selectedTranslationChoice?.isLocal) {
     targetLanguageDescription = `${targetLanguageDescription} ${t(
       ($) => $.config.localTargetLanguageHint,
     )}`;
   }
 
-  function handleTranslationEngineChange(value: string) {
-    const engine = capabilities.translationEngines.find((candidate) => candidate.id === value);
-    if (!engine) return;
-    form.setFieldValue('translation.engine', engine.id satisfies TranslationEngineId);
-    let targetLanguage = form.state.values.translation.targetLanguage;
-    if (!engine.targetLanguages.includes(targetLanguage)) {
-      const fallback = capabilities.translationTargets.find((language) =>
-        engine.targetLanguages.includes(language.code),
-      );
-      if (fallback) {
-        targetLanguage = fallback.code;
-        form.setFieldValue('translation.targetLanguage', fallback.code);
-      }
-    }
-    if (engine.id === 'bergamot') {
+  function handleTranslationModelChange(value: string) {
+    const choice = translationChoices.find((candidate) => candidate.id === value);
+    if (!choice) return;
+    if (choice.isLocal) {
+      const localModelId = choice.id.slice(LOCAL_TRANSLATION_MODEL_PREFIX.length);
+      form.setFieldValue('translation.engine', 'bergamot' satisfies TranslationEngineId);
+      form.setFieldValue('translation.modelId', localModelId);
       const model = capabilities.translationModels.find(
-        (candidate) => candidate.targetLanguage === targetLanguage,
+        (candidate) => candidate.id === localModelId,
       );
-      if (model) form.setFieldValue('translation.modelId', model.id);
+      if (model) form.setFieldValue('translation.targetLanguage', model.targetLanguage);
+      return;
     }
+    form.setFieldValue('translation.engine', 'openai-compatible' satisfies TranslationEngineId);
+    form.setFieldValue('translation.openaiCompatible.baseUrl', choice.baseUrl);
+    form.setFieldValue('translation.openaiCompatible.model', choice.model);
+    form.setFieldValue('translation.openaiCompatible.apiKey', choice.apiKey);
   }
 
   function handleTargetLanguageChange(value: string) {
     form.setFieldValue('translation.targetLanguage', value);
-    if (formConfig.translation.engine !== 'bergamot') return;
-    const model = capabilities.translationModels.find(
-      (candidate) => candidate.targetLanguage === value,
+    if (!selectedTranslationChoice?.isLocal) return;
+    const localModel = capabilities.translationModels.find(
+      (model) => model.id === formConfig.translation.modelId,
     );
-    if (model) form.setFieldValue('translation.modelId', model.id);
+    if (!localModel || localModel.targetLanguage === value) return;
+    const matchingModel = capabilities.translationModels.find(
+      (model) => model.targetLanguage === value,
+    );
+    if (matchingModel) form.setFieldValue('translation.modelId', matchingModel.id);
   }
 
   function handleAudioSourceChange(value: string) {
@@ -469,25 +487,26 @@ export function ConfigForm({
 
           <SettingsSection title={t(($) => $.config.translationSection)}>
             <SettingsList>
-              <form.Field name="translation.engine">
-                {(field) => (
+              <form.Field name="translation.modelId">
+                {() => (
                   <SettingsRow
-                    labelFor="translation-engine"
-                    title={t(($) => $.config.translationEngine)}
-                    description={t(($) => $.config.translationEngineHint)}
+                    labelFor="translation-model"
+                    title={t(($) => $.config.translationModel)}
+                    description={t(($) => $.config.translationModelHint)}
                   >
                     <SettingSelect
-                      id="translation-engine"
-                      value={field.state.value}
+                      id="translation-model"
+                      value={selectedTranslationChoiceId}
                       disabled={isDisabled}
-                      onChange={handleTranslationEngineChange}
+                      onChange={handleTranslationModelChange}
                     >
-                      {capabilities.translationEngines.map((engine) => (
-                        <SelectItem key={engine.id} value={engine.id}>
-                          {engine.id === 'bergamot' &&
-                            t(($) => $.config.translationEngines.bergamot)}
-                          {engine.id === 'openai-compatible' &&
-                            t(($) => $.config.translationEngines.openAiCompatible)}
+                      {translationChoices.map((choice) => (
+                        <SelectItem
+                          key={choice.id}
+                          value={choice.id}
+                          disabled={!choice.isAvailable}
+                        >
+                          {translationChoiceLabel(choice)}
                         </SelectItem>
                       ))}
                     </SettingSelect>
@@ -513,7 +532,9 @@ export function ConfigForm({
                           key={language.code}
                           value={language.code}
                           disabled={
-                            !selectedTranslationEngine?.targetLanguages.includes(language.code)
+                            capabilities.translationEngines
+                              .find((engine) => engine.id === formConfig.translation.engine)
+                              ?.targetLanguages.includes(language.code) !== true
                           }
                         >
                           <LanguageName code={language.code} />
@@ -524,77 +545,25 @@ export function ConfigForm({
                 )}
               </form.Field>
 
-              {selectedTranslationEngine?.id === 'openai-compatible' && (
-                <>
-                  <form.Field name="translation.openaiCompatible.baseUrl">
-                    {(field) => (
-                      <SettingsRow
-                        labelFor="translation-base-url"
-                        title={t(($) => $.config.baseUrl)}
-                        description={t(($) => $.config.baseUrlHint)}
-                      >
-                        <Input
-                          id="translation-base-url"
-                          type="url"
-                          value={field.state.value}
-                          disabled={isDisabled}
-                          placeholder="https://api.openai.com/v1"
-                          className="w-full text-right md:w-[320px]"
-                          onChange={(event) => field.handleChange(event.currentTarget.value)}
-                        />
-                      </SettingsRow>
-                    )}
-                  </form.Field>
-
-                  <form.Field name="translation.openaiCompatible.model">
-                    {(field) => (
-                      <SettingsRow
-                        labelFor="translation-model-name"
-                        title={t(($) => $.config.openAiModel)}
-                        description={t(($) => $.config.openAiModelHint)}
-                      >
-                        <Input
-                          id="translation-model-name"
-                          value={field.state.value}
-                          disabled={isDisabled}
-                          placeholder={t(($) => $.config.openAiModelPlaceholder)}
-                          className="w-full text-right md:w-[320px]"
-                          onChange={(event) => field.handleChange(event.currentTarget.value)}
-                        />
-                      </SettingsRow>
-                    )}
-                  </form.Field>
-
-                  <form.Field name="translation.openaiCompatible.apiKey">
-                    {(field) => (
-                      <SettingsRow
-                        labelFor="translation-api-key"
-                        title={t(($) => $.config.apiKey)}
-                        description={t(($) => $.config.apiKeyHint)}
-                      >
-                        <Input
-                          id="translation-api-key"
-                          type="password"
-                          autoComplete="off"
-                          value={field.state.value}
-                          disabled={isDisabled}
-                          className="w-full text-right md:w-[320px]"
-                          onChange={(event) => field.handleChange(event.currentTarget.value)}
-                        />
-                      </SettingsRow>
-                    )}
-                  </form.Field>
-                  <div className="px-4 py-3">
-                    <p className="text-[11px] leading-5 text-muted-foreground">
-                      {t(($) => $.config.remoteTranslationPrivacy)}
-                    </p>
-                  </div>
-                </>
+              {selectedTranslationChoice && !selectedTranslationChoice.isLocal && (
+                <div className="px-4 py-3">
+                  <p className="text-[11px] leading-5 text-muted-foreground">
+                    {t(($) => $.config.remoteTranslationPrivacy)}
+                  </p>
+                  <Button type="button" variant="link" size="sm" className="h-auto px-0" asChild>
+                    <Link to="/models/providers">{t(($) => $.config.manageProviders)}</Link>
+                  </Button>
+                </div>
               )}
 
               <form.Field name="translation.mode">
                 {(field) => {
-                  const modes = selectedTranslationEngine?.modes ?? [];
+                  const engine = selectedTranslationChoice?.isLocal
+                    ? capabilities.translationEngines.find(
+                        (candidate) => candidate.id === 'bergamot',
+                      )
+                    : remoteTranslationEngine;
+                  const modes = engine?.modes ?? [];
                   const selectedMode = modes.find((mode) => mode.mode === field.state.value);
                   let modeHint: string =
                     selectedMode?.reason ?? t(($) => $.config.translationModeHint);

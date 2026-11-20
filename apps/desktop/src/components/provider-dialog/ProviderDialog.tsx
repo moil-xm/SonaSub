@@ -176,7 +176,9 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
         <div className="flex h-12 items-center justify-between border-b px-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <Icon icon={plusIcon} className="size-4 text-primary" />
-            {t(($) => $.models.providers.dialogAdd)}
+            {provider
+              ? t(($) => $.models.providers.dialogEdit)
+              : t(($) => $.models.providers.dialogAdd)}
           </h2>
           <Button type="button" variant="ghost" size="icon" onClick={onClose}>
             <Icon icon={xIcon} />
@@ -323,7 +325,7 @@ export function ProviderDialog({ open, provider, onClose }: ProviderDialogProps)
                   setManualModel('');
                 }}
               >
-                {t(($) => $.models.providers.add)}
+                {t(($) => $.models.providers.addModel)}
               </Button>
               <Button
                 type="button"

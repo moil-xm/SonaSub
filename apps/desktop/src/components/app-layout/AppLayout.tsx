@@ -1,33 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import activityIcon from '@iconify-icons/lucide/activity';
 import captionsIcon from '@iconify-icons/lucide/captions';
 import moonIcon from '@iconify-icons/lucide/moon';
 import packageIcon from '@iconify-icons/lucide/package';
+import powerIcon from '@iconify-icons/lucide/power';
 import settingsIcon from '@iconify-icons/lucide/settings';
 import slidersHorizontalIcon from '@iconify-icons/lucide/sliders-horizontal';
 import sunIcon from '@iconify-icons/lucide/sun';
 import { useTranslation } from '@sonasub/i18n';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@sonasub/ui/components/alert-dialog';
 import { useTheme, useToggleTheme } from '@sonasub/ui/theme';
-import { isTauri } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
+import { useEffect, useState } from 'react';
 
 import { RecordNav } from '@/components/record-nav';
+import { CAPTION_OVERLAY_OPEN_EVENT, CAPTION_OVERLAY_CLOSED_EVENT } from '@/lib/caption-overlay';
 import { recordsOptions, useRecordEvents } from '@/lib/records';
 import { sessionSnapshotOptions, useSessionEvents } from '@/lib/session';
-import { useConfirmBeforeQuit } from '@/stores/app-preferences';
 
 function navigationItemClass(isActive: boolean) {
   if (isActive) {
@@ -55,13 +47,11 @@ export function AppLayout() {
   const searchRecord = location.search.record;
   let activeRecordId: string | null = null;
   if (typeof searchRecord === 'string') activeRecordId = searchRecord;
-  const { data: snapshot } = useQuery(sessionSnapshotOptions);
+  useQuery(sessionSnapshotOptions);
   const { data: records } = useQuery(recordsOptions);
   const theme = useTheme();
   const toggleTheme = useToggleTheme();
-  const confirmBeforeQuit = useConfirmBeforeQuit();
-  const [isQuitDialogOpen, setIsQuitDialogOpen] = useState(false);
-  const allowCloseRef = useRef(false);
+  const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   useSessionEvents();
   useRecordEvents();
 
@@ -105,11 +95,7 @@ export function AppLayout() {
     if (isEditRecordPage) pageLabel = t(($) => $.records.editor.editTitle);
   }
 
-  const statusState = snapshot?.status.state ?? 'idle';
-  const legacySessionActive =
-    statusState === 'running' || statusState === 'starting' || statusState === 'stopping';
   const activeRecords = records?.filter((record) => record.hasActiveSource) ?? [];
-  const isSessionActive = legacySessionActive || activeRecords.length > 0;
   let liveDotClass = 'bg-muted-foreground/45';
   if (activeRecords.length > 0) liveDotClass = 'bg-success';
   let themeToggleLabel: string = t(($) => $.theme.switchToDark);
@@ -121,36 +107,18 @@ export function AppLayout() {
 
   useEffect(() => {
     let isDisposed = false;
-    let unlisten: (() => void) | undefined;
-
-    if (confirmBeforeQuit && isSessionActive && isTauri()) {
-      void getCurrentWindow()
-        .onCloseRequested((event) => {
-          if (allowCloseRef.current) return;
-          event.preventDefault();
-          setIsQuitDialogOpen(true);
-        })
-        .then((dispose) => {
-          if (isDisposed) dispose();
-          else unlisten = dispose;
-        });
+    const unlisteners: UnlistenFn[] = [];
+    function track(unlisten: UnlistenFn) {
+      if (isDisposed) unlisten();
+      else unlisteners.push(unlisten);
     }
-
+    void listen(CAPTION_OVERLAY_OPEN_EVENT, () => setIsOverlayOpen(true)).then(track);
+    void listen(CAPTION_OVERLAY_CLOSED_EVENT, () => setIsOverlayOpen(false)).then(track);
     return () => {
       isDisposed = true;
-      unlisten?.();
+      for (const unlisten of unlisteners) unlisten();
     };
-  }, [confirmBeforeQuit, isSessionActive]);
-
-  function handleConfirmQuit() {
-    allowCloseRef.current = true;
-    setIsQuitDialogOpen(false);
-    void getCurrentWindow()
-      .close()
-      .catch(() => {
-        allowCloseRef.current = false;
-      });
-  }
+  }, []);
 
   return (
     <div className="app-shell flex h-screen overflow-hidden bg-background text-[13px] text-foreground">
@@ -279,6 +247,18 @@ export function AppLayout() {
           </div>
           <button
             type="button"
+            aria-label={t(($) => $.captions.floating.exit)}
+            title={t(($) => $.captions.floating.exit)}
+            className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => {
+              if (isOverlayOpen) void invoke('close_caption_overlay');
+              void invoke('request_app_exit');
+            }}
+          >
+            <Icon icon={powerIcon} className="size-4" />
+          </button>
+          <button
+            type="button"
             aria-label={themeToggleLabel}
             title={themeToggleLabel}
             className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -292,23 +272,6 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
-
-      <AlertDialog open={isQuitDialogOpen} onOpenChange={(isOpen) => setIsQuitDialogOpen(isOpen)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t(($) => $.settings.general.quitConfirmTitle)}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(($) => $.settings.general.quitConfirmPrompt)}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t(($) => $.settings.general.keepRunning)}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleConfirmQuit}>
-              {t(($) => $.settings.general.quitAndStop)}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

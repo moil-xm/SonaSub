@@ -151,10 +151,10 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
   时间轴；
 - ASR 模式（`auto` / `streaming` / `segmented`）、模型与源语言；
 - 最大分段长度、VAD 阈值、最小静音/语音时长、稳定等待时间；
-- 翻译引擎（`bergamot` / `openai-compatible`）、模式
+- 翻译模型（本地 Bergamot 方向或已配置供应商中的模型）、模式
   （`auto` / `streaming` / `text`）、触发策略
   （`finalOnly` / `stableSegment`）与目标语言；
-- OpenAI-Compatible 的 Base URL、远端模型与 API Key；
+- 大模型供应商（Base URL、API Key、可用模型与并发数）；
 - 说话人嵌入/Diarization、窗口长度、最大人数与匹配阈值；
 - 字幕历史上限。
 
@@ -163,14 +163,14 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
 会话运行期间锁定，下次启动或重启时生效。
 
 Bergamot 只开放两个固定方向（`en` 与 `zh-Hans` 目标），其余目标会在界面中
-禁用并需要切换到 OpenAI-Compatible。远端适配器接受 30 个已注册目标语言，
+禁用并需要选择供应商模型。远端适配器接受 30 个已注册目标语言，
 最终能力由远端模型决定。Base URL 必须是完整的 `http://` 或 `https://` 地址；
 末尾 `/` 和误填的 `/chat/completions` 后缀会在请求前移除。本地无鉴权端点
 可以留空 API Key。
 
-OpenAI-Compatible 的 Base URL、模型与 API Key 以明文保存在本地
-`config.json` 和每条记录的 `records.sqlite` 配置快照中。调试输出、日志与
-错误信息会脱敏 API Key；不提供环境变量回退。
+供应商的 Base URL、模型与 API Key 以明文保存在本地 `providers.json`；会话从供应商中
+选择模型，解析后的连接信息会保存在 `config.json` 和 `records.sqlite` 配置快照中。
+调试输出、日志与错误信息会脱敏 API Key；不提供环境变量回退。
 
 ## 架构
 
@@ -183,7 +183,7 @@ apps/desktop                 React 工作台 + src-tauri Rust 应用
   src-tauri/src/translation/ TranslationEngine 边界、Bergamot 与远端适配器
   src-tauri/src/subtitles/   稳定 ID、修订号与 Patch 调度
   src-tauri/src/session/     实时字幕会话的生命周期、状态与事件
-  src-tauri/src/records/     录制记录、各设备的采集任务与 SQLite 存储
+  src-tauri/src/records/     会话、各设备的采集任务与 SQLite 存储
   src-tauri/src/pipeline/    实时字幕与录制共用的推理线程、队列与指标
   src-tauri/src/models/      模型注册表、能力查询与安装
 apps/extension               Chrome 扩展 popup（尚无采集）
@@ -211,7 +211,7 @@ WebSocket 协议或模型权重。本地未签名包不等同于已签名/公证
 
 ## 验证
 
-本次变更的最终验证记录会覆盖 TypeScript 检查与测试、Rust 格式/Clippy/测试、
+本次变更的最终验证清单会覆盖 TypeScript 检查与测试、Rust 格式/Clippy/测试、
 忽略标记的原生模型测试，以及使用真实系统输出播放的 macOS `.app` 验证：
 两条 ASR 路径、两个 Bergamot 方向、说话人与重叠语音行为、配置持久化、
 停止/重启与退出清理。

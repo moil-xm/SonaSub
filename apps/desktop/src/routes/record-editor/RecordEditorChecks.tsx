@@ -1,6 +1,8 @@
 import { useTranslation } from '@sonasub/i18n';
+import { useQuery } from '@tanstack/react-query';
 
 import { assessTranslationReadiness } from '@/lib/model-readiness';
+import { providersOptions } from '@/lib/providers';
 import type { RecordDevice } from '@/lib/records';
 import { audioDeviceKey } from '@/lib/session';
 import type { AppConfig, Capabilities } from '@/lib/session';
@@ -15,8 +17,13 @@ type RecordEditorChecksProps = {
 
 export function RecordEditorChecks({ capabilities, config, devices }: RecordEditorChecksProps) {
   const { t } = useTranslation();
+  const { data: providersView } = useQuery(providersOptions);
   const asr = capabilities.asrModels.find((model) => model.id === config.recognition.modelId);
-  const translation = assessTranslationReadiness(capabilities, config);
+  const translation = assessTranslationReadiness(
+    capabilities,
+    config,
+    providersView?.providers ?? [],
+  );
   const selectedDevices = config.audio.record.flatMap((selected) => {
     const device = devices.find(
       (candidate) => audioDeviceKey(candidate) === audioDeviceKey(selected),
@@ -72,7 +79,7 @@ export function RecordEditorChecks({ capabilities, config, devices }: RecordEdit
         isReady={Boolean(asr?.available)}
       />
       <RecordCheckRow
-        label={t(($) => $.records.editor.translationEngine)}
+        label={t(($) => $.records.editor.translationModel)}
         detail={translationDetail}
         isReady={translation.issues.length === 0}
       />

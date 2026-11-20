@@ -20,10 +20,20 @@ import { RecordDevicePicker } from '@/components/record-device-picker';
 import { LanguageName } from '@/components/session-config-form';
 import { getErrorMessage } from '@/lib/error';
 import { assessTranslationReadiness } from '@/lib/model-readiness';
+import { providersOptions } from '@/lib/providers';
 import { useCreateRecord, useUpdateRecord } from '@/lib/records';
 import { audioDeviceKey } from '@/lib/session';
 import type { AsrMode, TranslationEngineId, TranslationTrigger } from '@/lib/session';
+import {
+  findTranslationModelChoice,
+  listTranslationModelChoices,
+  LOCAL_TRANSLATION_MODEL_PREFIX,
+  normalizeTranslationConfig,
+  selectedTranslationModelId,
+  translationChoiceLabel,
+} from '@/lib/translation-models';
 import { clearRecordEditorDraft, saveRecordEditorDraft } from '@/stores/record-editor-draft';
+import { useQuery } from '@tanstack/react-query';
 
 import { RecordEditorChecks } from './RecordEditorChecks';
 import type { RecordEditorFormProps } from './RecordEditorPage.type';
@@ -45,24 +55,34 @@ export function RecordEditorForm({
 }: RecordEditorFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { data: providersView } = useQuery(providersOptions);
   const createRecord = useCreateRecord();
   const updateRecord = useUpdateRecord();
   const [name, setName] = useState(initialName);
+  const providers = providersView?.providers ?? [];
+  const translationChoices = listTranslationModelChoices(capabilities, providers);
+  const initialTranslationConfig = normalizeTranslationConfig(
+    initialConfig,
+    capabilities,
+    translationChoices,
+  );
   const form = useForm({
-    defaultValues: initialConfig,
+    defaultValues: initialTranslationConfig,
   });
   const formConfig = useStore(form.store, (state) => state.values);
   const selectedAsr = capabilities.asrModels.find(
     (model) => model.id === formConfig.recognition.modelId,
   );
-  const selectedTranslationEngine =
-    capabilities.translationEngines.find((engine) => engine.id === formConfig.translation.engine) ??
-    null;
+  const selectedTranslationChoice = findTranslationModelChoice(
+    translationChoices,
+    formConfig.translation,
+  );
+  const selectedTranslationModelValue = selectedTranslationModelId(formConfig.translation);
   const selectedTranslation = capabilities.translationModels.find(
     (model) =>
       model.engine === formConfig.translation.engine && model.id === formConfig.translation.modelId,
   );
-  const translationReadiness = assessTranslationReadiness(capabilities, formConfig);
+  const translationReadiness = assessTranslationReadiness(capabilities, formConfig, providers);
   const isSaving = createRecord.isPending || updateRecord.isPending;
   const saveError = createRecord.error ?? updateRecord.error;
   let sourceLanguageValue = 'auto';
@@ -88,18 +108,21 @@ export function RecordEditorForm({
   const targetLanguageOptions = capabilities.translationTargets.map((language) => ({
     value: language.code,
     label: <LanguageName code={language.code} />,
-    disabled: !selectedTranslationEngine?.targetLanguages.includes(language.code),
+    disabled:
+      capabilities.translationEngines
+        .find((engine) => engine.id === formConfig.translation.engine)
+        ?.targetLanguages.includes(language.code) !== true,
   }));
   const recognitionOptions = capabilities.asrModels.map((model) => {
     let label: string = model.label;
     if (!model.available) label = `${label} · ${t(($) => $.config.missing)}`;
     return { value: model.id, label };
   });
-  const translationOptions = capabilities.translationModels.map((model) => {
-    let label: string = model.label;
-    if (!model.available) label = `${label} · ${t(($) => $.config.missing)}`;
-    return { value: model.id, label };
-  });
+  const translationModelOptions = translationChoices.map((choice) => ({
+    value: choice.id,
+    label: translationChoiceLabel(choice),
+    disabled: !choice.isAvailable,
+  }));
 
   let asrStatus: 'ready' | 'missing' = 'missing';
   if (selectedAsr?.available) asrStatus = 'ready';
@@ -110,7 +133,7 @@ export function RecordEditorForm({
   let translationDetail: string = t(($) => $.records.editor.modelMissing);
   if (translationReadiness.issues.length === 0) {
     translationDetail = t(($) => $.records.editor.modelReady);
-  } else if (!selectedTranslationEngine?.requiresLocalModel) {
+  } else {
     translationDetail = t(($) => $.records.editor.translationConfigMissing);
   }
 
@@ -132,43 +155,33 @@ export function RecordEditorForm({
     }
   }
 
-  function handleTranslationEngineChange(engineId: string) {
-    const engine = capabilities.translationEngines.find((candidate) => candidate.id === engineId);
-    if (!engine) return;
-    form.setFieldValue('translation.engine', engine.id satisfies TranslationEngineId);
-    let targetLanguage = form.state.values.translation.targetLanguage;
-    if (!engine.targetLanguages.includes(targetLanguage)) {
-      const fallback = capabilities.translationTargets.find((language) =>
-        engine.targetLanguages.includes(language.code),
-      );
-      if (fallback) {
-        targetLanguage = fallback.code;
-        form.setFieldValue('translation.targetLanguage', fallback.code);
-      }
-    }
-    if (engine.id === 'bergamot') {
+  function handleTranslationModelChange(value: string) {
+    const choice = translationChoices.find((candidate) => candidate.id === value);
+    if (!choice) return;
+    if (choice.isLocal) {
+      const localModelId = choice.id.slice(LOCAL_TRANSLATION_MODEL_PREFIX.length);
+      form.setFieldValue('translation.engine', 'bergamot' satisfies TranslationEngineId);
+      form.setFieldValue('translation.modelId', localModelId);
       const model = capabilities.translationModels.find(
-        (candidate) => candidate.targetLanguage === targetLanguage,
+        (candidate) => candidate.id === localModelId,
       );
-      if (model) form.setFieldValue('translation.modelId', model.id);
+      if (model) form.setFieldValue('translation.targetLanguage', model.targetLanguage);
+      return;
     }
+    form.setFieldValue('translation.engine', 'openai-compatible' satisfies TranslationEngineId);
+    form.setFieldValue('translation.openaiCompatible.baseUrl', choice.baseUrl);
+    form.setFieldValue('translation.openaiCompatible.model', choice.model);
+    form.setFieldValue('translation.openaiCompatible.apiKey', choice.apiKey);
   }
 
   function handleTargetLanguageChange(targetLanguage: string) {
     form.setFieldValue('translation.targetLanguage', targetLanguage);
-    if (formConfig.translation.engine !== 'bergamot') return;
+    if (!selectedTranslationChoice?.isLocal) return;
     const model = capabilities.translationModels.find(
       (candidate) => candidate.targetLanguage === targetLanguage,
     );
     if (!model) return;
     form.setFieldValue('translation.modelId', model.id);
-  }
-
-  function handleTranslationModelChange(modelId: string) {
-    const model = capabilities.translationModels.find((candidate) => candidate.id === modelId);
-    if (!model) return;
-    form.setFieldValue('translation.modelId', model.id);
-    form.setFieldValue('translation.targetLanguage', model.targetLanguage);
   }
 
   function handleTranslationTriggerChange(value: string) {
@@ -366,99 +379,37 @@ export function RecordEditorForm({
                   <Icon icon={arrowRightIcon} className="size-4 rotate-90 sm:rotate-0" />
                 </div>
                 <form.Field name="translation.engine">
-                  {(field) => (
+                  {() => (
                     <SelectCard
-                      id="record-translation-engine"
-                      label={t(($) => $.records.editor.translationEngine)}
-                      value={field.state.value}
-                      valueLabel={selectedTranslationEngine?.label ?? field.state.value}
+                      id="record-translation-model"
+                      label={t(($) => $.records.editor.translationModel)}
+                      value={selectedTranslationModelValue}
+                      valueLabel={
+                        selectedTranslationChoice
+                          ? translationChoiceLabel(selectedTranslationChoice)
+                          : t(($) => $.records.editor.selectTranslationModel)
+                      }
                       detail={translationDetail}
                       status={translationStatus}
                       disabled={false}
-                      options={capabilities.translationEngines.map((engine) => ({
-                        value: engine.id,
-                        label:
-                          engine.id === 'bergamot'
-                            ? t(($) => $.config.translationEngines.bergamot)
-                            : t(($) => $.config.translationEngines.openAiCompatible),
-                      }))}
-                      onChange={handleTranslationEngineChange}
+                      options={translationModelOptions}
+                      onChange={handleTranslationModelChange}
                     />
                   )}
                 </form.Field>
               </div>
 
-              {selectedTranslationEngine?.id === 'bergamot' && (
-                <div className="mt-2">
-                  <form.Field name="translation.modelId">
-                    {(field) => (
-                      <SelectCard
-                        id="record-translation-model"
-                        label={t(($) => $.records.editor.translationModel)}
-                        value={field.state.value}
-                        valueLabel={selectedTranslation?.label ?? field.state.value}
-                        detail={translationDetail}
-                        status={translationStatus}
-                        disabled={false}
-                        options={translationOptions}
-                        onChange={handleTranslationModelChange}
-                      />
-                    )}
-                  </form.Field>
-                </div>
-              )}
-
-              {selectedTranslationEngine?.id === 'openai-compatible' && (
-                <div className="mt-2 space-y-2">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <form.Field name="translation.openaiCompatible.baseUrl">
-                      {(field) => (
-                        <label className="space-y-1.5 text-xs">
-                          <span className="block text-muted-foreground">
-                            {t(($) => $.records.editor.baseUrl)}
-                          </span>
-                          <Input
-                            type="url"
-                            value={field.state.value}
-                            placeholder="https://api.openai.com/v1"
-                            onChange={(event) => field.handleChange(event.currentTarget.value)}
-                          />
-                        </label>
-                      )}
-                    </form.Field>
-                    <form.Field name="translation.openaiCompatible.model">
-                      {(field) => (
-                        <label className="space-y-1.5 text-xs">
-                          <span className="block text-muted-foreground">
-                            {t(($) => $.records.editor.openAiModel)}
-                          </span>
-                          <Input
-                            value={field.state.value}
-                            placeholder={t(($) => $.config.openAiModelPlaceholder)}
-                            onChange={(event) => field.handleChange(event.currentTarget.value)}
-                          />
-                        </label>
-                      )}
-                    </form.Field>
-                  </div>
-                  <form.Field name="translation.openaiCompatible.apiKey">
-                    {(field) => (
-                      <label className="space-y-1.5 text-xs">
-                        <span className="block text-muted-foreground">
-                          {t(($) => $.records.editor.apiKey)}
-                        </span>
-                        <Input
-                          type="password"
-                          autoComplete="off"
-                          value={field.state.value}
-                          onChange={(event) => field.handleChange(event.currentTarget.value)}
-                        />
-                      </label>
-                    )}
-                  </form.Field>
+              {selectedTranslationChoice && !selectedTranslationChoice.isLocal && (
+                <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
                   <p className="text-[10.5px] leading-5 text-muted-foreground">
                     {t(($) => $.records.editor.remoteTranslationPrivacy)}
                   </p>
+                  <Button type="button" variant="link" size="sm" className="h-auto px-0" asChild>
+                    <Link to="/models/providers" onClick={rememberDraft}>
+                      {t(($) => $.records.editor.manageProviders)}
+                      <Icon icon={arrowRightIcon} className="size-3" />
+                    </Link>
+                  </Button>
                 </div>
               )}
 

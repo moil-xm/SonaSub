@@ -2,6 +2,7 @@ pub mod asr;
 pub mod audio;
 pub mod config;
 pub mod models;
+pub mod overlay;
 mod pipeline;
 pub mod providers;
 pub mod records;
@@ -12,7 +13,7 @@ pub mod translation;
 
 use records::RecordManager;
 use session::SessionManager;
-use tauri::{Manager, RunEvent};
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -24,6 +25,7 @@ pub fn run() {
             app.manage(manager);
             let records = RecordManager::new(app.handle().clone())?;
             app.manage(records);
+            overlay::init(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -43,6 +45,12 @@ pub fn run() {
             session::start_session,
             session::stop_session,
             session::restart_session,
+            overlay::open_caption_overlay,
+            overlay::close_caption_overlay,
+            overlay::set_caption_overlay_locked,
+            overlay::caption_overlay_is_locked,
+            overlay::caption_overlay_binding,
+            overlay::request_app_exit,
             records::list_records,
             records::list_record_devices,
             records::get_record,
@@ -59,14 +67,5 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build SonaSub desktop application");
-    app.run(|handle, event| {
-        if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-            if let Some(manager) = handle.try_state::<SessionManager>() {
-                manager.shutdown();
-            }
-            if let Some(manager) = handle.try_state::<RecordManager>() {
-                manager.shutdown();
-            }
-        }
-    });
+    app.run(overlay::OverlayState::run_event_loop);
 }

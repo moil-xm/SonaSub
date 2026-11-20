@@ -12,6 +12,7 @@ import { Button } from '@sonasub/ui/components/button';
 import { open } from '@tauri-apps/plugin-dialog';
 
 import { SubtitleRow } from '@/components/live-subtitles';
+import { FloatingCaptionButton } from '@/components/floating-caption-button';
 import { getErrorMessage } from '@/lib/error';
 import { isRecordActiveState, useExportRecord } from '@/lib/records';
 import type { RecordExportSummary, RecordState } from '@/lib/records';
@@ -128,6 +129,7 @@ export function RecordSubtitles({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <FloatingCaptionButton recordId={recordId} />
           {state === 'running' && (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-success/40 px-2 py-0.5 text-[10.5px] font-medium text-success">
               <Icon icon={radioIcon} className="size-3 animate-pulse" />

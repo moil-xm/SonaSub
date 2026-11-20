@@ -6,6 +6,7 @@ import type { ModelReadiness, ReadinessIssue, TranslationReadiness } from './mod
 export function assessModelReadiness(
   capabilities: Capabilities,
   config: AppConfig,
+  providers: { name: string; baseUrl: string; apiKey: string; models: string[] }[] = [],
 ): ModelReadiness {
   const selectedAsr =
     capabilities.asrModels.find((model) => model.id === config.recognition.modelId) ?? null;
@@ -14,7 +15,7 @@ export function assessModelReadiness(
     if (config.recognition.mode === 'auto') selectedMode = selectedAsr.kind;
     else selectedMode = config.recognition.mode;
   }
-  const translation = assessTranslationReadiness(capabilities, config);
+  const translation = assessTranslationReadiness(capabilities, config, providers);
   const issues: ReadinessIssue[] = [];
 
   const sourceKind = config.audio.live.kind;
@@ -74,6 +75,7 @@ export function assessModelReadiness(
 export function assessTranslationReadiness(
   capabilities: Capabilities,
   config: AppConfig,
+  providers: { name: string; baseUrl: string; apiKey: string; models: string[] }[] = [],
 ): TranslationReadiness {
   const selectedEngine =
     capabilities.translationEngines.find((engine) => engine.id === config.translation.engine) ??
@@ -95,7 +97,14 @@ export function assessTranslationReadiness(
   if (selectedEngine && !selectedEngine.requiresLocalModel) {
     const baseUrl = config.translation.openaiCompatible.baseUrl.trim();
     const model = config.translation.openaiCompatible.model.trim();
-    if (!isHttpUrl(baseUrl) || !model) issues.push('translationConfig');
+    const apiKey = config.translation.openaiCompatible.apiKey.trim();
+    const selectedProvider = providers.find(
+      (provider) =>
+        provider.baseUrl === baseUrl &&
+        provider.apiKey === apiKey &&
+        provider.models.includes(model),
+    );
+    if (!isHttpUrl(baseUrl) || !model || !selectedProvider) issues.push('translationConfig');
   }
 
   return {
