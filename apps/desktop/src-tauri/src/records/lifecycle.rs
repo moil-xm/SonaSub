@@ -38,7 +38,6 @@ type SourceSpawn = (
 struct SourceStop {
     record_id: String,
     source_run_id: String,
-    device: AudioDeviceRef,
     stop: Arc<AtomicBool>,
     completion: Option<mpsc::Receiver<()>>,
     handle: Option<JoinHandle<()>>,
@@ -106,8 +105,7 @@ impl RecordManager {
                 }));
             }
             if runtime
-                .device_claims
-                .get(device)
+                .claim(device)
                 .is_some_and(|owner| owner != record_id)
             {
                 return Err(format!(
@@ -119,11 +117,6 @@ impl RecordManager {
                         .unwrap_or_else(|| device.id.clone())
                 ));
             }
-        }
-        for device in &devices {
-            runtime
-                .device_claims
-                .insert(device.clone(), record_id.to_owned());
         }
         let now = now_ms();
         let history_limit = record_config.ui.history_limit;
@@ -203,7 +196,6 @@ impl RecordManager {
         };
         if let Some(error) = spawn_failure {
             self.cleanup_record_sources(record_id, &error);
-            self.release_record_claims(record_id);
             self.set_error(record_id, &error)?;
             return Err(error);
         }
@@ -228,14 +220,12 @@ impl RecordManager {
                 }
                 Ok(Err(error)) => {
                     self.cleanup_record_sources(record_id, &error);
-                    self.release_record_claims(record_id);
                     self.set_error(record_id, &error)?;
                     return Err(error);
                 }
                 Err(_) => {
                     let error = "A source did not become ready within 180 seconds.".to_owned();
                     self.cleanup_record_sources(record_id, &error);
-                    self.release_record_claims(record_id);
                     self.set_error(record_id, &error)?;
                     return Err(error);
                 }
@@ -260,7 +250,6 @@ impl RecordManager {
         };
         if let Some(error) = startup_error {
             self.cleanup_record_sources(record_id, &error);
-            self.release_record_claims(record_id);
             self.set_error(record_id, &error)?;
             return Err(error);
         }
@@ -321,7 +310,6 @@ impl RecordManager {
                 source.stop.store(true, Ordering::SeqCst);
                 stops.push(SourceStop {
                     source_run_id: source.source.source_run_id.clone(),
-                    device: source.source.device_ref(),
                     stop: source.stop.clone(),
                     record_id: record_id.to_owned(),
                     completion: source.completion.take(),
@@ -357,7 +345,6 @@ impl RecordManager {
                     source.stop.store(true, Ordering::SeqCst);
                     stops.push(SourceStop {
                         source_run_id,
-                        device: device.clone(),
                         stop: source.stop.clone(),
                         record_id: record_id.to_owned(),
                         completion: source.completion.take(),
@@ -381,11 +368,8 @@ impl RecordManager {
             }
             let mut runtime = self.runtime();
             if let Some(record) = runtime.records.get_mut(&stop.record_id) {
-                if let Some(source) = record.active_sources.get_mut(&stop.source_run_id) {
-                    source.handle = None;
-                }
+                record.active_sources.remove(&stop.source_run_id);
             }
-            runtime.device_claims.remove(&stop.device);
         }
         Ok(())
     }
@@ -401,7 +385,6 @@ impl RecordManager {
                 source.stop.store(true, Ordering::SeqCst);
                 stops.push(SourceStop {
                     source_run_id: source.source.source_run_id.clone(),
-                    device: source.source.device_ref(),
                     stop: source.stop.clone(),
                     record_id: record_id.to_owned(),
                     completion: source.completion.take(),
@@ -423,7 +406,6 @@ impl RecordManager {
                 mark_source_failed(record, &stop.source_run_id, error);
                 record.active_sources.remove(&stop.source_run_id);
             }
-            runtime.device_claims.remove(&stop.device);
             let _ = self.inner.store.finish_source_run(
                 &stop.source_run_id,
                 SourceRunState::Failed,
@@ -443,7 +425,6 @@ impl RecordManager {
     ) {
         let source = {
             let mut runtime = self.runtime();
-            runtime.device_claims.remove(device);
             runtime
                 .records
                 .get_mut(record_id)
@@ -472,11 +453,6 @@ impl RecordManager {
             0,
             Some(error),
         );
-    }
-
-    pub(super) fn release_record_claims(&self, record_id: &str) {
-        let mut runtime = self.runtime();
-        runtime.device_claims.retain(|_, owner| owner != record_id);
     }
 }
 

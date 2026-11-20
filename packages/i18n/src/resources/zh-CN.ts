@@ -225,6 +225,7 @@ export const zhCn = {
       available: '可用',
       defaultDevice: '系统默认',
       captureUnavailable: 'CPAL 无法采集此设备',
+      refresh: '刷新设备列表',
     },
     editor: {
       newTitle: '新建记录',

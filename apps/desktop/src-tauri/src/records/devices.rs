@@ -29,7 +29,7 @@ impl RecordManager {
             .into_iter()
             .map(|device| {
                 let device_ref = device.device_ref();
-                let occupied_record_id = runtime.device_claims.get(&device_ref).cloned();
+                let occupied_record_id = runtime.claim(&device_ref).map(str::to_owned);
                 let occupied_record_name = occupied_record_id
                     .as_ref()
                     .and_then(|id| runtime.records.get(id))
@@ -74,7 +74,7 @@ impl RecordManager {
         let name = selectable_device_name(&device)?;
         let mut runtime = self.runtime();
         if is_active {
-            if let Some(owner) = runtime.device_claims.get(&device) {
+            if let Some(owner) = runtime.claim(&device) {
                 if owner != record_id {
                     return Err(format!(
                         "The {} `{}` is already in use by another record.",
@@ -83,9 +83,6 @@ impl RecordManager {
                     ));
                 }
             }
-            runtime
-                .device_claims
-                .insert(device.clone(), record_id.to_owned());
             let (config, history_limit) = {
                 let record = runtime
                     .records
@@ -116,7 +113,6 @@ impl RecordManager {
                 error: None,
             };
             if let Err(error) = self.inner.store.insert_source_run(&source) {
-                runtime.device_claims.remove(&device);
                 if let Some(record) = runtime.records.get_mut(record_id) {
                     rollback_added_device(record, &device);
                 }
@@ -146,7 +142,6 @@ impl RecordManager {
             let handle = match source::spawn(context, ready_tx) {
                 Ok(handle) => handle,
                 Err(error) => {
-                    runtime.device_claims.remove(&device);
                     if let Some(record) = runtime.records.get_mut(record_id) {
                         let mut failed = source.clone();
                         failed.state = SourceRunState::Failed;

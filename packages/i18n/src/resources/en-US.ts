@@ -232,6 +232,7 @@ export const enUs = {
       available: 'Available',
       defaultDevice: 'System default',
       captureUnavailable: 'This device cannot be captured by CPAL',
+      refresh: 'Refresh device list',
     },
     editor: {
       newTitle: 'New record',

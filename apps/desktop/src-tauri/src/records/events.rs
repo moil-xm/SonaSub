@@ -209,20 +209,6 @@ fn handle_source_finished(
             .runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let claimed_device = runtime
-            .records
-            .get(record_id)
-            .and_then(|record| record.active_sources.get(source_run_id))
-            .map(|source| source.source.device_ref());
-        if let Some(device) = &claimed_device {
-            if runtime
-                .device_claims
-                .get(device)
-                .is_some_and(|owner| owner == record_id)
-            {
-                runtime.device_claims.remove(device);
-            }
-        }
         let Some(record) = runtime.records.get_mut(record_id) else {
             let _ = ack.send(());
             return;

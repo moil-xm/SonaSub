@@ -1,10 +1,13 @@
 import { Icon } from '@iconify/react';
 import plusIcon from '@iconify-icons/lucide/plus';
+import refreshCwIcon from '@iconify-icons/lucide/refresh-cw';
 import xIcon from '@iconify-icons/lucide/x';
 import { useTranslation } from '@sonasub/i18n';
 import { Button } from '@sonasub/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@sonasub/ui/components/popover';
+import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 
+import { recordDevicesOptions } from '@/lib/records';
 import type { RecordDevice } from '@/lib/records';
 import { audioDeviceKey } from '@/lib/session';
 import type { AudioDeviceRef, AudioSourceKind } from '@/lib/session';
@@ -34,6 +37,8 @@ export function RecordDevicePicker({
   selected,
 }: RecordDevicePickerProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const isRefreshingDevices = useIsFetching({ queryKey: recordDevicesOptions.queryKey }) > 0;
   const selectedKeys = new Set(selected.map(audioDeviceKey));
   const activeKeys = new Set(active.map(audioDeviceKey));
   const availableDevices = devices.filter((device) => !selectedKeys.has(audioDeviceKey(device)));
@@ -76,6 +81,10 @@ export function RecordDevicePicker({
     return t(($) => $.records.device.available);
   }
 
+  function refreshDevices() {
+    void queryClient.refetchQueries({ queryKey: recordDevicesOptions.queryKey, type: 'all' });
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {selected.map((deviceRef) => {
@@ -107,7 +116,11 @@ export function RecordDevicePicker({
       })}
 
       {!disabled && (
-        <Popover>
+        <Popover
+          onOpenChange={(open) => {
+            if (open) refreshDevices();
+          }}
+        >
           <PopoverTrigger asChild>
             <Button type="button" variant="outline" size="sm" className="h-8 border-dashed">
               <Icon icon={plusIcon} />
@@ -115,6 +128,24 @@ export function RecordDevicePicker({
             </Button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-[380px] p-2">
+            <div className="mb-1 flex items-center justify-between pr-1 pl-2">
+              <span className="text-[10px] font-medium tracking-[0.05em] text-muted-foreground uppercase">
+                {t(($) => $.records.workspace.devicePickerTitle)}
+              </span>
+              <button
+                type="button"
+                className="grid size-6 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                aria-label={t(($) => $.records.device.refresh)}
+                title={t(($) => $.records.device.refresh)}
+                disabled={isRefreshingDevices}
+                onClick={refreshDevices}
+              >
+                <Icon
+                  icon={refreshCwIcon}
+                  className={`size-3.5${isRefreshingDevices ? ' animate-spin' : ''}`}
+                />
+              </button>
+            </div>
             {availableDevices.length === 0 && (
               <p className="px-2 py-3 text-xs text-muted-foreground">
                 {t(($) => $.records.editor.noAvailableDevices)}

@@ -56,10 +56,7 @@ impl RecordManager {
             app,
             models: ModelPaths::new(model_root),
             store,
-            runtime: Mutex::new(RecordRuntimeState {
-                records,
-                device_claims: HashMap::new(),
-            }),
+            runtime: Mutex::new(RecordRuntimeState { records }),
             operations: Mutex::new(()),
             event_tx,
             event_handle: Mutex::new(None),
@@ -233,7 +230,6 @@ impl RecordManager {
                 return Err("Stop this record before deleting it.".to_owned());
             }
         }
-        self.release_record_claims(record_id);
         self.inner.store.delete_record(record_id)?;
         {
             let mut runtime = self.runtime();
