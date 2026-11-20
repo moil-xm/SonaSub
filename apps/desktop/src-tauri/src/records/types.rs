@@ -110,6 +110,24 @@ pub struct RecordSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RecordListItem {
+    pub id: String,
+    pub name: String,
+    pub has_active_source: bool,
+}
+
+impl From<&RecordSummary> for RecordListItem {
+    fn from(summary: &RecordSummary) -> Self {
+        Self {
+            id: summary.id.clone(),
+            name: summary.name.clone(),
+            has_active_source: summary.has_active_source,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecordSource {
     pub source_run_id: String,
     pub record_id: String,

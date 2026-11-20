@@ -156,6 +156,8 @@ export const zhCn = {
       activeDeviceCount_other: '{{count}} 台设备运行中',
       liveCount_one: '{{count}} 路实时',
       liveCount_other: '{{count}} 路实时',
+      capturing: '正在采集',
+      idle: '未在采集',
     },
     status: {
       notStarted: '未开始',
@@ -186,6 +188,13 @@ export const zhCn = {
       addDevice: '添加设备',
       removeDevice: '移除设备',
       createCopy: '复制为新记录',
+      delete: '删除',
+      deleteTitle: '删除这条记录？',
+      deleteDescription:
+        '这条记录、它的字幕、设备历史以及已保存的远端翻译 Key 都会被永久删除，无法恢复。',
+      deleteConfirm: '删除记录',
+      deleteCancel: '取消',
+      deleteFailed: '无法删除这条记录',
       loadOlder: '加载更早字幕',
       loadingOlder: '加载中…',
       allLoaded: '全部字幕已加载',

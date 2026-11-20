@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 
 import { recordsOptions } from '@/lib/records';
-import type { RecordState, RecordSummary } from '@/lib/records';
 
 import { RecordStateDot } from './RecordStateDot';
 
@@ -29,19 +28,6 @@ function currentPage(isActive: boolean): 'page' | undefined {
 export function RecordNav({ activeRecordId, isLiveActive }: RecordNavProps) {
   const { t } = useTranslation();
   const { data: records, isPending, error } = useQuery(recordsOptions);
-
-  function statusLabel(state: RecordState) {
-    return t(($) => $.records.status[state]);
-  }
-
-  function subtitle(record: RecordSummary) {
-    if (record.activeDevices.length > 0) {
-      return t(($) => $.records.nav.activeDeviceCount, {
-        count: record.activeDevices.length,
-      });
-    }
-    return statusLabel(record.state);
-  }
 
   return (
     <div className="mt-1">
@@ -89,16 +75,14 @@ export function RecordNav({ activeRecordId, isLiveActive }: RecordNavProps) {
               aria-current={currentPage(isActive)}
               className={recordItemClass(isActive)}
             >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{record.name}</span>
-                <span className="block truncate text-[10.5px] text-muted-foreground">
-                  {subtitle(record)}
-                </span>
-              </span>
+              <span className="min-w-0 flex-1 truncate">{record.name}</span>
               <RecordStateDot
-                state={record.state}
-                hasActiveSource={record.hasActiveSource}
-                label={statusLabel(record.state)}
+                active={record.hasActiveSource}
+                label={
+                  record.hasActiveSource
+                    ? t(($) => $.records.nav.capturing)
+                    : t(($) => $.records.nav.idle)
+                }
               />
             </Link>
           );

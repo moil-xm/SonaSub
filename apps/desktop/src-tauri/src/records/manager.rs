@@ -23,8 +23,8 @@ use super::{
     },
     subtitles::RecordSubtitleStore,
     types::{
-        RecordInput, RecordNotice, RecordSnapshot, RecordState, RecordStats, RecordSubtitlePage,
-        RecordSummary, RecordSummaryEvent, StoredRecord, SubtitleCursor,
+        RecordInput, RecordListItem, RecordNotice, RecordSnapshot, RecordState, RecordStats,
+        RecordSubtitlePage, RecordSummary, RecordSummaryEvent, StoredRecord, SubtitleCursor,
     },
 };
 
@@ -76,15 +76,15 @@ impl RecordManager {
         Ok(Self { inner })
     }
 
-    pub fn list_records(&self) -> Vec<RecordSummary> {
+    pub fn list_records(&self) -> Vec<RecordListItem> {
         let runtime = self.runtime();
-        let mut records = runtime
+        let mut summaries = runtime
             .records
             .values()
             .map(|record| record.summary.clone())
             .collect::<Vec<_>>();
-        records.sort_by_key(|record| (record.created_at_ms, record.id.clone()));
-        records
+        summaries.sort_by_key(|summary| (summary.created_at_ms, summary.id.clone()));
+        summaries.iter().map(RecordListItem::from).collect()
     }
 
     pub fn get_record(&self, record_id: &str) -> Result<RecordSnapshot, String> {
@@ -219,6 +219,27 @@ impl RecordManager {
         self.persist(&persisted)?;
         self.emit_summary(record_id);
         self.snapshot(record_id)
+    }
+
+    pub fn delete_record(&self, record_id: &str) -> Result<(), String> {
+        let _operation = self.operations();
+        {
+            let runtime = self.runtime();
+            let record = runtime
+                .records
+                .get(record_id)
+                .ok_or_else(|| format!("Unknown record `{record_id}`."))?;
+            if record.summary.state.is_active() {
+                return Err("Stop this record before deleting it.".to_owned());
+            }
+        }
+        self.release_record_claims(record_id);
+        self.inner.store.delete_record(record_id)?;
+        {
+            let mut runtime = self.runtime();
+            runtime.records.remove(record_id);
+        }
+        Ok(())
     }
 
     pub fn subtitles(

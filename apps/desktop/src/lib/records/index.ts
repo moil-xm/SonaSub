@@ -8,6 +8,7 @@ export {
   sortRecordSegments,
   useAddRecordDevice,
   useCreateRecord,
+  useDeleteRecord,
   useRecordAction,
   useRecordEvents,
   useRemoveRecordDevice,

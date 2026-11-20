@@ -11,6 +11,7 @@ import type {
   RecordAction,
   RecordDevice,
   RecordInput,
+  RecordListItem,
   RecordNoticeEvent,
   RecordSnapshot,
   RecordStatsEvent,
@@ -22,7 +23,7 @@ import type {
 
 export const recordsOptions = queryOptions({
   queryKey: ['records', 'list'],
-  queryFn: () => invoke<RecordSummary[]>('list_records'),
+  queryFn: () => invoke<RecordListItem[]>('list_records'),
   networkMode: 'always',
   retry: false,
   refetchOnWindowFocus: true,
@@ -66,15 +67,12 @@ export function useRecordEvents() {
     }
 
     function applySummary(event: RecordSummaryEvent) {
-      queryClient.setQueryData<RecordSummary[]>(recordsOptions.queryKey, (current) => {
+      queryClient.setQueryData<RecordListItem[]>(recordsOptions.queryKey, (current) => {
         if (!current) return current;
-        const next = current.filter((record) => record.id !== event.summary.id);
-        next.push(event.summary);
-        next.sort((left, right) => {
-          if (left.createdAtMs !== right.createdAtMs) return left.createdAtMs - right.createdAtMs;
-          return left.id.localeCompare(right.id);
-        });
-        return next;
+        const item = listItem(event.summary);
+        const index = current.findIndex((record) => record.id === item.id);
+        if (index === -1) return [...current, item];
+        return current.map((record) => (record.id === item.id ? item : record));
       });
       queryClient.setQueryData<RecordSnapshot>(
         recordSnapshotOptions(event.recordId).queryKey,
@@ -203,23 +201,47 @@ export function useUpdateRecord() {
   });
 }
 
+export function useDeleteRecord() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: ['records', 'delete'],
+    networkMode: 'always',
+    mutationFn: ({ recordId }: { recordId: string }) => invoke<void>('delete_record', { recordId }),
+    onSuccess: (_, { recordId }) => {
+      queryClient.removeQueries({ queryKey: ['records', recordId] });
+      queryClient.setQueryData<RecordListItem[]>(recordsOptions.queryKey, (current) => {
+        if (!current) return current;
+        return current.filter((record) => record.id !== recordId);
+      });
+      void queryClient.invalidateQueries({ queryKey: recordsOptions.queryKey });
+      void queryClient.invalidateQueries({ queryKey: recordDevicesOptions.queryKey });
+    },
+  });
+}
+
 function applySnapshot(queryClient: ReturnType<typeof useQueryClient>, snapshot: RecordSnapshot) {
   queryClient.setQueryData<RecordSnapshot>(
     recordSnapshotOptions(snapshot.summary.id).queryKey,
     (current) => mergeRecordSnapshot(current, snapshot),
   );
-  queryClient.setQueryData<RecordSummary[]>(recordsOptions.queryKey, (current) => {
+  queryClient.setQueryData<RecordListItem[]>(recordsOptions.queryKey, (current) => {
     if (!current) return current;
-    const next = current.filter((record) => record.id !== snapshot.summary.id);
-    next.push(snapshot.summary);
-    next.sort((left, right) => {
-      if (left.createdAtMs !== right.createdAtMs) return left.createdAtMs - right.createdAtMs;
-      return left.id.localeCompare(right.id);
-    });
-    return next;
+    const item = listItem(snapshot.summary);
+    const index = current.findIndex((record) => record.id === item.id);
+    if (index === -1) return [...current, item];
+    return current.map((record) => (record.id === item.id ? item : record));
   });
   void queryClient.invalidateQueries({ queryKey: recordsOptions.queryKey });
   void queryClient.invalidateQueries({ queryKey: recordDevicesOptions.queryKey });
+}
+
+function listItem(summary: RecordSummary): RecordListItem {
+  return {
+    id: summary.id,
+    name: summary.name,
+    hasActiveSource: summary.hasActiveSource,
+  };
 }
 
 export function applyRecordSubtitleBatch(

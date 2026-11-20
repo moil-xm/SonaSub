@@ -5,13 +5,13 @@ use crate::audio::AudioDeviceRef;
 use super::{
     manager::RecordManager,
     types::{
-        RecordDevice, RecordInput, RecordSnapshot, RecordSubtitlePage, RecordSummary,
+        RecordDevice, RecordInput, RecordListItem, RecordSnapshot, RecordSubtitlePage,
         SubtitleCursor,
     },
 };
 
 #[tauri::command]
-pub fn list_records(state: State<'_, RecordManager>) -> Vec<RecordSummary> {
+pub fn list_records(state: State<'_, RecordManager>) -> Vec<RecordListItem> {
     state.list_records()
 }
 
@@ -87,6 +87,11 @@ pub async fn stop_record(
     tauri::async_runtime::spawn_blocking(move || manager.stop_record(&record_id))
         .await
         .map_err(|error| format!("Record stop failed: {error}"))?
+}
+
+#[tauri::command]
+pub fn delete_record(state: State<'_, RecordManager>, record_id: String) -> Result<(), String> {
+    state.delete_record(&record_id)
 }
 
 #[tauri::command]

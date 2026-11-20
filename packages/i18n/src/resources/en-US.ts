@@ -160,6 +160,8 @@ export const enUs = {
       activeDeviceCount_other: '{{count}} devices running',
       liveCount_one: '{{count}} live',
       liveCount_other: '{{count}} live',
+      capturing: 'Capturing',
+      idle: 'Not capturing',
     },
     status: {
       notStarted: 'Not started',
@@ -193,6 +195,13 @@ export const enUs = {
       addDevice: 'Add device',
       removeDevice: 'Remove device',
       createCopy: 'Create a copy',
+      delete: 'Delete',
+      deleteTitle: 'Delete this record?',
+      deleteDescription:
+        'This record, its captions, its device history and the stored remote translation key are removed permanently. This cannot be undone.',
+      deleteConfirm: 'Delete record',
+      deleteCancel: 'Cancel',
+      deleteFailed: 'The record could not be deleted',
       loadOlder: 'Load earlier captions',
       loadingOlder: 'Loading…',
       allLoaded: 'All captions loaded',

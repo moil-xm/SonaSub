@@ -47,6 +47,7 @@ pub fn run() {
             records::pause_record,
             records::resume_record,
             records::stop_record,
+            records::delete_record,
             records::add_record_device,
             records::remove_record_device,
             records::list_record_subtitles,

@@ -99,6 +99,36 @@ impl RecordStore {
         }
         Ok(records)
     }
+
+    pub fn delete_record(&self, record_id: &str) -> Result<bool, String> {
+        let mut connection = self.connection();
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("Failed to start the record deletion: {error}"))?;
+        transaction
+            .execute(
+                "DELETE FROM subtitles WHERE record_id = ?1",
+                params![record_id],
+            )
+            .map_err(|error| {
+                format!("Failed to delete the subtitles of record `{record_id}`: {error}")
+            })?;
+        transaction
+            .execute(
+                "DELETE FROM source_runs WHERE record_id = ?1",
+                params![record_id],
+            )
+            .map_err(|error| {
+                format!("Failed to delete the source runs of record `{record_id}`: {error}")
+            })?;
+        let removed = transaction
+            .execute("DELETE FROM records WHERE id = ?1", params![record_id])
+            .map_err(|error| format!("Failed to delete record `{record_id}`: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("Failed to commit the record deletion: {error}"))?;
+        Ok(removed > 0)
+    }
 }
 
 fn stored_record_from_row(row: &Row<'_>) -> rusqlite::Result<StoredRecord> {

@@ -22,6 +22,7 @@ fn main() {
             "pause_record",
             "resume_record",
             "stop_record",
+            "delete_record",
             "add_record_device",
             "remove_record_device",
             "list_record_subtitles",

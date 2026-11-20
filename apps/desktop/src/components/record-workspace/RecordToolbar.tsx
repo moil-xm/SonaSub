@@ -5,9 +5,21 @@ import pauseIcon from '@iconify-icons/lucide/pause';
 import pencilIcon from '@iconify-icons/lucide/pencil';
 import playIcon from '@iconify-icons/lucide/play';
 import squareIcon from '@iconify-icons/lucide/square';
+import trashIcon from '@iconify-icons/lucide/trash-2';
 import triangleAlertIcon from '@iconify-icons/lucide/triangle-alert';
 import { useTranslation } from '@sonasub/i18n';
 import { Alert, AlertDescription, AlertTitle } from '@sonasub/ui/components/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@sonasub/ui/components/alert-dialog';
 import { Button } from '@sonasub/ui/components/button';
 import { Link, useNavigate } from '@tanstack/react-router';
 
@@ -19,6 +31,7 @@ import {
   isRecordActiveState,
   useAddRecordDevice,
   useCreateRecord,
+  useDeleteRecord,
   useRecordAction,
   useRemoveRecordDevice,
 } from '@/lib/records';
@@ -40,6 +53,7 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
   const addDevice = useAddRecordDevice();
   const removeDevice = useRemoveRecordDevice();
   const createRecord = useCreateRecord();
+  const deleteRecord = useDeleteRecord();
   const { summary, config } = snapshot;
   const isActive = isRecordActiveState(summary.state);
   const isStarting = summary.state === 'starting';
@@ -92,6 +106,17 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
     await navigate({ to: '/', search: { record: copied.summary.id } });
   }
 
+  function handleDelete() {
+    deleteRecord.mutate(
+      { recordId: summary.id },
+      {
+        onSuccess: () => {
+          void navigate({ to: '/', search: {} });
+        },
+      },
+    );
+  }
+
   return (
     <div className="shrink-0 space-y-2.5">
       <section className="overflow-hidden rounded-xl border bg-card">
@@ -100,8 +125,7 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] font-medium text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
                 <RecordStateDot
-                  state={summary.state}
-                  hasActiveSource={summary.hasActiveSource}
+                  active={summary.hasActiveSource}
                   label={t(($) => $.records.status[summary.state])}
                 />
                 <span role="status">{t(($) => $.records.status[summary.state])}</span>
@@ -166,18 +190,50 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
               </Button>
             )}
             {isEnded && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={createRecord.isPending}
-                onClick={() => void handleCopy()}
-              >
-                {createRecord.isPending && (
-                  <Icon icon={loaderCircleIcon} className="animate-spin" />
-                )}
-                {!createRecord.isPending && <Icon icon={copyIcon} />}
-                {t(($) => $.records.workspace.createCopy)}
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={createRecord.isPending}
+                  onClick={() => void handleCopy()}
+                >
+                  {createRecord.isPending && (
+                    <Icon icon={loaderCircleIcon} className="animate-spin" />
+                  )}
+                  {!createRecord.isPending && <Icon icon={copyIcon} />}
+                  {t(($) => $.records.workspace.createCopy)}
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" disabled={deleteRecord.isPending}>
+                      {deleteRecord.isPending ? (
+                        <Icon icon={loaderCircleIcon} className="animate-spin" />
+                      ) : (
+                        <Icon icon={trashIcon} />
+                      )}
+                      {t(($) => $.records.workspace.delete)}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        {t(($) => $.records.workspace.deleteTitle)}
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {t(($) => $.records.workspace.deleteDescription)}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>
+                        {t(($) => $.records.workspace.deleteCancel)}
+                      </AlertDialogCancel>
+                      <AlertDialogAction variant="destructive" onClick={handleDelete}>
+                        {t(($) => $.records.workspace.deleteConfirm)}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
             )}
           </div>
         </div>
@@ -265,6 +321,14 @@ export function RecordToolbar({ capabilities, devices, snapshot }: RecordToolbar
           <Icon icon={triangleAlertIcon} />
           <AlertTitle>{t(($) => $.records.editor.saveError)}</AlertTitle>
           <AlertDescription>{getErrorMessage(createRecord.error)}</AlertDescription>
+        </Alert>
+      )}
+
+      {deleteRecord.error && (
+        <Alert variant="destructive">
+          <Icon icon={triangleAlertIcon} />
+          <AlertTitle>{t(($) => $.records.workspace.deleteFailed)}</AlertTitle>
+          <AlertDescription>{getErrorMessage(deleteRecord.error)}</AlertDescription>
         </Alert>
       )}
     </div>

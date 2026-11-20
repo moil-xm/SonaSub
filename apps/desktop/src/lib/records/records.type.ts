@@ -30,6 +30,12 @@ export type RecordSummary = {
   revision: number;
 };
 
+export type RecordListItem = {
+  id: string;
+  name: string;
+  hasActiveSource: boolean;
+};
+
 export type RecordSource = {
   sourceRunId: string;
   recordId: string;

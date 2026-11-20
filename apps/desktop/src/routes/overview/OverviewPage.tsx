@@ -25,7 +25,10 @@ export function OverviewPage() {
   const activeRecord = records.findLast((record) => record.hasActiveSource);
   const latestRecord = records.at(-1);
   const fallbackRecordId = activeRecord?.id ?? latestRecord?.id;
-  const selectedRecordId = routeRecordId ?? fallbackRecordId;
+  const routeRecord = routeRecordId
+    ? records.find((record) => record.id === routeRecordId)
+    : undefined;
+  const selectedRecordId = routeRecord?.id ?? fallbackRecordId;
   const snapshotQuery = useQuery({
     ...recordSnapshotOptions(selectedRecordId ?? '__none__'),
     enabled: selectedRecordId !== undefined,
@@ -43,7 +46,7 @@ export function OverviewPage() {
   const isInitialLoading =
     (!capabilitiesQuery.data && !capabilitiesQuery.error) ||
     (!devicesQuery.data && !devicesQuery.error) ||
-    (!routeRecordId && !recordsQuery.data && !recordsQuery.error) ||
+    (!recordsQuery.data && !recordsQuery.error) ||
     (selectedRecordId !== undefined && !snapshotQuery.data && !snapshotQuery.error);
 
   if (isInitialLoading) {
@@ -95,9 +98,7 @@ export function OverviewPage() {
   }
 
   const snapshot = snapshotQuery.data;
-  const recordMissing =
-    routeRecordId !== undefined && records.every((record) => record.id !== routeRecordId);
-  if (!snapshot || !capabilitiesQuery.data || !devicesQuery.data || recordMissing) {
+  if (!snapshot || !capabilitiesQuery.data || !devicesQuery.data) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <div>

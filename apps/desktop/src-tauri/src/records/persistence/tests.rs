@@ -541,3 +541,60 @@ fn subtitle_batch_updates_elapsed_in_the_same_transaction() {
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn deleting_a_record_removes_its_captions_and_device_history() {
+    let directory = std::env::temp_dir().join(format!("sonasub-records-{}", uuid::Uuid::new_v4()));
+    let path = directory.join("records.sqlite");
+    let store = RecordStore::open(path.clone()).unwrap();
+    for (id, name) in [("record", "Record"), ("other", "Other")] {
+        store
+            .save_record(&StoredRecord {
+                summary: super::super::types::RecordSummary {
+                    id: id.to_owned(),
+                    name: name.to_owned(),
+                    state: RecordState::Ended,
+                    devices: vec![device("device-a")],
+                    active_devices: Vec::new(),
+                    has_active_source: false,
+                    last_error: None,
+                    created_at_ms: 1,
+                    updated_at_ms: 2,
+                    revision: 0,
+                },
+                config: config(),
+                started_at_ms: Some(1),
+                ended_at_ms: Some(3),
+            })
+            .unwrap();
+    }
+    store
+        .insert_source_run(&RecordSource {
+            source_run_id: "run-a".to_owned(),
+            record_id: "record".to_owned(),
+            source_kind: AudioSourceKind::SystemOutput,
+            device_id: "device-a".to_owned(),
+            device_name: "Device A".to_owned(),
+            state: SourceRunState::Ended,
+            elapsed_base_ms: 0,
+            elapsed_ms: 2_000,
+            started_at_ms: 2,
+            ended_at_ms: Some(3),
+            error: None,
+        })
+        .unwrap();
+    store.upsert_subtitle(&segment()).unwrap();
+
+    assert!(store.delete_record("record").unwrap());
+
+    assert!(store.load_record("record").unwrap().is_none());
+    assert_eq!(store.subtitle_count("record").unwrap(), 0);
+    assert!(store.list_source_runs("record").unwrap().is_empty());
+    assert!(store.load_record("other").unwrap().is_some());
+    assert!(!store.delete_record("record").unwrap());
+
+    drop(store);
+    let store = RecordStore::open(path).unwrap();
+    assert_eq!(store.list_records().unwrap().len(), 1);
+    std::fs::remove_dir_all(directory).unwrap();
+}

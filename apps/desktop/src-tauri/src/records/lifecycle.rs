@@ -474,7 +474,7 @@ impl RecordManager {
         );
     }
 
-    fn release_record_claims(&self, record_id: &str) {
+    pub(super) fn release_record_claims(&self, record_id: &str) {
         let mut runtime = self.runtime();
         runtime.device_claims.retain(|_, owner| owner != record_id);
     }

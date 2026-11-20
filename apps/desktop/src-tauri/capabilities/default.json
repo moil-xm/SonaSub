@@ -28,6 +28,7 @@
     "allow-pause-record",
     "allow-resume-record",
     "allow-stop-record",
+    "allow-delete-record",
     "allow-add-record-device",
     "allow-remove-record-device",
     "allow-list-record-subtitles"
